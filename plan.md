@@ -1735,9 +1735,9 @@ Adımlar:
    - Config'deki `ipv6.wan.prefixHint` ISP'den talep edilen prefix boyutunu belirler
    - PPPoE yeniden bağlandığında prefix değişebilir → LAN'a yeni RA gönderilir
    - System dependency: `wide-dhcpv6-client` paketi
-7. Agent operations: `pppoe.connect`, `pppoe.disconnect`, `pppoe.status`
-8. Network handler: interface listesi (label ile), WAN IP (IPv4 + IPv6), gateway, uptime
-8. **PPPoE Credential Yakalama (pppoe-server):**
+7. ✅ Agent operations: `pppoe.connect`, `pppoe.disconnect`, `pppoe.status`
+8. ✅ Network handler: interface listesi (label ile), WAN IP (IPv4 + IPv6), gateway, uptime
+8. ✅ **PPPoE Credential Yakalama (pppoe-server):**
    - Agent op: `pppoe.sniff.start` → WAN NIC'te `pppoe-server` başlat (require-pap, debug, logfile)
    - ISP modem bağlandığında PAP username/password logdan parse
    - Agent op: `pppoe.sniff.stop` → pppoe-server durdur
