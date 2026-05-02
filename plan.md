@@ -2357,7 +2357,7 @@ Adımlar:
    - Idempotent: tekrar çalıştırılabilir (mevcut config'i bozmaz, `--force` ile override)
    - `--check` modu: kurulumu doğrula, eksikleri raporla
 
-2. **Debian Preseed dosyası (`preseed.cfg`):**
+2. ✅ **Debian Preseed dosyası (`preseed.cfg`):**
    - Debian 12 Bookworm netinst ISO üzerine preseed
    - Dil: Türkçe, timezone: Europe/Istanbul, keyboard: trq
    - **Disk bölümleme (RAID-1):**
