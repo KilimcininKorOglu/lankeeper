@@ -1,0 +1,9 @@
+{{ define "confirm" }}
+<div class="alert alert-error" style="display:flex; align-items:center; justify-content:space-between;">
+    <span>{{ .Message }}</span>
+    <div style="display:flex; gap:var(--space-sm);">
+        <button class="btn btn-primary btn-sm" hx-post="{{ .ConfirmURL }}" hx-swap="none">{{ t .Lang "common.confirm" }}</button>
+        <button class="btn btn-danger btn-sm" hx-post="{{ .CancelURL }}" hx-swap="none">{{ t .Lang "common.cancel" }}</button>
+    </div>
+</div>
+{{ end }}

@@ -1,0 +1,8 @@
+defaultPolicy: "drop"
+ttlFix:
+  enabled: false
+  value: 64
+portForwards: []
+rateLimits:
+  ssh: "3/minute"
+  web: "30/minute"

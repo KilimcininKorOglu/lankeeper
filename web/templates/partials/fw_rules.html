@@ -1,0 +1,20 @@
+{{ define "fw_rules" }}
+{{ range $idx, $pf := .PortForwards }}
+<div style="display:flex; align-items:center; justify-content:space-between; padding:var(--space-sm) 0; border-bottom:1px solid var(--border-color);">
+    <div>
+        <span style="font-weight:700;">{{ $pf.Name }}</span>
+        <span style="color:var(--text-secondary); font-size:var(--font-xs); margin-left:var(--space-sm);">
+            {{ $pf.Protocol }} :{{ $pf.ExtPort }} → {{ $pf.IntIP }}:{{ $pf.IntPort }}
+        </span>
+    </div>
+    <div style="display:flex; gap:var(--space-sm);">
+        {{ if $pf.Enabled }}
+            <span class="badge badge-success">{{ t $.Lang "common.enabled" }}</span>
+        {{ else }}
+            <span class="badge badge-error">{{ t $.Lang "common.disabled" }}</span>
+        {{ end }}
+        <button class="btn btn-danger btn-sm" hx-delete="/firewall/port-forwards/{{ $idx }}" hx-swap="none">{{ t $.Lang "common.delete" }}</button>
+    </div>
+</div>
+{{ end }}
+{{ end }}
