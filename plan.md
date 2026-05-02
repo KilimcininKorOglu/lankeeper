@@ -2395,12 +2395,14 @@ Adımlar:
 
 5. ✅ **İlk Boot Setup Wizard:**
    - `/var/lib/home-router/.first-boot` dosyası varsa web UI'da setup wizard göster
-   - **İlk boot'ta dual-NIC erişim:**
-     - `.first-boot` flag'i aktifken TÜM fiziksel NIC'lere geçici IP atanır
-     - Onboard NIC: `10.10.10.1/24`, PCIe NIC: `10.10.20.1/24` (her ikisinde de DHCP server)
-     - Web UI her iki IP'den de erişilebilir — kullanıcı herhangi bir porta kablo takabilir
-     - Wizard'da kullanıcı NIC'leri görür (MAC, driver, speed) ve rolleri seçer (WAN/LAN)
-     - Roller onaylandığında: seçilmeyen NIC'in geçici IP'si kaldırılır, WAN PPPoE/DHCP'ye geçer
+   - **İlk boot'ta bridge-based erişim:**
+     - `.first-boot` flag'i aktifken TÜM fiziksel NIC'ler `br0` bridge'e eklenir
+     - Bridge'e tek IP atanır: `10.10.10.1/24` — subnet çakışması yok, tüm portlar aynı LAN
+     - Kullanıcı herhangi bir porta kablo takıp `https://10.10.10.1:8443` adresinden web UI'a erişir
+     - Wizard'da kullanıcı NIC'leri görür (MAC, driver, speed) ve WAN rolü atadığı NIC'i seçer
+     - WAN atanan NIC bridge'den çıkarılır (`ip link set dev X nomaster`), PPPoE/DHCP'ye geçer
+     - Kalan NIC'ler LAN olarak bridge'de kalır (çoklu LAN portu)
+     - Wizard tamamlandığında bridge kaldırılabilir veya LAN bridge olarak kalabilir
      - `.first-boot` silinir → bundan sonra sadece LAN portundan web UI erişimi
    - Wizard adımları:
      1. Admin şifresi belirleme
