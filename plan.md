@@ -2360,11 +2360,13 @@ Adımlar:
 2. ✅ **Debian Preseed dosyası (`preseed.cfg`):**
    - Debian 12 Bookworm netinst ISO üzerine preseed
    - Dil: Türkçe, timezone: Europe/Istanbul, keyboard: trq
-   - **Disk bölümleme (RAID-1):**
-     - İki SSD algıla (`/dev/sda`, `/dev/sdb`)
-     - `mdadm` ile RAID-1 array oluştur (`/dev/md0`)
-     - Partition layout: `/boot` (512MB, ext4, RAID-1), `/` (kalan, ext4, RAID-1), swap (4GB, RAID-1)
-     - UEFI + legacy BIOS dual-boot (EFI partition her iki diskte)
+   - **Yarı katılımsız (semi-attended):** sadece disk seçimi interaktif, geri kalan otomatik
+   - **`early_command` ile disk seçim ekranı:**
+     - `lsblk` ile tüm fiziksel diskleri algıla (ad, boyut, model)
+     - 1 disk varsa otomatik seç, 2+ disk varsa `whiptail` radiolist göster
+     - Kullanıcı OS diskini seçer → `debconf-set partman-auto/disk` + `grub-installer/bootdev`
+     - Kalan diskler dokunulmaz — NAS için web UI'dan yapılandırılır
+   - **Disk bölümleme:** tek disk, `atomic` recipe (boot + swap + root)
    - Paket seçimi: `standard`, `ssh-server` (minimal, GUI yok)
    - Root hesabı devre dışı, `homerouter` kullanıcısı oluştur
    - `late_command`: `post-install.sh`'ı chroot içinde çalıştır
