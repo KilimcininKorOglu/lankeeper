@@ -587,6 +587,30 @@ interfaces:
     mtu: 1500
     mac: "aa:bb:cc:dd:ee:02"
 
+vlans:                                     # 802.1Q VLAN tanımları
+  - id: "iptv"                             # Sistem içi tanımlayıcı
+    parent: "wan"                          # Üst interface id (fiziksel NIC'in id'si)
+    vid: 10                                # VLAN ID (1-4094)
+    label: "IPTV VLAN"                     # Kullanıcı tarafından verilen isim
+    role: "wan"                            # wan | lan | unused
+    type: "static"                         # static | dhcp-client
+    address: ""                            # dhcp-client ise boş
+    mtu: 1500
+  - id: "guest"
+    parent: "lan"                          # LAN NIC üzerinde VLAN
+    vid: 100
+    label: "Misafir Ağı"
+    role: "lan"
+    type: "static"
+    address: "10.0.100.1/24"              # Ayrı subnet
+    mtu: 1500
+    isolated: true                         # Ana LAN'dan izole (inter-VLAN routing yok)
+    dhcp:                                  # Bu VLAN için ayrı DHCP havuzu
+      enabled: true
+      rangeStart: "10.0.100.100"
+      rangeEnd: "10.0.100.250"
+      leaseTime: "6h"
+
 healthCheck:
   enabled: true
   checks:
@@ -789,6 +813,10 @@ Go'da HTMX ile iki tür endpoint var: **sayfa** (tam HTML) ve **partial** (HTML 
 | GET    | /network                   | Sayfa   | Ağ ayarları + interface yönetimi        |
 | GET    | /partials/interfaces       | Partial | Algılanan tüm NIC'ler + durumları       |
 | PUT    | /network/interface/{id}    | Partial | Interface label, role, MTU düzenle      |
+| GET    | /partials/vlans            | Partial | VLAN listesi + durumları                |
+| POST   | /network/vlan              | Partial | Yeni VLAN ekle                          |
+| PUT    | /network/vlan/{id}         | Partial | VLAN düzenle                            |
+| DELETE | /network/vlan/{id}         | Partial | VLAN sil                                |
 | GET    | /partials/wan-status       | Partial | WAN durum kartı                        |
 | POST   | /pppoe/connect             | Partial | PPPoE bağlantısını başlat               |
 | POST   | /pppoe/disconnect          | Partial | PPPoE bağlantısını kes                  |
@@ -1186,8 +1214,8 @@ Manuel doğrulama:
 - **Dil değiştirme:** TR/EN butonlarına tıkla → sayfa seçilen dilde yenileniyor mu
 - **Sidebar:** tüm navigasyon etiketleri aktif dile göre mi
 
-### Phase 3: Network Interface Yönetimi + PPPoE WAN + Credential Yakalama + Health Check (5 gün)
-**Hedef:** Interface algılama ve isimlendirme, PPPoE ile internete bağlanma, auto-reconnect, bağlantı durum izleme, ISP credential yakalama, interface internet health check + otomatik recovery.
+### Phase 3: Network Interface + VLAN + PPPoE WAN + Health Check (6 gün)
+**Hedef:** Interface algılama ve isimlendirme, 802.1Q VLAN desteği (WAN + LAN), PPPoE ile internete bağlanma, auto-reconnect, ISP credential yakalama, interface health check + otomatik recovery.
 
 Oluşturulacak dosyalar:
 - `internal/services/network.go` — NIC algılama, interface label/role yönetimi
@@ -1213,7 +1241,24 @@ Adımlar:
    - Web UI: algılanan interface listesi → her biri için label, role (wan/lan/unused), MTU düzenlenebilir
    - Label her yerde kullanılır: dashboard, firewall, QoS, PBR — ham device name yerine
    - Role değişikliği: uyarı + onay (WAN/LAN rolü değiştirmek ağ kesintisi yapar)
-2. `text/template` ile `/etc/ppp/peers/wan` ve options dosyası render
+2. **802.1Q VLAN yönetimi:**
+   - VLAN oluşturma: `ip link add link {parent_device} name {parent}.{vid} type vlan id {vid}`
+   - VLAN silme: `ip link delete {parent}.{vid}`
+   - VLAN IP atama: `ip addr add {address} dev {parent}.{vid}` (static) veya DHCP client
+   - **WAN tarafı VLAN kullanım senaryoları:**
+     - ISP IPTV trafik ayrımı (ör: VLAN 10 üzerinden IPTV, ana bağlantı tagged/untagged)
+     - ISP'nin VoIP/data/IPTV'yi farklı VLAN'larda sunması (yaygın Türkiye senaryosu)
+   - **LAN tarafı VLAN kullanım senaryoları:**
+     - Misafir ağı: izole subnet, ana LAN'a erişim yok
+     - IoT ağı: güvenilmeyen cihazlar için izole segment
+     - Managed switch ile trunk port: router tek NIC üzerinden çoklu ağ segmenti
+   - `isolated: true` flag → nftables'da inter-VLAN routing engellenir (misafir ↛ ana LAN)
+   - VLAN bazlı DHCP: her izole VLAN için ayrı dnsmasq instance veya ayrı `dhcp-range` config
+   - nftables entegrasyonu: VLAN interface'leri zone-based firewall'a dahil (input/forward chain)
+   - Agent operations: `network.vlan.create`, `network.vlan.delete`, `network.vlan.up`, `network.vlan.down`
+   - Startup restore: config'deki VLAN tanımlarını boot'ta oluştur
+   - Web UI: VLAN listesi, ekleme formu (parent NIC dropdown, VID input, IP/subnet, isolated toggle), silme
+3. `text/template` ile `/etc/ppp/peers/wan` ve options dosyası render
 3. PPPoE service: Connect (`pppd call wan`), Disconnect (`kill pppd`), Status
 4. Credentials `.credentials.enc`'den AES-256-GCM ile çözme
 5. Auto-reconnect: pppd `persist` + `holdoff` seçenekleri
@@ -1260,7 +1305,13 @@ Manuel doğrulama:
 - **Cooldown:** aksiyon sonrası belirtilen süre boyunca tekrar aksiyon almıyor mu
 - **Web UI:** check durumları gerçek zamanlı güncelleniyor mu, manuel çalıştır çalışıyor mu
 - **Syslog:** durum değişiklikleri loglanıyor mu
-- TR/EN dillerinde tüm network/PPPoE metinleri doğru mu
+- **VLAN oluşturma:** `ip link show` → VLAN interface görünüyor mu (ör: enp0s25.100)
+- **VLAN WAN:** ISP IPTV VLAN'ından trafik alınabiliyor mu
+- **VLAN LAN (misafir):** misafir ağı izole mi (misafir → ana LAN ping başarısız)
+- **VLAN LAN (misafir):** misafir ağından internete çıkılabiliyor mu
+- **VLAN DHCP:** misafir VLAN'da ayrı DHCP havuzundan IP alınıyor mu
+- **VLAN boot:** reboot sonrası VLAN'lar otomatik oluşturulup ayağa kalkıyor mu
+- TR/EN dillerinde tüm network/PPPoE/VLAN metinleri doğru mu
 
 ### Phase 4: nftables Firewall + NAT (4 gün)
 **Hedef:** Zone-based firewall, NAT masquerade, MSS clamping, port forwarding, watchdog rollback.
@@ -1757,13 +1808,13 @@ firewallSvc.Apply(rules)
 |-------|---------------------------------------|-----|-----------|
 | 1     | İskelet + Agent IPC                   | 3   | 3         |
 | 2     | Web + Auth + HTMX Layout              | 3   | 6         |
-| 3     | Network + PPPoE + Health Check        | 5   | 11        |
-| 4     | nftables Firewall + NAT               | 4   | 15        |
-| 5     | Unbound DNS + DHCP + Query Logging    | 4   | 19        |
-| 6     | Dashboard + SSE                       | 3   | 22        |
-| 7     | SQM/QoS                               | 3   | 25        |
-| 8     | WireGuard VPN (Client+Server) + PBR   | 8   | 33        |
-| 9     | Samba NAS + M3U                       | 3   | 36        |
-| 10    | Storage + Syslog + NTP + Backup       | 5   | 41        |
+| 3     | Network + VLAN + PPPoE + Health Check | 6   | 12        |
+| 4     | nftables Firewall + NAT               | 4   | 16        |
+| 5     | Unbound DNS + DHCP + Query Logging    | 4   | 20        |
+| 6     | Dashboard + SSE                       | 3   | 23        |
+| 7     | SQM/QoS                               | 3   | 26        |
+| 8     | WireGuard VPN (Client+Server) + PBR   | 8   | 34        |
+| 9     | Samba NAS + M3U                       | 3   | 37        |
+| 10    | Storage + Syslog + NTP + Backup       | 5   | 42        |
 
-**Toplam: ~41 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
+**Toplam: ~42 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
