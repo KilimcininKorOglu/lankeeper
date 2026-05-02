@@ -113,6 +113,79 @@
     </div>
     {{ end }}
 
+    <!-- VLANs -->
+    <div class="card" style="margin-top:var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "vlan.title" }}</span>
+            <button class="btn btn-primary btn-sm" onclick="document.getElementById('vlan-form').style.display='block'">
+                {{ t $.Lang "vlan.add" }}
+            </button>
+        </div>
+
+        <form id="vlan-form" style="display:none; padding:var(--space-md); border:1px solid var(--border-color); border-radius:var(--radius-md); margin-bottom:var(--space-md);"
+              hx-post="/network/vlan" hx-swap="none"
+              hx-on::after-request="this.reset(); this.style.display='none';">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:var(--space-md);">
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "common.name" }}</label>
+                    <input class="input" name="id" placeholder="guest" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "vlan.parent" }}</label>
+                    <input class="input" name="parent" placeholder="lan" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "vlan.vid" }}</label>
+                    <input class="input" name="vid" type="number" min="1" max="4094" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "common.name" }}</label>
+                    <input class="input" name="label" placeholder="{{ t $.Lang "vlan.guestNetwork" }}">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "vlan.role" }}</label>
+                    <select class="input" name="role">
+                        <option value="lan">{{ t $.Lang "vlan.lan" }}</option>
+                        <option value="wan">{{ t $.Lang "vlan.wan" }}</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "vlan.type" }}</label>
+                    <select class="input" name="type">
+                        <option value="static">{{ t $.Lang "vlan.static" }}</option>
+                        <option value="dhcp-client">{{ t $.Lang "vlan.dhcpClient" }}</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "dhcp.ip" }}</label>
+                    <input class="input" name="address" placeholder="10.10.13.1/24">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "network.mtu" }}</label>
+                    <input class="input" name="mtu" type="number" value="1500">
+                </div>
+            </div>
+            <div style="display:flex; gap:var(--space-lg); margin-top:var(--space-md); margin-bottom:var(--space-md);">
+                <label style="display:flex; align-items:center; gap:var(--space-xs); cursor:pointer;">
+                    <input type="checkbox" name="isolated" value="true">
+                    {{ t $.Lang "vlan.isolated" }}
+                </label>
+                <label style="display:flex; align-items:center; gap:var(--space-xs); cursor:pointer;">
+                    <input type="checkbox" name="dhcpEnabled" value="true">
+                    {{ t $.Lang "vlan.enableDhcp" }}
+                </label>
+            </div>
+            <div style="display:flex; gap:var(--space-sm);">
+                <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('form').style.display='none'">{{ t $.Lang "common.cancel" }}</button>
+            </div>
+        </form>
+
+        {{ if .VLANs }}
+            {{ template "vlan_list" . }}
+        {{ end }}
+    </div>
+
     {{ end }}
 </div>
 {{ end }}

@@ -1,0 +1,22 @@
+{{ define "vlan_list" }}
+{{ range .VLANs }}
+<div style="display:flex; align-items:center; justify-content:space-between; padding:var(--space-sm) 0; border-bottom:1px solid var(--border-color);">
+    <div>
+        <span style="font-weight:700;">{{ .Label }}</span>
+        <span style="color:var(--text-secondary); font-size:var(--font-xs); margin-left:var(--space-sm);">
+            {{ t $.Lang "vlan.title" }} {{ .VID }} @ {{ .Parent }}{{ if .Address }} — {{ .Address }}{{ end }}
+        </span>
+    </div>
+    <div style="display:flex; align-items:center; gap:var(--space-sm);">
+        {{ if .Isolated }}
+            <span class="badge badge-warning">{{ t $.Lang "vlan.isolated" }}</span>
+        {{ end }}
+        {{ if .DHCP.Enabled }}
+            <span class="badge badge-info">{{ t $.Lang "vlan.enableDhcp" }}</span>
+        {{ end }}
+        <button class="btn btn-danger btn-sm" hx-delete="/network/vlan/{{ .ID }}" hx-swap="none"
+                hx-confirm="{{ t $.Lang "common.confirm" }}">{{ t $.Lang "common.delete" }}</button>
+    </div>
+</div>
+{{ end }}
+{{ end }}

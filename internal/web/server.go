@@ -39,6 +39,7 @@ type Server struct {
 	storageh  *handlers.StorageHandler
 	syslogh   *handlers.SyslogHandler
 	ntph      *handlers.NTPHandler
+	vlan      *handlers.VLANHandler
 	sse       *SSEBroker
 	monitor   *services.MonitorService
 }
@@ -52,6 +53,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, we
 	}
 
 	networkSvc := services.NewNetworkService(cfg)
+	vlanHandler := handlers.NewVLANHandler(renderer, networkSvc, cfg)
 	pppoeSvc := services.NewPPPoEService(cfg)
 	usbSvc := services.NewUSBTetheringService(cfg)
 	healthSvc := services.NewHealthCheckService(cfg)
@@ -119,6 +121,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, we
 		ovpn:      ovpnHandler,
 		routing:   routingHandler,
 		nas:       nasHandler,
+		vlan:      vlanHandler,
 		storageh:  storageHandler,
 		syslogh:   syslogHandler,
 		ntph:      ntpHandler,
@@ -220,6 +223,8 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	mux.Handle("POST /settings/hostname", authed(http.HandlerFunc(s.settings.HandleUpdateHostname)))
 	mux.Handle("POST /settings/timezone", authed(http.HandlerFunc(s.settings.HandleUpdateTimezone)))
 	mux.Handle("GET /network", authed(http.HandlerFunc(s.network.HandlePage)))
+	mux.Handle("POST /network/vlan", authed(http.HandlerFunc(s.vlan.HandleAdd)))
+	mux.Handle("DELETE /network/vlan/{id}", authed(http.HandlerFunc(s.vlan.HandleDelete)))
 	mux.Handle("GET /firewall", authed(http.HandlerFunc(s.firewall.HandlePage)))
 	mux.Handle("POST /firewall/apply", authed(http.HandlerFunc(s.firewall.HandleApply)))
 	mux.Handle("POST /firewall/confirm", authed(http.HandlerFunc(s.firewall.HandleConfirm)))
