@@ -1,0 +1,118 @@
+{{ define "content" }}
+<div class="content-header">
+    <h1>{{ t .Lang "nav.network" }}</h1>
+</div>
+<div class="content-body">
+    {{ with .Data }}
+
+    <!-- PPPoE WAN Status -->
+    <div class="card" style="margin-bottom: var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "pppoe.title" }}</span>
+            {{ if .PPPoE }}
+                {{ if .PPPoE.Connected }}
+                    <span class="badge badge-success">{{ t $.Lang "pppoe.status.connected" }}</span>
+                {{ else }}
+                    <span class="badge badge-error">{{ t $.Lang "pppoe.status.disconnected" }}</span>
+                {{ end }}
+            {{ end }}
+        </div>
+        {{ if .PPPoE }}
+        <div style="display:flex; gap:var(--space-2xl); flex-wrap:wrap; margin-bottom:var(--space-md);">
+            {{ if .PPPoE.LocalIP }}
+            <div>
+                <div class="input-label">IPv4</div>
+                <div style="font-weight:700;">{{ .PPPoE.LocalIP }}</div>
+            </div>
+            {{ end }}
+            {{ if .PPPoE.LocalIPv6 }}
+            <div>
+                <div class="input-label">IPv6</div>
+                <div style="font-weight:700;">{{ .PPPoE.LocalIPv6 }}</div>
+            </div>
+            {{ end }}
+        </div>
+        <div style="display:flex; gap:var(--space-sm);">
+            {{ if .PPPoE.Connected }}
+            <button class="btn btn-danger btn-sm"
+                    hx-post="/network/pppoe/disconnect" hx-target="closest .card" hx-swap="outerHTML"
+                    hx-confirm="{{ t $.Lang "pppoe.confirmDisconnect" }}">
+                {{ t $.Lang "pppoe.disconnect" }}
+            </button>
+            {{ else }}
+            <button class="btn btn-primary btn-sm"
+                    hx-post="/network/pppoe/connect" hx-target="closest .card" hx-swap="outerHTML"
+                    hx-confirm="{{ t $.Lang "pppoe.confirmConnect" }}">
+                {{ t $.Lang "pppoe.connect" }}
+            </button>
+            {{ end }}
+        </div>
+        {{ end }}
+    </div>
+
+    <!-- USB Tethering -->
+    <div class="card" style="margin-bottom: var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "usb.title" }}</span>
+            {{ if .USB }}
+                {{ if .USB.PhoneConnected }}
+                    <span class="badge badge-success">{{ t $.Lang "usb.connected" }}</span>
+                {{ else }}
+                    <span class="badge badge-error">{{ t $.Lang "usb.disconnected" }}</span>
+                {{ end }}
+            {{ end }}
+        </div>
+        {{ if .USB }}
+        {{ if .USB.ActiveWAN }}
+        <div class="alert alert-success">{{ t $.Lang "usb.failover" }}: {{ t $.Lang "common.enabled" }}</div>
+        {{ end }}
+        {{ end }}
+    </div>
+
+    <!-- Health Checks -->
+    {{ if .HealthChecks }}
+    <div class="card" style="margin-bottom: var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "healthcheck.title" }}</span>
+        </div>
+        {{ range $name, $check := .HealthChecks }}
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:var(--space-sm) 0; border-bottom:1px solid var(--border-color);">
+            <span>{{ $name }}</span>
+            {{ if eq $check.Status "ok" }}
+                <span class="badge badge-success">{{ t $.Lang "healthcheck.healthy" }}</span>
+            {{ else }}
+                <span class="badge badge-error">{{ t $.Lang "healthcheck.unhealthy" }}</span>
+            {{ end }}
+        </div>
+        {{ end }}
+    </div>
+    {{ end }}
+
+    <!-- Interfaces -->
+    {{ if .Interfaces }}
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "nav.network" }}</span>
+        </div>
+        {{ range .Interfaces }}
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:var(--space-sm) 0; border-bottom:1px solid var(--border-color);">
+            <div>
+                <div style="font-weight:700;">{{ .Name }}</div>
+                <div style="color:var(--text-secondary); font-size:var(--font-xs);">{{ .MAC }}</div>
+            </div>
+            <div style="text-align:right;">
+                {{ if eq .State "up" }}
+                    <span class="badge badge-success">UP</span>
+                {{ else }}
+                    <span class="badge badge-error">DOWN</span>
+                {{ end }}
+                {{ if .Speed }}<span style="color:var(--text-secondary); font-size:var(--font-xs); margin-left:var(--space-sm);">{{ .Speed }} Mbps</span>{{ end }}
+            </div>
+        </div>
+        {{ end }}
+    </div>
+    {{ end }}
+
+    {{ end }}
+</div>
+{{ end }}

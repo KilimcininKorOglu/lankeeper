@@ -1744,7 +1744,7 @@ Adımlar:
    - Yakalanan credentials → AES-256-GCM ile `.credentials.enc`'ye kaydet
    - Web UI: "Credential Yakala" butonu → durum göstergesi → bulunan credentials
    - Güvenlik: credentials sadece maskelenmiş gösterilir (son 4 karakter), full gösterme yok
-9. HTMX: interface kartları, bağlan/kes butonları → partial swap ile durum güncelleme
+9. ✅ HTMX: interface kartları, bağlan/kes butonları → partial swap ile durum güncelleme
 10. ✅ **Android USB Tethering (Yedek WAN):**
     - **Algılama:** udev rule ile Android telefon USB bağlandığında `usb0` (veya `rndis0`) interface otomatik tanınır
       - udev rule: `SUBSYSTEM=="net", ACTION=="add", ATTRS{idVendor}=="18d1", NAME="usb0"` (Google vendor ID)
@@ -1788,7 +1788,7 @@ Adımlar:
     - Manuel çalıştır butonu: tek check'i anında çalıştır ve sonucu göster
     - Reset butonu: failure counter'ı sıfırla (yanlış alarm sonrası)
     - Syslog'a bildirim: durum değişikliklerinde (OK→fail, fail→OK, aksiyon alındığında)
-11. **i18n:** `{{ t .Lang "network.*" }}`, `{{ t .Lang "pppoe.*" }}` ve `{{ t .Lang "healthcheck.*" }}` ile tüm metinler
+11. ✅ **i18n:** `{{ t .Lang "network.*" }}`, `{{ t .Lang "pppoe.*" }}` ve `{{ t .Lang "healthcheck.*" }}` ile tüm metinler
 
 Manuel doğrulama:
 - **Interface algılama:** tüm fiziksel NIC'ler listeleniyor mu
