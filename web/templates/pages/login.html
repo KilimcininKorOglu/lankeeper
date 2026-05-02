@@ -1,0 +1,24 @@
+{{ define "content" }}
+<div class="auth-card">
+    <div class="auth-logo">Home Router</div>
+
+    {{ if .Error }}
+    <div class="alert alert-error">{{ .Error }}</div>
+    {{ end }}
+
+    <form method="POST" action="/login"
+          hx-post="/login" hx-target="closest .auth-card" hx-swap="outerHTML">
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+
+        <div class="input-group" style="margin-bottom: var(--space-2xl)">
+            <label class="input-label" for="password">{{ t .Lang "auth.password" }}</label>
+            <input type="password" id="password" name="password" class="input"
+                   placeholder="{{ t .Lang "auth.password" }}" autofocus required>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-lg btn-block">
+            {{ t .Lang "auth.login" }}
+        </button>
+    </form>
+</div>
+{{ end }}

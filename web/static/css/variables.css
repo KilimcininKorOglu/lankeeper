@@ -1,0 +1,95 @@
+:root,
+[data-theme="dark"] {
+    --bg-primary: #000000;
+    --bg-surface: #16181C;
+    --bg-elevated: #1D1F23;
+    --bg-hover: #1E2025;
+    --bg-active: #272A2E;
+    --bg-input: #202327;
+
+    --border-color: #2F3336;
+    --border-focus: #1D9BF0;
+    --divider: #2F3336;
+
+    --text-primary: #E7E9EA;
+    --text-secondary: #71767B;
+    --text-tertiary: #536471;
+    --text-link: #1D9BF0;
+    --text-inverse: #0F1419;
+
+    --accent-blue: #1D9BF0;
+    --accent-blue-hover: #1A8CD8;
+    --accent-green: #00BA7C;
+    --accent-red: #F4212E;
+    --accent-yellow: #FFD400;
+    --accent-pink: #F91880;
+    --accent-purple: #7856FF;
+    --accent-orange: #FF7A00;
+
+    --status-success: #00BA7C;
+    --status-warning: #FFD400;
+    --status-error: #F4212E;
+    --status-info: #1D9BF0;
+
+    --sidebar-width: 275px;
+    --content-max: 600px;
+    --panel-width: 350px;
+    --header-height: 53px;
+
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 16px;
+    --radius-xl: 28px;
+    --radius-full: 9999px;
+
+    --space-xs: 4px;
+    --space-sm: 8px;
+    --space-md: 12px;
+    --space-lg: 16px;
+    --space-xl: 20px;
+    --space-2xl: 24px;
+    --space-3xl: 32px;
+    --space-4xl: 48px;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+
+    --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", monospace;
+
+    --font-xs: 13px;
+    --font-sm: 14px;
+    --font-base: 15px;
+    --font-lg: 17px;
+    --font-xl: 20px;
+    --font-2xl: 24px;
+    --font-3xl: 31px;
+
+    --transition-fast: 0.15s ease;
+    --transition-normal: 0.2s ease;
+    --transition-slow: 0.3s ease;
+}
+
+[data-theme="light"] {
+    --bg-primary: #FFFFFF;
+    --bg-surface: #F7F9F9;
+    --bg-elevated: #FFFFFF;
+    --bg-hover: #F7F7F7;
+    --bg-active: #EFF1F1;
+    --bg-input: #FFFFFF;
+
+    --border-color: #EFF3F4;
+    --border-focus: #1D9BF0;
+    --divider: #EFF3F4;
+
+    --text-primary: #0F1419;
+    --text-secondary: #536471;
+    --text-tertiary: #8B98A5;
+    --text-link: #1D9BF0;
+    --text-inverse: #E7E9EA;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+}

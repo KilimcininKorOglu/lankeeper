@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="{{ .Lang }}" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Home Router</title>
+    <link rel="stylesheet" href="/static/css/reset.css">
+    <link rel="stylesheet" href="/static/css/variables.css">
+    <link rel="stylesheet" href="/static/css/layout.css">
+    <link rel="stylesheet" href="/static/css/components.css">
+    <script src="/static/js/htmx.min.js" defer></script>
+    <script src="/static/js/app.js" defer></script>
+</head>
+<body>
+    <div class="app-layout">
+        {{ template "sidebar" . }}
+        <main class="content-area">
+            {{ block "content" . }}{{ end }}
+        </main>
+        <aside class="panel">
+            {{ block "panel" . }}{{ end }}
+        </aside>
+    </div>
+    <div class="toast-container" id="toast-container"></div>
+</body>
+</html>

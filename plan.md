@@ -1649,7 +1649,7 @@ Adımlar:
 10. ✅ Rate limiting: token bucket (stdlib `time.Ticker` + `sync.Map`)
 11. ✅ CSRF: double-submit cookie (custom header `X-CSRF-Token`)
 12. ✅ LAN-only: middleware'de source IP kontrolü
-13. **HTMX base layout (X design system uygulaması):**
+13. ✅ **HTMX base layout (X design system uygulaması):**
     - Sidebar (sol, 275px): logo + navigasyon (`nav-item` rounded pill, `{{ t .Lang "nav.*" }}`)
     - İçerik (orta, max 600px): sayfa içeriği
     - Panel (sağ, 350px): durum kartları (opsiyonel, dashboard'da aktif)
@@ -1657,13 +1657,13 @@ Adımlar:
     - Mobil: sidebar → bottom tab bar (responsive breakpoint)
     - Toast: alt-merkez, slide-up animasyon, 3s auto-dismiss
     - Lang-switch: sidebar altında TR/EN butonları
-14. **Dark/light tema:**
+14. ✅ **Dark/light tema:**
     - `variables.css`: tüm renk token'ları CSS custom properties ile (mimari kararlar bölümündeki palette)
     - Varsayılan: dark mode (`--bg-primary: #000000`, `--accent-blue: #1D9BF0`)
     - `data-theme="light"` ile light mode override
     - JS toggle: `localStorage` + `theme` cookie (server-side render uyumu)
     - `prefers-color-scheme` medya sorgusu ile otomatik algılama
-15. **Tüm template'lerde sabit metin yok** — her label, buton, başlık `{{ t }}` fonksiyonu ile
+15. ✅ **Tüm template'lerde sabit metin yok** — her label, buton, başlık `{{ t }}` fonksiyonu ile
 
 Manuel doğrulama:
 - **TLS self-signed:** ilk başlatmada sertifika otomatik üretildi mi (`/var/lib/home-router/tls/`)

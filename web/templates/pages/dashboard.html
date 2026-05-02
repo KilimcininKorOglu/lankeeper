@@ -1,0 +1,43 @@
+{{ define "content" }}
+<div class="content-header">
+    <h1>{{ t .Lang "dashboard.title" }}</h1>
+</div>
+<div class="content-body">
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-lg);">
+        <div class="card">
+            <div class="card-title">{{ t .Lang "dashboard.uptime" }}</div>
+            <div style="font-size: var(--font-2xl); font-weight: 700; margin-top: var(--space-sm);">
+                <span class="skeleton" style="display:inline-block; width:120px; height:32px;"></span>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-title">{{ t .Lang "dashboard.wanIp" }}</div>
+            <div style="font-size: var(--font-2xl); font-weight: 700; margin-top: var(--space-sm);">
+                <span class="skeleton" style="display:inline-block; width:150px; height:32px;"></span>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-title">{{ t .Lang "dashboard.activeDevices" }}</div>
+            <div style="font-size: var(--font-2xl); font-weight: 700; margin-top: var(--space-sm);">
+                <span class="skeleton" style="display:inline-block; width:60px; height:32px;"></span>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-title">{{ t .Lang "dashboard.cpuUsage" }}</div>
+            <div style="font-size: var(--font-2xl); font-weight: 700; margin-top: var(--space-sm);">
+                <span class="skeleton" style="display:inline-block; width:80px; height:32px;"></span>
+            </div>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ define "panel" }}
+<h3 style="font-size: var(--font-lg); font-weight: 700; margin-bottom: var(--space-lg);">{{ t .Lang "common.status" }}</h3>
+<div class="card" style="margin-bottom: var(--space-lg);">
+    <div class="card-title">PPPoE</div>
+    <div style="margin-top: var(--space-sm);">
+        <span class="badge badge-success">{{ t .Lang "pppoe.status.connected" }}</span>
+    </div>
+</div>
+{{ end }}
