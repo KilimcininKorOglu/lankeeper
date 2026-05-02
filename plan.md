@@ -474,6 +474,7 @@ home-router/
 │   │       ├── stats_card.html   # Dashboard stat kartı (SSE ile güncellenir)
 │   │       ├── bandwidth.html    # Bandwidth grafiği container
 │   │       ├── lease_table.html  # DHCP lease tablosu (HTMX swap)
+│   │       ├── dns_querylog.html # DNS sorgu geçmişi (filtre + pagination)
 │   │       ├── fw_rules.html     # Firewall kural listesi
 │   │       ├── vpn_clients.html   # Client tünel listesi + durum
 │   │       ├── vpn_server.html   # Server durumu + peer listesi + QR
@@ -649,7 +650,12 @@ dns:
     - "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
   blocklistUpdateSchedule: "0 3 * * *"   # Her gün 03:00
   cacheSize: 50000                       # Unbound msg-cache-size entry sayısı
-  logQueries: true
+  queryLog:
+    enabled: true                        # DNS sorgu loglama (Unbound verbosity: 2)
+    logPath: "/var/log/unbound/queries.log"  # Sorgu log dosyası
+    maxSize: "100M"                      # Log dosyası boyut limiti (logrotate)
+    retention: "7d"                      # Log saklama süresi
+    logBlocked: true                     # Engellenen sorguları ayrıca işaretle
 
 dhcp:
   rangeStart: "10.0.0.100"
@@ -818,6 +824,12 @@ Go'da HTMX ile iki tür endpoint var: **sayfa** (tam HTML) ve **partial** (HTML 
 | PUT    | /dns/config                | Partial | DNS ayarlarını güncelle            |
 | POST   | /dns/blocklist/update      | Partial | Blocklist'i şimdi güncelle         |
 | GET    | /partials/dns-blocklist    | Partial | Blocklist durumu + kaynak listesi  |
+| GET    | /partials/dns-querylog     | Partial | Son DNS sorguları (filtreli, paginated) |
+| GET    | /partials/dns-top-clients  | Partial | En çok sorgu yapan cihazlar        |
+| GET    | /partials/dns-top-domains  | Partial | En çok sorgulanan domainler        |
+| GET    | /partials/dns-top-blocked  | Partial | En çok engellenen domainler        |
+| PUT    | /dns/querylog/toggle       | Partial | Query logging aç/kapat             |
+| DELETE | /dns/querylog/clear        | Partial | Query log geçmişini temizle        |
 
 ### DHCP (dnsmasq)
 | Method | Path                       | Tür     | Açıklama                          |
@@ -1296,8 +1308,8 @@ Manuel doğrulama:
 - **TTL Fix kapalı:** TTL normal davranıyor mu (her hop'ta azalıyor)
 - TR/EN dillerinde firewall metinleri doğru mu
 
-### Phase 5: Unbound DNS + dnsmasq DHCP (3 gün)
-**Hedef:** Recursive DNS resolver + reklam engelleme (Unbound), DHCP sunucu (dnsmasq), config dosyası yönetimi.
+### Phase 5: Unbound DNS + dnsmasq DHCP + Query Logging (4 gün)
+**Hedef:** Recursive DNS resolver + reklam engelleme (Unbound), DHCP sunucu (dnsmasq), DNS query logging + istatistikler, config dosyası yönetimi.
 
 Oluşturulacak dosyalar:
 - `internal/services/dns.go` — Unbound config render, blocklist indirme, `unbound-control` wrapper
@@ -1310,6 +1322,7 @@ Oluşturulacak dosyalar:
 - `web/templates/pages/dhcp.html`
 - `web/templates/partials/dns-stats.html`
 - `web/templates/partials/dns-blocklist.html`
+- `web/templates/partials/dns-querylog.html` — Sorgu geçmişi tablosu (filtreli, paginated)
 - `web/templates/partials/lease_table.html`
 
 Adımlar:
@@ -1331,11 +1344,29 @@ Adımlar:
    - Statik lease'ler: `dhcp-host=aa:bb:cc:dd:ee:ff,10.0.0.10,desktop`
 4. **Lease parse:** `/var/lib/misc/dnsmasq.leases` dosyasını oku → `{expiry, mac, ip, hostname}`
 5. **DNS istatistikleri:** `unbound-control stats_noreset` → cache hits, misses, query count
-6. **Cihaz listesi:** lease'lerden MAC+IP+hostname (VPN modülü kullanacak)
-7. **Config değişikliği akışı:** Go template render → atomic write → agent `SIGHUP` gönder
-8. **Agent operations:** `dns.reload` (unbound-control reload), `dhcp.reload` (SIGHUP dnsmasq)
-9. HTMX: lease tablosu, DNS istatistikleri, blocklist durumu
-10. **i18n:** Tüm template metinleri `{{ t .Lang "dns.*" }}` ve `{{ t .Lang "dhcp.*" }}` ile
+6. **DNS Query Logging:**
+   - Unbound config: `log-queries: yes`, `verbosity: 2`, `logfile:` → `/var/log/unbound/queries.log`
+   - Log formatı: `[timestamp] unbound: info: 10.0.0.15 google.com. A IN` şeklinde satır bazlı
+   - Go'da log dosyasını tail-parse eden goroutine:
+     - Her satırı parse et: timestamp, client IP, domain, query type (A/AAAA/CNAME/...), durum (NOERROR/REFUSED/NXDOMAIN)
+     - DHCP lease ile eşleştir: IP → hostname/MAC (hangi cihaz sorgulamış)
+     - Engellenen sorgular: `REFUSED` → blocklist tarafından engellendi olarak işaretle
+   - In-memory ring buffer: son N sorgu (configurable, varsayılan 10.000)
+   - Periyodik aggregation (her 5dk):
+     - Top clients: en çok sorgu yapan cihazlar
+     - Top domains: en çok sorgulanan domainler
+     - Top blocked: en çok engellenen domainler
+     - Saatlik/günlük sorgu grafiği verisi
+   - Logrotate entegrasyonu: `maxSize` + `retention` config'den, `/etc/logrotate.d/unbound-querylog`
+   - Web UI: toggle ile aç/kapat (Unbound reload gerekir), log temizleme butonu
+   - Web UI tablo: son sorgular (domain, cihaz, tür, durum, zaman), filtreleme (cihaz, domain arama, sadece engellenenler), pagination
+   - Web UI: top clients/domains/blocked kartları (HTMX poll ile güncellenen)
+   - Performans: büyük log dosyalarında `io.Scanner` ile satır bazlı okuma, tam dosyayı belleğe yükleme yok
+7. **Cihaz listesi:** lease'lerden MAC+IP+hostname (VPN modülü kullanacak)
+8. **Config değişikliği akışı:** Go template render → atomic write → agent `SIGHUP` gönder
+9. **Agent operations:** `dns.reload` (unbound-control reload), `dhcp.reload` (SIGHUP dnsmasq), `dns.querylog.clear` (log dosyasını truncate)
+10. HTMX: lease tablosu, DNS istatistikleri, blocklist durumu, query log tablosu
+11. **i18n:** Tüm template metinleri `{{ t .Lang "dns.*" }}` ve `{{ t .Lang "dhcp.*" }}` ile
 
 Manuel doğrulama:
 - `dig @10.0.0.1 google.com` → Unbound recursive çözümleme çalışıyor mu
@@ -1343,6 +1374,12 @@ Manuel doğrulama:
 - DHCP: yeni cihaz IP alıyor mu, lease tablosunda görünüyor mu
 - Statik lease ekle/sil çalışıyor mu
 - `unbound-control stats_noreset` → istatistikler web UI'da doğru mu
+- **Query log:** DNS sorgusu yap → query log tablosunda görünüyor mu
+- **Query log filtre:** cihaz bazlı filtre çalışıyor mu, domain arama çalışıyor mu
+- **Engellenen sorgular:** blocklist'teki domain sorgulandığında "engellendi" olarak işaretleniyor mu
+- **Top listeler:** en çok sorgulanan domain, en aktif cihaz, en çok engellenen domain doğru mu
+- **Toggle:** query logging kapatılınca log durur mu, açılınca tekrar başlar mı
+- **Log temizleme:** clear butonu log dosyasını temizliyor mu
 - TR/EN dillerinde DNS ve DHCP sayfası metinleri doğru mu
 
 ### Phase 6: Dashboard + SSE Real-Time (3 gün)
@@ -1712,6 +1749,7 @@ firewallSvc.Apply(rules)
 | Health check reboot döngüsü           | Cooldown süresi + max reboot count/24h limiti + reboot sonrası grace period |
 | VPN server private key sızması        | AES-256-GCM at rest, peer config indirmede one-time token, QR timeout       |
 | VPN server WAN IP değişimi (PPPoE)    | DDNS desteği (configurable hostname), ip-up script ile DDNS güncelleme      |
+| DNS query log disk dolması            | logrotate (maxSize + retention), ring buffer in-memory, toggle ile kapatılabilir |
 
 ## Tahmini Toplam Süre
 
@@ -1721,11 +1759,11 @@ firewallSvc.Apply(rules)
 | 2     | Web + Auth + HTMX Layout              | 3   | 6         |
 | 3     | Network + PPPoE + Health Check        | 5   | 11        |
 | 4     | nftables Firewall + NAT               | 4   | 15        |
-| 5     | Unbound DNS + dnsmasq DHCP            | 3   | 18        |
-| 6     | Dashboard + SSE                       | 3   | 21        |
-| 7     | SQM/QoS                               | 3   | 24        |
-| 8     | WireGuard VPN (Client+Server) + PBR   | 8   | 32        |
-| 9     | Samba NAS + M3U                       | 3   | 35        |
-| 10    | Storage + Syslog + NTP + Backup       | 5   | 40        |
+| 5     | Unbound DNS + DHCP + Query Logging    | 4   | 19        |
+| 6     | Dashboard + SSE                       | 3   | 22        |
+| 7     | SQM/QoS                               | 3   | 25        |
+| 8     | WireGuard VPN (Client+Server) + PBR   | 8   | 33        |
+| 9     | Samba NAS + M3U                       | 3   | 36        |
+| 10    | Storage + Syslog + NTP + Backup       | 5   | 41        |
 
-**Toplam: ~40 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
+**Toplam: ~41 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
