@@ -1568,7 +1568,7 @@ Adımlar:
 9. ✅ JSON-RPC 2.0 protocol: `{"method": "pppoe.connect", "params": {...}, "id": 1}`
 10. ✅ Agent client: dial UDS, send request, read response, timeout
 11. ✅ Op whitelist: yalnızca kayıtlı method'lar çalışır
-12. systemd unit dosyaları
+12. ✅ systemd unit dosyaları
 13. **`install.sh` — Tam kapsamlı kurulum scripti:**
     - Root kontrolü + Debian 12 doğrulama
     - Sistem bağımlılıkları: `apt install` ile tüm paketler (nftables, wireguard-tools, unbound, dnsmasq, chrony, samba, openvpn, easy-rsa, rsyslog, ppp, mkcert, wide-dhcpv6-client, qrencode, smartmontools, mdadm)

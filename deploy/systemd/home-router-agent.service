@@ -1,0 +1,23 @@
+[Unit]
+Description=Home Router Privileged Agent
+PartOf=home-router.target
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/home-router agent
+Restart=always
+RestartSec=3
+
+User=root
+RuntimeDirectory=home-router
+RuntimeDirectoryMode=0755
+
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=false
+ProtectSystem=full
+
+[Install]
+WantedBy=home-router.target

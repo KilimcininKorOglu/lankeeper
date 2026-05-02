@@ -1,0 +1,26 @@
+[Unit]
+Description=Home Router Web Server
+PartOf=home-router.target
+After=home-router-agent.service
+Requires=home-router-agent.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/home-router serve
+Restart=always
+RestartSec=3
+
+User=homerouter
+Group=homerouter
+RuntimeDirectory=home-router
+RuntimeDirectoryMode=0755
+
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/etc/home-router /var/lib/home-router /var/log/home-router
+
+[Install]
+WantedBy=home-router.target

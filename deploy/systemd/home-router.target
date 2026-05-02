@@ -1,0 +1,8 @@
+[Unit]
+Description=Home Router Services
+After=network-online.target
+Wants=network-online.target
+Wants=home-router-agent.service home-router-web.service
+
+[Install]
+WantedBy=multi-user.target
