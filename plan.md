@@ -272,6 +272,7 @@ type Config struct {
     DHCP       DHCPConfig       `yaml:"dhcp"`
     VPN        VPNConfig        `yaml:"vpn"`
     NAS        NASConfig        `yaml:"nas"`
+    Syslog     SyslogConfig     `yaml:"syslog"`
     Storage    StorageConfig    `yaml:"storage"`
 }
 ```
@@ -316,6 +317,7 @@ home-router/
 │   │       ├── vpn.go            # WireGuard tünelleri + cihaz ataması
 │   │       ├── nas.go            # Samba paylaşımları
 │   │       ├── storage.go        # RAID durumu, disk sağlığı
+│   │       ├── syslog.go          # Syslog sunucu/client yapılandırma
 │   │       └── system.go         # Ayarlar, yedekleme, reboot
 │   ├── services/
 │   │   ├── pppoe.go              # pppd yönetimi
@@ -327,6 +329,7 @@ home-router/
 │   │   ├── nas.go                # Samba config + M3U parser
 │   │   ├── storage.go            # mdadm + smartctl
 │   │   ├── monitor.go            # Sistem istatistikleri toplayıcı (goroutine)
+│   │   ├── syslog.go             # rsyslog config yönetimi (sunucu + client)
 │   │   └── backup.go             # Config export/import
 │   ├── i18n/
 │   │   ├── i18n.go               # Locale yükleme, T() ve WithParams() fonksiyonları
@@ -354,6 +357,7 @@ home-router/
 │   │   │   ├── qos.html
 │   │   │   ├── nas.html
 │   │   │   ├── storage.html
+│   │   │   ├── syslog.html
 │   │   │   ├── settings.html
 │   │   │   └── login.html
 │   │   └── partials/
@@ -393,6 +397,7 @@ home-router/
 │   │   ├── pppoe-options.tmpl    # pppd seçenekleri
 │   │   ├── unbound.conf.tmpl     # Unbound recursive DNS config
 │   │   ├── dnsmasq.conf.tmpl    # dnsmasq DHCP-only config
+│   │   ├── rsyslog.conf.tmpl    # rsyslog sunucu/client config
 │   │   ├── wireguard.conf.tmpl  # WireGuard interface config
 │   │   └── smb.conf.tmpl         # Samba paylaşım config
 │   └── defaults/
@@ -529,6 +534,25 @@ nas:
       downloadPath: "/mnt/raid/media/iptv"
       schedule: "0 4 * * *"
 
+syslog:
+  server:
+    enabled: false                       # Syslog sunucu (ağdan log alma)
+    listenUDP: ":514"                    # UDP dinleme adresi
+    listenTCP: ":514"                    # TCP dinleme adresi (boş = kapalı)
+    enableTLS: false                     # TLS ile TCP (sertifika gerekli)
+    logPath: "/var/log/remote"           # Uzak logların yazılacağı dizin
+    perHostDirs: true                    # Her kaynak IP için ayrı dizin
+    maxRetention: "30d"                  # Log saklama süresi
+  client:
+    enabled: false                       # Logları harici sunucuya ilet
+    remoteHost: ""                       # Hedef sunucu (örn: "192.168.1.100:514")
+    protocol: "udp"                      # udp | tcp | relp
+    enableTLS: false
+    facilities:                          # İletilecek facility'ler
+      - "kern.*"
+      - "auth.*"
+      - "daemon.*"
+
 storage:
   raid:
     device: "/dev/md0"
@@ -635,6 +659,15 @@ Go'da HTMX ile iki tür endpoint var: **sayfa** (tam HTML) ve **partial** (HTML 
 | GET    | /partials/smart         | Partial | Disk sağlık bilgileri              |
 | GET    | /partials/disk-usage    | Partial | Disk kullanımı                     |
 
+### Syslog
+| Method | Path                       | Tür     | Açıklama                           |
+|--------|----------------------------|---------|------------------------------------|
+| GET    | /syslog                    | Sayfa   | Syslog yapılandırma + log görüntüle|
+| GET    | /partials/syslog-logs      | Partial | Uzak cihaz logları (filtreli, paginated) |
+| PUT    | /syslog/server             | Partial | Sunucu ayarları (enable/disable, port, TLS) |
+| PUT    | /syslog/client             | Partial | Client ayarları (remote host, protocol) |
+| GET    | /partials/syslog-sources   | Partial | Log gönderen cihaz listesi         |
+
 ### System
 | Method | Path                    | Tür     | Açıklama                          |
 |--------|-------------------------|---------|------------------------------------|
@@ -682,10 +715,12 @@ apt install -y \
     smartmontools mdadm \
     iproute2 \
     unbound \
-    dnsmasq
+    dnsmasq \
+    rsyslog
 
 # dnsmasq: DNS kapalı (port=0), sadece DHCP
 # unbound: recursive DNS resolver + blocklist
+# rsyslog: syslog sunucu (ağdan log alma) + client (log forwarding)
 # Go sadece build makinede gerekli, hedef makinede gerekli DEĞİL
 ```
 
@@ -1148,17 +1183,23 @@ Manuel doğrulama:
 - Kodi'den medya oynatılabiliyor mu
 - TR/EN dillerinde NAS sayfası metinleri doğru mu
 
-### Phase 10: Storage + Backup + Hardening (3 gün)
-**Hedef:** RAID izleme, disk sağlığı, config backup, güvenlik sertleştirme.
+### Phase 10: Storage + Syslog + Backup + Hardening (4 gün)
+**Hedef:** RAID izleme, disk sağlığı, syslog sunucu/client, config backup, güvenlik sertleştirme.
 
 Oluşturulacak dosyalar:
 - `internal/services/storage.go`
 - `internal/services/backup.go`
+- `internal/services/syslog.go` — rsyslog config render + reload
+- `configs/sysconf/rsyslog.conf.tmpl` — rsyslog sunucu/client config şablonu
 - `internal/web/handlers/storage.go`
 - `internal/web/handlers/system.go`
+- `internal/web/handlers/syslog.go`
 - `web/templates/pages/storage.html`
+- `web/templates/pages/syslog.html`
 - `web/templates/pages/settings.html`
 - `web/templates/partials/raid_status.html`
+- `web/templates/partials/syslog-logs.html`
+- `web/templates/partials/syslog-sources.html`
 - `deploy/factory-reset.sh`
 - `deploy/backup.sh`
 
@@ -1173,14 +1214,28 @@ Adımlar:
    - SSH: key-only, LAN-only
    - CSP header, X-Frame-Options, X-Content-Type-Options
 6. HDD spin-up stagger: `hdparm -S`
-7. **i18n:** Storage, settings, backup sayfaları `{{ t .Lang "storage.*" }}` ve `{{ t .Lang "settings.*" }}` ile
-8. **i18n doğrulama:** Tüm locale JSON dosyalarında eksik anahtar testi (build time check)
+7. **Syslog sunucu:**
+   - rsyslog config template: `module(load="imudp")` + `input(type="imudp" port="514")`
+   - Per-host log dizini: `/var/log/remote/{hostname}/`
+   - Log rotation: rsyslog `outchannel` veya logrotate config
+   - Web UI: uzak cihaz loglarını filtreli görüntüleme (host, facility, severity)
+   - Opsiyonel TLS: `module(load="imtcp") input(type="imtcp" port="6514" ... streamdriver.mode="1")`
+8. **Syslog client:**
+   - rsyslog forward kuralı: `*.* @@remote:514` (TCP) veya `*.* @remote:514` (UDP)
+   - Facility seçimi: config'den hangi logların iletileceğini belirle
+   - Opsiyonel TLS forwarding
+9. Agent ops: `syslog.reload` (systemctl reload rsyslog)
+10. **i18n:** Storage, syslog, settings, backup sayfaları `{{ t .Lang "storage.*" }}`, `{{ t .Lang "syslog.*" }}`, `{{ t .Lang "settings.*" }}` ile
+11. **i18n doğrulama:** Tüm locale JSON dosyalarında eksik anahtar testi (build time check)
 
 Manuel doğrulama:
 - RAID durumu doğru gösteriliyor mu
 - Config export → factory reset → import → çalışıyor mu
 - Güvenlik header'ları mevcut mu (`curl -I`)
-- TR/EN dillerinde storage ve settings sayfaları doğru mu
+- **Syslog sunucu:** başka cihazdan `logger -n 10.0.0.1 "test"` → log görünüyor mu
+- **Syslog client:** router logları harici sunucuya iletiliyor mu
+- **Syslog Web UI:** host filtresi, severity filtresi, pagination çalışıyor mu
+- TR/EN dillerinde storage, syslog ve settings sayfaları doğru mu
 - **i18n bütünlük:** `tr.json` ve `en.json` aynı anahtarlara sahip mi (eksik anahtar yok)
 
 ---
@@ -1265,6 +1320,6 @@ firewallSvc.Apply(rules)
 | 7     | SQM/QoS                       | 3   | 22        |
 | 8     | WireGuard VPN + Policy Routing| 5   | 27        |
 | 9     | Samba NAS + M3U               | 3   | 30        |
-| 10    | Storage + Backup + Hardening  | 3   | 33        |
+| 10    | Storage + Syslog + Backup + Hardening | 4   | 34        |
 
-**Toplam: ~33 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
+**Toplam: ~34 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
