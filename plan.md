@@ -433,7 +433,25 @@ Web UI her zaman HTTPS üzerinden çalışır. Üç mod desteklenir:
 - Cipher suite: Go'nun varsayılan güvenli seti (ECDHE + AES-GCM)
 - Sertifika değişikliği anında uygulanır (graceful restart)
 
-### 9. Config Yönetimi
+### 9. Deployment: İki Katmanlı Kurulum
+
+İki farklı kurulum yöntemi, aynı sonuç:
+
+**Katman 1 — `install.sh` (interaktif):**
+- Mevcut Debian 12 minimal kurulumu üzerine çalışır
+- Admin interaktif olarak sorulara cevap verir (şifre, interface, WAN tipi)
+- Idempotent: tekrar çalıştırılabilir, mevcut config'i bozmaz
+- Kullanım: `sudo ./deploy/install.sh`
+
+**Katman 2 — Debian Preseed ISO (sıfır dokunuş):**
+- USB'den boot → tam otomatik: disk bölümleme (RAID-1) + OS kurulumu + tüm paketler + Go binary
+- İlk boot'ta web UI'da setup wizard (admin şifresi, PPPoE, interface seçimi)
+- Kullanım: USB'ye yaz → boot → 15 dk sonra router hazır
+- `make iso` ile oluşturulur (Makefile entegrasyonu)
+
+Her iki yöntem de aynı `post-install.sh` / `install.sh` mantığını paylaşır — tek fark interaktif vs preseed ile cevap verme.
+
+### 10. Config Yönetimi
 
 ```go
 // YAML config → Go struct (compile-time type safety)
@@ -620,10 +638,15 @@ home-router/
 │   │   ├── home-router.target    # Orchestration target
 │   │   ├── home-router-agent.service
 │   │   └── home-router-web.service
-│   ├── install.sh                # Tam kurulum scripti
+│   ├── install.sh                # Tam kurulum scripti (Debian 12 üzerine)
 │   ├── setup-interfaces.sh       # udev kuralları + NIC isimlendirme
 │   ├── factory-reset.sh          # Fabrika ayarlarına dönüş
-│   └── backup.sh                 # Cron backup scripti
+│   ├── backup.sh                 # Cron backup scripti
+│   └── iso/
+│       ├── build-iso.sh          # Debian preseed ISO oluşturma scripti
+│       ├── preseed.cfg           # Debian unattended install preseed dosyası
+│       ├── post-install.sh       # Preseed sonrası çalışan kurulum scripti
+│       └── grub.cfg              # UEFI/BIOS dual-boot GRUB config
 ├── go.mod
 ├── go.sum
 ├── Makefile                      # build, test, lint, deploy, cross-compile
@@ -1368,8 +1391,24 @@ Adımlar:
 9. JSON-RPC 2.0 protocol: `{"method": "pppoe.connect", "params": {...}, "id": 1}`
 10. Agent client: dial UDS, send request, read response, timeout
 11. Op whitelist: yalnızca kayıtlı method'lar çalışır
-12. systemd unit dosyaları + install.sh
-13. Unit test: agent IPC round-trip + i18n T() fonksiyonu + eksik anahtar fallback
+12. systemd unit dosyaları
+13. **`install.sh` — Tam kapsamlı kurulum scripti:**
+    - Root kontrolü + Debian 12 doğrulama
+    - Sistem bağımlılıkları: `apt install` ile tüm paketler (nftables, wireguard-tools, unbound, dnsmasq, chrony, samba, openvpn, easy-rsa, rsyslog, ppp, mkcert, wide-dhcpv6-client, qrencode, smartmontools, mdadm)
+    - `homerouter` sistem kullanıcısı oluştur (nologin, /opt/home-router home)
+    - Binary'yi `/usr/local/bin/home-router` altına kopyala + `chmod +x`
+    - systemd unit dosyalarını `/etc/systemd/system/` altına yerleştir + `systemctl enable`
+    - udev rules: NIC isimlendirme (MAC tabanlı), USB tethering RNDIS → `/etc/udev/rules.d/`
+    - Config dizini: `/etc/home-router/` oluştur, varsayılan YAML config'leri kopyala
+    - Veri dizini: `/var/lib/home-router/` (TLS sertifikaları, credentials)
+    - Log dizini: `/var/log/home-router/`, `/var/log/unbound/`
+    - sysctl parametreleri: `/etc/sysctl.d/99-home-router.conf` (ip_forward, rp_filter, syncookies, ipv6 forwarding)
+    - İlk admin şifresi: interaktif `read -s` ile al → bcrypt hash → config'e yaz
+    - İlk TLS sertifikası: self-signed otomatik üretim
+    - Unbound/dnsmasq/chrony başlangıç config'leri render
+    - `systemctl start home-router.target`
+    - Kurulum sonrası bilgi: Web UI adresi, SSH notları
+14. Unit test: agent IPC round-trip + i18n T() fonksiyonu + eksik anahtar fallback
 
 Manuel doğrulama:
 - `go build ./...` hatasız derleniyor mu
@@ -2103,6 +2142,89 @@ Manuel doğrulama:
 - TR/EN dillerinde storage, syslog, NTP ve settings sayfaları doğru mu
 - **i18n bütünlük:** `tr.json` ve `en.json` aynı anahtarlara sahip mi (eksik anahtar yok)
 
+### Phase 11: Deployment — install.sh + Debian Preseed ISO (3 gün)
+**Hedef:** Sıfır dokunuş kurulum: bootable USB → RAID-1 disk kurulumu → tüm paketler + Go binary → ilk boot'ta router hazır.
+
+Oluşturulacak dosyalar:
+- `deploy/install.sh` — Tam kapsamlı kurulum scripti (Phase 1'de iskelet, burada tamamlanır)
+- `deploy/iso/build-iso.sh` — Debian preseed ISO oluşturma scripti
+- `deploy/iso/preseed.cfg` — Debian unattended install preseed dosyası
+- `deploy/iso/post-install.sh` — Preseed sonrası kurulum (install.sh'ın non-interactive versiyonu)
+- `deploy/iso/grub.cfg` — UEFI + legacy BIOS dual-boot GRUB config
+
+Adımlar:
+
+1. **`install.sh` finalize (interactive mode):**
+   - Phase 1'de oluşturulan iskelet scripti tamamla
+   - Tüm Phase 1-10 bileşenlerinin kurulumu dahil
+   - İnteraktif mod: admin şifresi, interface seçimi, WAN tipi (PPPoE/DHCP) soruları
+   - Idempotent: tekrar çalıştırılabilir (mevcut config'i bozmaz, `--force` ile override)
+   - `--check` modu: kurulumu doğrula, eksikleri raporla
+
+2. **Debian Preseed dosyası (`preseed.cfg`):**
+   - Debian 12 Bookworm netinst ISO üzerine preseed
+   - Dil: Türkçe, timezone: Europe/Istanbul, keyboard: trq
+   - **Disk bölümleme (RAID-1):**
+     - İki SSD algıla (`/dev/sda`, `/dev/sdb`)
+     - `mdadm` ile RAID-1 array oluştur (`/dev/md0`)
+     - Partition layout: `/boot` (512MB, ext4, RAID-1), `/` (kalan, ext4, RAID-1), swap (4GB, RAID-1)
+     - UEFI + legacy BIOS dual-boot (EFI partition her iki diskte)
+   - Paket seçimi: `standard`, `ssh-server` (minimal, GUI yok)
+   - Root hesabı devre dışı, `homerouter` kullanıcısı oluştur
+   - `late_command`: `post-install.sh`'ı chroot içinde çalıştır
+
+3. **Post-install scripti (`post-install.sh`):**
+   - `install.sh`'ın non-interactive versiyonu (tüm cevaplar preseed'den)
+   - Tüm apt paketlerini kur (nftables, wireguard-tools, unbound, dnsmasq, chrony, samba...)
+   - Go binary'yi ISO'dan `/usr/local/bin/` altına kopyala
+   - systemd unit dosyalarını yerleştir + enable
+   - udev rules (NIC MAC-based naming, USB RNDIS)
+   - Varsayılan config dosyalarını yerleştir
+   - sysctl parametreleri
+   - İlk TLS sertifikası (self-signed)
+   - İlk boot'ta web UI setup wizard için flag oluştur (`/var/lib/home-router/.first-boot`)
+   - GRUB: RAID-1 aware, degraded boot allowed
+
+4. **ISO build scripti (`build-iso.sh`):**
+   - Girdi: resmi Debian 12 netinst ISO + Go binary (cross-compile edilmiş)
+   - Çıktı: `home-router-installer.iso` (custom preseed + binary gömülü)
+   - İşlem:
+     - Debian ISO'yu aç (`xorriso` veya `bsdtar`)
+     - `preseed.cfg` + `post-install.sh` + Go binary'yi ISO'ya ekle
+     - GRUB config güncelle: `auto=true preseed/file=/cdrom/preseed.cfg`
+     - ISO'yu yeniden oluştur (`xorriso -as mkisofs`)
+     - Opsiyonel: USB yazılabilir hybrid ISO (`isohybrid`)
+   - Makefile entegrasyonu: `make iso` → cross-compile + ISO build
+   - CI/CD: GitHub Actions'da ISO build (release artifact olarak)
+
+5. **İlk Boot Setup Wizard:**
+   - `/var/lib/home-router/.first-boot` dosyası varsa web UI'da setup wizard göster
+   - Wizard adımları:
+     - Admin şifresi belirleme
+     - WAN interface seçimi + PPPoE credentials (veya DHCP)
+     - LAN interface seçimi + subnet
+     - Temel DNS ayarları (recursive veya forwarder)
+   - Wizard tamamlandığında `.first-boot` silinir, normal dashboard gösterilir
+   - Wizard atlanabilir (ileri düzey kullanıcı doğrudan config düzenler)
+
+6. **Makefile hedefleri:**
+   - `make build` — Go binary derle (Linux amd64)
+   - `make install` — `install.sh` çalıştır (lokal kurulum)
+   - `make iso` — Preseed ISO oluştur (cross-compile + ISO build)
+   - `make release` — Binary + ISO'yu tar.gz olarak paketle
+
+Manuel doğrulama:
+- **install.sh:** temiz Debian 12 minimal'e çalıştır → web UI erişilebilir mi
+- **install.sh idempotent:** ikinci çalıştırma mevcut config'i bozmuyor mu
+- **install.sh --check:** eksik paket/config doğru raporlanıyor mu
+- **Preseed ISO:** USB'den boot → tamamen otomomatik kurulum tamamlanıyor mu
+- **RAID-1:** `cat /proc/mdstat` → md0 active raid1, her iki disk üyesi
+- **RAID-1 degraded boot:** tek disk çıkar → sistem boot oluyor mu
+- **İlk boot:** web UI setup wizard gösteriliyor mu
+- **Setup wizard:** admin şifresi + PPPoE credentials gir → internet bağlantısı kuruluyor mu
+- **make iso:** GitHub Actions'da ISO build başarılı mı
+- TR/EN dillerinde setup wizard metinleri doğru mu
+
 ---
 
 ## Veri Akış Diyagramları
@@ -2188,6 +2310,9 @@ firewallSvc.Apply(rules)
 | Mobil operatör tethering algılama    | USB üzerinden TTL Fix (ayrı toggle), hotspot tespiti bypass                        |
 | USB tethering bant genişliği düşük  | Yedek amaçlı — sadece temel bağlantı, QoS/VPN devre dışı bırakılabilir            |
 | USB interface ismi değişkenliği     | udev rule RNDIS class match (vendor-agnostic), Samsung/Xiaomi/Google test          |
+| Preseed RAID-1 disk sırası değişir | Preseed'de disk serial/ID ile eşleştirme, `/dev/disk/by-id/` kullanımı             |
+| ISO build reproducibility           | Makefile + pinned Debian ISO checksum + Go binary hash                             |
+| UEFI Secure Boot + RAID-1          | Preseed'de EFI partition her iki diskte, `grub-install` her iki diske              |
 
 ## Tahmini Toplam Süre
 
@@ -2203,5 +2328,6 @@ firewallSvc.Apply(rules)
 | 8     | WireGuard + OpenVPN + PBR                               | 11  | 41        |
 | 9     | Samba NAS + M3U                                         | 3   | 44        |
 | 10    | Storage + Syslog + NTP + Backup                         | 5   | 49        |
+| 11    | Deployment — install.sh + Preseed ISO                   | 3   | 52        |
 
-**Toplam: ~49 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
+**Toplam: ~52 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
