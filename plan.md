@@ -625,6 +625,9 @@ pppoe:
 
 firewall:
   defaultPolicy: "drop"                 # WAN input/forward
+  ttlFix:
+    enabled: false                       # TTL sabitleme (ISP tethering tespitini atlatır)
+    value: 64                            # Sabitlenecek TTL değeri (64 = Linux default)
   portForwards: []
   rateLimits:
     ssh: "3/minute"
@@ -805,6 +808,7 @@ Go'da HTMX ile iki tür endpoint var: **sayfa** (tam HTML) ve **partial** (HTML 
 | POST   | /firewall/port-forward      | Partial | Port yönlendirme ekle          |
 | DELETE | /firewall/port-forward/{id} | Partial | Port yönlendirme sil           |
 | POST   | /firewall/confirm           | Partial | Watchdog onay (30s timeout)    |
+| PUT    | /firewall/ttl-fix           | Partial | TTL Fix aç/kapat + değer ayarla|
 
 ### DNS (Unbound)
 | Method | Path                       | Tür     | Açıklama                          |
@@ -1272,8 +1276,15 @@ Adımlar:
 3. Watchdog: 30s goroutine timer, onay gelmezse rollback
 4. Port forwarding: DNAT + forward kuralı CRUD
 5. sysctl: `ip_forward=1`, ipv6 forwarding kapalı
-6. HTMX: kural ekleme formu, silme, watchdog onay banner'ı
-7. **i18n:** Tüm template metinleri `{{ t .Lang "firewall.*" }}` ile — kural tipleri, watchdog uyarısı, onay butonu
+6. **TTL Fix (tethering bypass):**
+   - nftables postrouting chain'de: `ip ttl set {value}` (varsayılan 64)
+   - Tüm WAN'a çıkan paketlerde TTL sabitlenir → ISP router arkasındaki cihazları ayırt edemez
+   - Web UI: toggle switch (aç/kapat) + TTL değeri input (varsayılan 64, 1-255 arası)
+   - Config: `firewall.ttlFix.enabled` + `firewall.ttlFix.value`
+   - nftables şablonunda conditional render: enabled ise kural eklenir, değilse eklenmez
+   - Değişiklik anında uygulanır (AtomicChange + watchdog ile)
+7. HTMX: kural ekleme formu, silme, watchdog onay banner'ı, TTL Fix toggle
+8. **i18n:** Tüm template metinleri `{{ t .Lang "firewall.*" }}` ile — kural tipleri, watchdog uyarısı, onay butonu, TTL Fix açıklaması
 
 Manuel doğrulama:
 - NAT çalışıyor mu (LAN → internet)
@@ -1281,6 +1292,8 @@ Manuel doğrulama:
 - Port forwarding çalışıyor mu
 - Watchdog: onaylanmayan değişiklik 30s sonra rollback oluyor mu
 - `nft list ruleset` beklenen kuralları gösteriyor mu
+- **TTL Fix:** etkinken `traceroute` veya `tcpdump` ile WAN çıkışında TTL sabit mi
+- **TTL Fix kapalı:** TTL normal davranıyor mu (her hop'ta azalıyor)
 - TR/EN dillerinde firewall metinleri doğru mu
 
 ### Phase 5: Unbound DNS + dnsmasq DHCP (3 gün)
