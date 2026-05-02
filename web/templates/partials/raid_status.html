@@ -1,0 +1,15 @@
+{{ define "raid_status" }}
+{{ if .RAID }}
+<div style="padding:var(--space-sm) 0;">
+    <div style="color:var(--text-secondary); font-size:var(--font-sm); margin-bottom:var(--space-sm);">
+        {{ .RAID.Device }} — {{ .RAID.Level }} ({{ .RAID.ActiveDisks }}/{{ .RAID.TotalDisks }})
+    </div>
+    {{ range .RAID.Members }}
+    <div style="display:flex; justify-content:space-between; padding:var(--space-xs) 0; border-bottom:1px solid var(--border-color);">
+        <span style="font-family:var(--font-mono); font-size:var(--font-sm);">{{ .Device }}</span>
+        <span class="badge {{ if eq .State "active" }}badge-success{{ else }}badge-error{{ end }}">{{ .State }}</span>
+    </div>
+    {{ end }}
+</div>
+{{ end }}
+{{ end }}

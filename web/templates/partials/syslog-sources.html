@@ -1,0 +1,13 @@
+{{ define "syslog-sources" }}
+{{ if .Hosts }}
+{{ range .Hosts }}
+<div style="padding:var(--space-xs) 0; border-bottom:1px solid var(--border-color);">
+    <span style="font-weight:700;">{{ . }}</span>
+</div>
+{{ end }}
+{{ else }}
+<div style="color:var(--text-secondary); padding:var(--space-md); text-align:center;">
+    {{ t $.Lang "common.loading" }}
+</div>
+{{ end }}
+{{ end }}

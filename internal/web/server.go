@@ -36,6 +36,9 @@ type Server struct {
 	ovpn      *handlers.OpenVPNHandler
 	routing   *handlers.RoutingHandler
 	nas       *handlers.NASHandler
+	storageh  *handlers.StorageHandler
+	syslogh   *handlers.SyslogHandler
+	ntph      *handlers.NTPHandler
 	sse       *SSEBroker
 	monitor   *services.MonitorService
 }
@@ -86,6 +89,15 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, we
 	nasSvc := services.NewNASService(cfg)
 	nasHandler := handlers.NewNASHandler(renderer, nasSvc)
 
+	storageSvc := services.NewStorageService(cfg)
+	storageHandler := handlers.NewStorageHandler(renderer, storageSvc)
+
+	syslogSvc := services.NewSyslogService(cfg)
+	syslogHandler := handlers.NewSyslogHandler(renderer, syslogSvc)
+
+	ntpSvc := services.NewNTPService(cfg)
+	ntpHandler := handlers.NewNTPHandler(renderer, ntpSvc)
+
 	monitorSvc := services.NewMonitorService()
 	dashboardHandler := handlers.NewDashboardHandler(renderer, monitorSvc, pppoeSvc, dhcpSvc)
 	settingsHandler := handlers.NewSystemHandler(renderer, cfg)
@@ -107,6 +119,9 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, we
 		ovpn:      ovpnHandler,
 		routing:   routingHandler,
 		nas:       nasHandler,
+		storageh:  storageHandler,
+		syslogh:   syslogHandler,
+		ntph:      ntpHandler,
 		sse:       sseBroker,
 		monitor:   monitorSvc,
 		agent:     agentClient,
@@ -230,6 +245,10 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	mux.Handle("POST /nas/shares", authed(http.HandlerFunc(s.nas.HandleAddShare)))
 	mux.Handle("DELETE /nas/shares/{name}", authed(http.HandlerFunc(s.nas.HandleDeleteShare)))
 	mux.Handle("POST /nas/m3u/sync", authed(http.HandlerFunc(s.nas.HandleSyncM3U)))
+	mux.Handle("GET /storage", authed(http.HandlerFunc(s.storageh.HandlePage)))
+	mux.Handle("GET /syslog", authed(http.HandlerFunc(s.syslogh.HandlePage)))
+	mux.Handle("GET /ntp", authed(http.HandlerFunc(s.ntph.HandlePage)))
+	mux.Handle("POST /ntp/force-sync", authed(http.HandlerFunc(s.ntph.HandleForceSync)))
 }
 
 func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {

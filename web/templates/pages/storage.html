@@ -1,0 +1,46 @@
+{{ define "content" }}
+<div class="content-header">
+    <h1>{{ t .Lang "storage.title" }}</h1>
+</div>
+<div class="content-body">
+    {{ with .Data }}
+
+    {{ if .RAID }}
+    <div class="card" style="margin-bottom:var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "storage.raid" }}</span>
+            {{ if eq .RAID.State "clean" }}
+                <span class="badge badge-success">{{ t $.Lang "storage.raid.healthy" }}</span>
+            {{ else if eq .RAID.State "degraded" }}
+                <span class="badge badge-error">{{ t $.Lang "storage.raid.degraded" }}</span>
+            {{ else }}
+                <span class="badge badge-warning">{{ .RAID.State }}</span>
+            {{ end }}
+        </div>
+        {{ template "raid_status" . }}
+    </div>
+    {{ end }}
+
+    {{ if .Usage }}
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "storage.usage" }}</span>
+        </div>
+        {{ range .Usage }}
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:var(--space-sm) 0; border-bottom:1px solid var(--border-color);">
+            <div>
+                <span style="font-weight:700;">{{ .MountPoint }}</span>
+                <span style="color:var(--text-secondary); font-size:var(--font-xs); margin-left:var(--space-sm);">{{ .Filesystem }}</span>
+            </div>
+            <div style="text-align:right;">
+                <span>{{ .Used }} / {{ .Size }}</span>
+                <span class="badge badge-info" style="margin-left:var(--space-sm);">{{ .UsePercent }}</span>
+            </div>
+        </div>
+        {{ end }}
+    </div>
+    {{ end }}
+
+    {{ end }}
+</div>
+{{ end }}

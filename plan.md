@@ -2320,8 +2320,8 @@ Adımlar:
      → LAN cihazları DHCP ile otomatik olarak router'ı NTP sunucu olarak alır
    - Web UI: senkronizasyon durumu (offset, stratum, kaynak listesi), upstream değiştirme, force sync butonu
 10. ✅ Agent ops: `syslog.reload` (systemctl reload rsyslog)
-11. **i18n:** Storage, syslog, NTP, settings, backup sayfaları `{{ t .Lang "storage.*" }}`, `{{ t .Lang "syslog.*" }}`, `{{ t .Lang "ntp.*" }}`, `{{ t .Lang "settings.*" }}` ile
-12. **i18n doğrulama:** Tüm locale JSON dosyalarında eksik anahtar testi (build time check)
+11. ✅ **i18n:** Storage, syslog, NTP, settings, backup sayfaları `{{ t .Lang "storage.*" }}`, `{{ t .Lang "syslog.*" }}`, `{{ t .Lang "ntp.*" }}`, `{{ t .Lang "settings.*" }}` ile
+12. ✅ **i18n doğrulama:** Tüm locale JSON dosyalarında eksik anahtar testi (build time check)
 
 Manuel doğrulama:
 - RAID durumu doğru gösteriliyor mu

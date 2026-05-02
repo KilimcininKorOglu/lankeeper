@@ -1,0 +1,41 @@
+{{ define "content" }}
+<div class="content-header">
+    <h1>{{ t .Lang "ntp.title" }}</h1>
+</div>
+<div class="content-body">
+    {{ with .Data }}
+
+    {{ if .Status }}
+    <div style="display:flex; gap:var(--space-lg); margin-bottom:var(--space-2xl);">
+        <div class="stat-card" style="flex:1;">
+            <div class="stat-label">{{ t $.Lang "ntp.syncStatus" }}</div>
+            {{ if .Status.Synced }}
+                <span class="badge badge-success">{{ t $.Lang "ntp.synced" }}</span>
+            {{ else }}
+                <span class="badge badge-error">{{ t $.Lang "ntp.notSynced" }}</span>
+            {{ end }}
+        </div>
+        {{ if .Status.RefSource }}
+        <div class="stat-card" style="flex:1;">
+            <div class="stat-label">{{ t $.Lang "ntp.sources" }}</div>
+            <div class="stat-value" style="font-size:var(--font-lg);">{{ .Status.RefSource }}</div>
+        </div>
+        {{ end }}
+        {{ if .Status.Offset }}
+        <div class="stat-card" style="flex:1;">
+            <div class="stat-label">Offset</div>
+            <div class="stat-value" style="font-size:var(--font-lg);">{{ .Status.Offset }}</div>
+        </div>
+        {{ end }}
+    </div>
+
+    {{ template "ntp_status" . }}
+
+    <button class="btn btn-primary" hx-post="/ntp/force-sync" hx-swap="none" style="margin-top:var(--space-lg);">
+        {{ t $.Lang "common.apply" }}
+    </button>
+    {{ end }}
+
+    {{ end }}
+</div>
+{{ end }}

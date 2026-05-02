@@ -1,0 +1,24 @@
+{{ define "content" }}
+<div class="content-header">
+    <h1>{{ t .Lang "syslog.title" }}</h1>
+</div>
+<div class="content-body">
+    {{ with .Data }}
+
+    <div class="card" style="margin-bottom:var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "syslog.server" }}</span>
+        </div>
+        {{ template "syslog-sources" . }}
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "syslog.client" }}</span>
+        </div>
+        {{ template "syslog-logs" . }}
+    </div>
+
+    {{ end }}
+</div>
+{{ end }}
