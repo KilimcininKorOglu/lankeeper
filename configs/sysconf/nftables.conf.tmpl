@@ -1,0 +1,136 @@
+#!/usr/sbin/nft -f
+
+flush ruleset
+
+table inet filter {
+    chain input {
+        type filter hook input priority 0; policy drop;
+
+        # Connection tracking
+        ct state established,related accept
+        ct state invalid drop
+
+        # Loopback
+        iifname "lo" accept
+
+        # LAN input — accept all from LAN
+{{- range .LANInterfaces }}
+        iifname "{{ .Device }}" accept
+{{- end }}
+
+        # ICMPv4
+        ip protocol icmp icmp type { echo-request, echo-reply, destination-unreachable, time-exceeded } accept
+
+        # ICMPv6 mandatory allowlist (RFC 4890)
+        ip6 nexthdr icmpv6 icmpv6 type {
+            destination-unreachable,
+            packet-too-big,
+            time-exceeded,
+            parameter-problem,
+            echo-request,
+            echo-reply,
+            nd-router-solicit,
+            nd-router-advert,
+            nd-neighbor-solicit,
+            nd-neighbor-advert,
+            mld-listener-query,
+            mld-listener-report,
+            mld2-listener-report
+        } accept
+
+        # Rate-limited services on WAN
+{{- if .RateLimits.SSH }}
+        tcp dport 22 ct state new limit rate {{ .RateLimits.SSH }} accept
+{{- end }}
+{{- if .RateLimits.Web }}
+        tcp dport { {{ .WebPort }} } ct state new limit rate {{ .RateLimits.Web }} accept
+{{- end }}
+
+        # DHCPv6 client (WAN side — receive RA and DHCPv6 replies)
+{{- if .IPv6Enabled }}
+        udp sport 547 udp dport 546 accept
+{{- end }}
+
+        log prefix "INPUT_DROP: " drop
+    }
+
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+
+        ct state established,related accept
+        ct state invalid drop
+
+        # LAN → WAN (IPv4 + IPv6)
+{{- range .LANInterfaces }}
+{{- range $.WANInterfaces }}
+        iifname "{{ $.LANDevice }}" oifname "{{ .Device }}" accept
+{{- end }}
+{{- end }}
+
+        # Inter-VLAN isolation
+{{- range .IsolatedVLANs }}
+{{- range $.LANInterfaces }}
+        iifname "{{ $.VLANDevice }}" oifname "{{ .Device }}" drop
+        iifname "{{ .Device }}" oifname "{{ $.VLANDevice }}" drop
+{{- end }}
+{{- end }}
+
+        # MSS clamping (IPv4) — PPPoE MTU 1492
+        tcp flags syn tcp option maxseg size set rt mtu
+
+        # MSS clamping (IPv6) — 40-byte IPv6 header
+{{- if .IPv6Enabled }}
+        ip6 nexthdr tcp tcp flags syn tcp option maxseg size set rt mtu
+{{- end }}
+
+        # Port forwards — allow forwarded traffic
+{{- range .PortForwards }}
+{{- if .Enabled }}
+        iifname "{{ $.WANDevice }}" {{ .Protocol }} dport {{ .ExtPort }} ct state new accept
+{{- end }}
+{{- end }}
+
+        log prefix "FORWARD_DROP: " drop
+    }
+
+    chain output {
+        type filter hook output priority 0; policy accept;
+    }
+}
+
+table ip nat {
+    chain prerouting {
+        type nat hook prerouting priority -100; policy accept;
+
+        # Port forwards (DNAT)
+{{- range .PortForwards }}
+{{- if .Enabled }}
+        iifname "{{ $.WANDevice }}" {{ .Protocol }} dport {{ .ExtPort }} dnat to {{ .IntIP }}:{{ .IntPort }}
+{{- end }}
+{{- end }}
+    }
+
+    chain postrouting {
+        type nat hook postrouting priority 100; policy accept;
+
+        # NAT masquerade for WAN (IPv4 only — no NAT66)
+{{- range .WANInterfaces }}
+        oifname "{{ .Device }}" masquerade
+{{- end }}
+
+        # USB tethering NAT
+{{- if .USBNATEnabled }}
+        oifname "{{ .USBInterface }}" masquerade
+{{- end }}
+
+        # TTL Fix (tethering bypass)
+{{- if .TTLFixEnabled }}
+{{- range .WANInterfaces }}
+        oifname "{{ .Device }}" ip ttl set {{ $.TTLFixValue }}
+{{- end }}
+{{- if .USBNATEnabled }}
+        oifname "{{ .USBInterface }}" ip ttl set {{ .TTLFixValue }}
+{{- end }}
+{{- end }}
+    }
+}

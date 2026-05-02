@@ -1837,7 +1837,7 @@ Oluşturulacak dosyalar:
 - `web/templates/partials/confirm.html`
 
 Adımlar:
-1. nftables Go `text/template` şablonu:
+1. ✅ nftables Go `text/template` şablonu:
    - `table inet filter` — input/forward/output chains (dual-stack: IPv4 + IPv6 tek tabloda)
    - `table ip nat` — prerouting (DNAT) + postrouting (masquerade) — **yalnızca IPv4, NAT66 yok**
    - MSS clamping (IPv4): `tcp flags syn tcp option maxseg size set rt mtu`
@@ -1851,11 +1851,11 @@ Adımlar:
      - Ping: `echo-request` (128), `echo-reply` (129)
    - LAN→WAN forward: accept + masquerade (IPv4), accept (IPv6 — NAT yok, global prefix ile doğrudan çıkış)
    - Rate limiting: brute force koruması
-2. AtomicChange: snapshot → validate (`nft -c -f`) → apply → watchdog
-3. Watchdog: 30s goroutine timer, onay gelmezse rollback
-4. Port forwarding: DNAT + forward kuralı CRUD
-5. sysctl: `net.ipv4.ip_forward=1`, `net.ipv6.conf.all.forwarding=1` (IPv6 etkinse, config'e bağlı)
-6. **TTL Fix (tethering bypass):**
+2. ✅ AtomicChange: snapshot → validate (`nft -c -f`) → apply → watchdog
+3. ✅ Watchdog: 30s goroutine timer, onay gelmezse rollback
+4. ✅ Port forwarding: DNAT + forward kuralı CRUD
+5. ✅ sysctl: `net.ipv4.ip_forward=1`, `net.ipv6.conf.all.forwarding=1` (IPv6 etkinse, config'e bağlı)
+6. ✅ **TTL Fix (tethering bypass):**
    - nftables postrouting chain'de: `ip ttl set {value}` (varsayılan 64)
    - Tüm WAN'a çıkan paketlerde TTL sabitlenir → ISP router arkasındaki cihazları ayırt edemez
    - Web UI: toggle switch (aç/kapat) + TTL değeri input (varsayılan 64, 1-255 arası)
