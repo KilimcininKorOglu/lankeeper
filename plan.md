@@ -95,6 +95,160 @@ Tarayıcı                          Go Sunucu
 - JS minimal: sadece chart (Canvas API) ve drag-drop için küçük helper'lar
 - Tema: CSS custom properties + `prefers-color-scheme`
 
+### UI Design System — X (Twitter) İlhamlı
+
+Minimalist, content-first, dark-mode dominant. X (Twitter) tasarım dili temel alınarak router dashboard'una uyarlanmış.
+
+**Renk paleti (CSS custom properties):**
+
+```css
+:root {
+  /* Dark mode (varsayılan) */
+  --bg-primary: #000000;          /* Ana arka plan */
+  --bg-surface: #16181C;          /* Kartlar, paneller */
+  --bg-elevated: #1D1F23;         /* Hover state, dropdown */
+  --border-color: #2F3336;        /* Ayırıcılar, kart kenarları */
+
+  --text-primary: #E7E9EA;        /* Ana metin */
+  --text-secondary: #71767B;      /* İkincil metin, timestamp */
+  --text-tertiary: #536471;       /* Placeholder, devre dışı */
+
+  --accent-blue: #1D9BF0;         /* Link, aktif öğe, birincil buton */
+  --accent-green: #00BA7C;        /* Bağlı, aktif, sağlıklı */
+  --accent-red: #F4212E;          /* Hata, bağlantı kopuk, tehlike */
+  --accent-yellow: #FFD400;       /* Uyarı, dikkat */
+  --accent-pink: #F91880;         /* Vurgulama, özel durum */
+
+  /* Focus ring */
+  --focus-ring: 0 0 0 2px #1D9BF0;
+
+  /* Spacing (4px base) */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 20px;
+  --space-2xl: 24px;
+  --space-3xl: 32px;
+  --space-4xl: 48px;
+}
+
+/* Light mode */
+[data-theme="light"] {
+  --bg-primary: #FFFFFF;
+  --bg-surface: #F7F9F9;
+  --bg-elevated: #EFF3F4;
+  --border-color: #EFF3F4;
+  --text-primary: #0F1419;
+  --text-secondary: #536471;
+  --text-tertiary: #71767B;
+}
+```
+
+**Tipografi:**
+```css
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 20px;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+}
+```
+
+| Öğe           | Boyut | Ağırlık | Satır Yüksekliği |
+|---------------|-------|---------|-------------------|
+| Sayfa başlığı | 23px  | 700     | 28px              |
+| Bölüm başlığı | 20px | 700     | 24px              |
+| Gövde metin   | 15px  | 400     | 20px              |
+| Gövde kalın   | 15px  | 700     | 20px              |
+| Alt metin      | 13px | 400     | 16px              |
+| Küçük          | 12px | 400     | 16px              |
+
+**Bileşen stilleri:**
+
+```css
+/* Birincil buton (mavi) */
+.btn-primary {
+  background-color: var(--accent-blue);
+  color: #FFFFFF;
+  font-size: 15px;
+  font-weight: 700;
+  padding: 0 var(--space-lg);
+  height: 36px;
+  border-radius: 9999px;
+  border: none;
+  transition: background-color 0.2s ease;
+}
+
+/* Kart */
+.card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: var(--space-md) var(--space-lg);
+}
+
+/* Sidebar navigasyon */
+.nav-item {
+  padding: var(--space-md);
+  border-radius: 9999px;
+  color: var(--text-primary);
+  font-size: 20px;
+  font-weight: 400;
+  transition: background-color 0.2s ease;
+}
+.nav-item:hover {
+  background-color: var(--bg-elevated);
+}
+.nav-item.active {
+  font-weight: 700;
+}
+
+/* Durum göstergesi */
+.status-ok { color: var(--accent-green); }
+.status-error { color: var(--accent-red); }
+.status-warning { color: var(--accent-yellow); }
+
+/* Divider */
+.divider {
+  border-bottom: 1px solid var(--border-color);
+}
+
+/* Dropdown/modal gölge */
+.floating {
+  background-color: var(--bg-primary);
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15),
+              0 0 15px rgba(255, 255, 255, 0.1);
+}
+
+/* Sticky header (blur) */
+.header-blur {
+  background-color: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(12px);
+}
+```
+
+**Layout:**
+- Sidebar (sol): sabit, 275px genişlik — navigasyon + logo
+- İçerik (orta): akışkan, max-width 600px — ana sayfa içeriği
+- Panel (sağ): sabit, 350px — durum kartları, ek bilgi (opsiyonel)
+- Mobil: sidebar → bottom tab bar, panel gizlenir
+- CSS Grid: `grid-template-columns: 275px minmax(0, 600px) 350px`
+
+**Animasyon:**
+- Geçişler: `transition: all 0.2s ease-out` (standart)
+- Modal: `scale(0.95) → scale(1)` + `opacity: 0 → 1`
+- Toast: aşağıdan yukarı kayma, 3s sonra otomatik kapanma
+- Yükleme: skeleton shimmer (CSS animation)
+
+**Tema geçişi:**
+- `data-theme` attribute'u `<html>` tag'inde (`dark` | `light`)
+- Varsayılan: dark mode
+- Toggle: JS ile `data-theme` değiştir + `localStorage`'a kaydet + cookie'ye yaz (server-side render için)
+- `prefers-color-scheme: light` medya sorgusu ile otomatik algılama (kullanıcı override edebilir)
+
 ### 3. Internationalization (i18n) — İlk Günden
 
 Tüm UI metinleri JSON locale dosyalarından yüklenir. Template'lere sabit metin yazılmaz.
@@ -1472,8 +1626,20 @@ Adımlar:
 10. Rate limiting: token bucket (stdlib `time.Ticker` + `sync.Map`)
 11. CSRF: double-submit cookie (custom header `X-CSRF-Token`)
 12. LAN-only: middleware'de source IP kontrolü
-13. HTMX base layout: sidebar navigasyon (`{{ t .Lang "nav.dashboard" }}` vb.), content area, toast, lang-switch
-14. Dark/light tema: CSS custom properties + JS toggle
+13. **HTMX base layout (X design system uygulaması):**
+    - Sidebar (sol, 275px): logo + navigasyon (`nav-item` rounded pill, `{{ t .Lang "nav.*" }}`)
+    - İçerik (orta, max 600px): sayfa içeriği
+    - Panel (sağ, 350px): durum kartları (opsiyonel, dashboard'da aktif)
+    - CSS Grid: `grid-template-columns: 275px minmax(0, 600px) 350px`
+    - Mobil: sidebar → bottom tab bar (responsive breakpoint)
+    - Toast: alt-merkez, slide-up animasyon, 3s auto-dismiss
+    - Lang-switch: sidebar altında TR/EN butonları
+14. **Dark/light tema:**
+    - `variables.css`: tüm renk token'ları CSS custom properties ile (mimari kararlar bölümündeki palette)
+    - Varsayılan: dark mode (`--bg-primary: #000000`, `--accent-blue: #1D9BF0`)
+    - `data-theme="light"` ile light mode override
+    - JS toggle: `localStorage` + `theme` cookie (server-side render uyumu)
+    - `prefers-color-scheme` medya sorgusu ile otomatik algılama
 15. **Tüm template'lerde sabit metin yok** — her label, buton, başlık `{{ t }}` fonksiyonu ile
 
 Manuel doğrulama:
@@ -1794,10 +1960,17 @@ Adımlar:
    - `/proc/net/dev` (interface byte counters → throughput hesaplama)
 2. SSE broker: channel-based pub/sub, goroutine per client
 3. SSE endpoint: `GET /events/stats` → `text/event-stream`
-4. Dashboard: stat kartları (uptime, WAN IP, CPU, RAM, throughput)
-5. Canvas grafik: bandwidth history (son 60 veri noktası, 1s interval)
-6. Responsive layout: CSS Grid, mobile-first
-7. Settings sayfası: hostname, timezone, password değiştir
+4. **Dashboard stat kartları (X design system):**
+   - `.card` bileşeni: `--bg-surface` zemin, `--border-color` kenar, 16px radius
+   - Her kart: ikon + etiket (`--text-secondary`) + değer (`--text-primary`, 23px, bold)
+   - Durum renkleri: bağlı → `--accent-green`, kopuk → `--accent-red`, uyarı → `--accent-yellow`
+   - Kartlar CSS Grid: `grid-template-columns: repeat(auto-fit, minmax(200px, 1fr))`
+5. Canvas grafik: bandwidth history (son 60 veri noktası, 1s interval), `--accent-blue` çizgi rengi
+6. **Responsive layout:**
+   - Desktop: 3-sütun grid (sidebar 275px + content + panel 350px)
+   - Tablet (< 1024px): sidebar daraltılır (ikon-only, 68px)
+   - Mobil (< 768px): sidebar → bottom tab bar, panel gizlenir, tek sütun
+7. Settings sayfası: hostname, timezone, password değiştir, tema toggle (dark/light)
 8. **i18n:** Dashboard stat etiketleri, birim formatları `{{ t .Lang "dashboard.*" }}` ile
 
 Manuel doğrulama:
