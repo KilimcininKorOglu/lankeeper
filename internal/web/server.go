@@ -27,6 +27,8 @@ type Server struct {
 	http     *http.Server
 	network  *handlers.NetworkHandler
 	firewall *handlers.FirewallHandler
+	dns      *handlers.DNSHandler
+	dhcp     *handlers.DHCPHandler
 }
 
 func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, webFS fs.FS) (*Server, error) {
@@ -54,6 +56,12 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, we
 	}
 	firewallHandler := handlers.NewFirewallHandler(renderer, firewallSvc, cfg)
 
+	dnsSvc := services.NewDNSService(cfg)
+	dnsHandler := handlers.NewDNSHandler(renderer, dnsSvc)
+
+	dhcpSvc := services.NewDHCPService(cfg)
+	dhcpHandler := handlers.NewDHCPHandler(renderer, dhcpSvc)
+
 	s := &Server{
 		cfg:      cfg,
 		auth:     auth,
@@ -61,6 +69,8 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, we
 		loc:      loc,
 		network:  networkHandler,
 		firewall: firewallHandler,
+		dns:      dnsHandler,
+		dhcp:     dhcpHandler,
 		agent:    agentClient,
 	}
 
@@ -147,6 +157,10 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	mux.Handle("POST /firewall/rollback", authed(http.HandlerFunc(s.firewall.HandleRollback)))
 	mux.Handle("POST /firewall/port-forwards", authed(http.HandlerFunc(s.firewall.HandleAddPortForward)))
 	mux.Handle("DELETE /firewall/port-forwards/{index}", authed(http.HandlerFunc(s.firewall.HandleDeletePortForward)))
+	mux.Handle("GET /dns", authed(http.HandlerFunc(s.dns.HandlePage)))
+	mux.Handle("POST /dns/clear-log", authed(http.HandlerFunc(s.dns.HandleClearLog)))
+	mux.Handle("GET /dhcp", authed(http.HandlerFunc(s.dhcp.HandlePage)))
+	mux.Handle("POST /dhcp/static", authed(http.HandlerFunc(s.dhcp.HandleAddStatic)))
 }
 
 func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {

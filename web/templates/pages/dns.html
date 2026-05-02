@@ -1,0 +1,67 @@
+{{ define "content" }}
+<div class="content-header">
+    <h1>{{ t .Lang "dns.title" }}</h1>
+</div>
+<div class="content-body">
+    {{ with .Data }}
+
+    <!-- DNS Stats -->
+    {{ if .Stats }}
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:var(--space-lg); margin-bottom:var(--space-lg);">
+        <div class="card">
+            <div class="input-label">{{ t $.Lang "dns.cache" }}</div>
+            <div style="font-size:var(--font-2xl); font-weight:700;">{{ .Stats.CacheHits }}</div>
+            <div style="color:var(--text-secondary); font-size:var(--font-xs);">hits</div>
+        </div>
+        <div class="card">
+            <div class="input-label">{{ t $.Lang "dns.cache" }}</div>
+            <div style="font-size:var(--font-2xl); font-weight:700;">{{ .Stats.CacheMisses }}</div>
+            <div style="color:var(--text-secondary); font-size:var(--font-xs);">misses</div>
+        </div>
+        <div class="card">
+            <div class="input-label">Blocked</div>
+            <div style="font-size:var(--font-2xl); font-weight:700; color:var(--accent-red);">{{ .Stats.BlockedCount }}</div>
+        </div>
+    </div>
+    {{ end }}
+
+    <!-- Top Domains -->
+    {{ if .Stats }}{{ if .Stats.TopDomains }}
+    <div class="card" style="margin-bottom:var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">Top Domains</span>
+        </div>
+        {{ range .Stats.TopDomains }}
+        <div style="display:flex; justify-content:space-between; padding:var(--space-xs) 0; border-bottom:1px solid var(--border-color);">
+            <span style="font-family:var(--font-mono); font-size:var(--font-sm);">{{ .Domain }}</span>
+            <span class="badge badge-info">{{ .Count }}</span>
+        </div>
+        {{ end }}
+    </div>
+    {{ end }}{{ end }}
+
+    <!-- Query Log -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "dns.queryLog" }}</span>
+            <button class="btn btn-danger btn-sm" hx-post="/dns/clear-log" hx-swap="none">
+                {{ t $.Lang "common.delete" }}
+            </button>
+        </div>
+        {{ range .Queries }}
+        <div style="display:flex; align-items:center; gap:var(--space-md); padding:var(--space-xs) 0; border-bottom:1px solid var(--border-color); font-size:var(--font-sm);">
+            <span style="color:var(--text-secondary); width:60px;">{{ .QueryType }}</span>
+            <span style="flex:1; font-family:var(--font-mono);">{{ .Domain }}</span>
+            <span style="color:var(--text-secondary);">{{ .ClientIP }}</span>
+            {{ if .Blocked }}
+                <span class="badge badge-error">BLOCKED</span>
+            {{ else }}
+                <span class="badge badge-success">{{ .Status }}</span>
+            {{ end }}
+        </div>
+        {{ end }}
+    </div>
+
+    {{ end }}
+</div>
+{{ end }}

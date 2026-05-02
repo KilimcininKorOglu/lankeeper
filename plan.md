@@ -1947,8 +1947,8 @@ Adımlar:
 7. ✅ **Cihaz listesi:** lease'lerden MAC+IP+hostname (VPN modülü kullanacak)
 8. ✅ **Config değişikliği akışı:** Go template render → atomic write → agent `SIGHUP` gönder
 9. ✅ **Agent operations:** `dns.reload` (unbound-control reload), `dhcp.reload` (SIGHUP dnsmasq), `dns.querylog.clear` (log dosyasını truncate)
-10. HTMX: lease tablosu, DNS istatistikleri, blocklist durumu, query log tablosu
-11. **i18n:** Tüm template metinleri `{{ t .Lang "dns.*" }}` ve `{{ t .Lang "dhcp.*" }}` ile
+10. ✅ HTMX: lease tablosu, DNS istatistikleri, blocklist durumu, query log tablosu
+11. ✅ **i18n:** Tüm template metinleri `{{ t .Lang "dns.*" }}` ve `{{ t .Lang "dhcp.*" }}` ile
 
 Manuel doğrulama:
 - `dig @10.10.10.1 google.com` → Unbound recursive çözümleme çalışıyor mu

@@ -1,0 +1,62 @@
+{{ define "content" }}
+<div class="content-header">
+    <h1>{{ t .Lang "dhcp.title" }}</h1>
+</div>
+<div class="content-body">
+    {{ with .Data }}
+
+    <!-- Add Static Lease Form -->
+    <div class="card" style="margin-bottom:var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "dhcp.addStatic" }}</span>
+        </div>
+        <form hx-post="/dhcp/static" hx-swap="none" hx-on::after-request="this.reset()">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:var(--space-md);">
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "dhcp.mac" }}</label>
+                    <input class="input" name="mac" placeholder="aa:bb:cc:dd:ee:ff" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "dhcp.ip" }}</label>
+                    <input class="input" name="ip" placeholder="10.10.10.x" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "dhcp.hostname" }}</label>
+                    <input class="input" name="hostname" placeholder="device-name" required>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm" style="margin-top:var(--space-md);">{{ t $.Lang "common.add" }}</button>
+        </form>
+    </div>
+
+    <!-- Active Leases -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "dhcp.leases" }}</span>
+        </div>
+        {{ if .Leases }}
+        {{ range .Leases }}
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:var(--space-sm) 0; border-bottom:1px solid var(--border-color);">
+            <div>
+                <div style="font-weight:700;">{{ if .Hostname }}{{ .Hostname }}{{ else }}{{ .IP }}{{ end }}</div>
+                <div style="color:var(--text-secondary); font-size:var(--font-xs);">{{ .MAC }} — {{ .IP }}</div>
+            </div>
+            <div>
+                {{ if .Active }}
+                    <span class="badge badge-success">{{ t $.Lang "common.enabled" }}</span>
+                {{ else }}
+                    <span class="badge badge-error">Expired</span>
+                {{ end }}
+            </div>
+        </div>
+        {{ end }}
+        {{ else }}
+        <div style="color:var(--text-secondary); padding:var(--space-lg); text-align:center;">
+            {{ t $.Lang "common.loading" }}
+        </div>
+        {{ end }}
+    </div>
+
+    {{ end }}
+</div>
+{{ end }}
