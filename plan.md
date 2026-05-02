@@ -1745,7 +1745,7 @@ Adımlar:
    - Web UI: "Credential Yakala" butonu → durum göstergesi → bulunan credentials
    - Güvenlik: credentials sadece maskelenmiş gösterilir (son 4 karakter), full gösterme yok
 9. HTMX: interface kartları, bağlan/kes butonları → partial swap ile durum güncelleme
-10. **Android USB Tethering (Yedek WAN):**
+10. ✅ **Android USB Tethering (Yedek WAN):**
     - **Algılama:** udev rule ile Android telefon USB bağlandığında `usb0` (veya `rndis0`) interface otomatik tanınır
       - udev rule: `SUBSYSTEM=="net", ACTION=="add", ATTRS{idVendor}=="18d1", NAME="usb0"` (Google vendor ID)
       - Farklı telefon markaları: Samsung `04e8`, Xiaomi `2717` vb. → generic RNDIS class match: `DRIVER=="rndis_host"`
