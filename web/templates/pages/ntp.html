@@ -23,7 +23,7 @@
         {{ end }}
         {{ if .Status.Offset }}
         <div class="stat-card" style="flex:1;">
-            <div class="stat-label">Offset</div>
+            <div class="stat-label">{{ t $.Lang "ntp.offset" }}</div>
             <div class="stat-value" style="font-size:var(--font-lg);">{{ .Status.Offset }}</div>
         </div>
         {{ end }}

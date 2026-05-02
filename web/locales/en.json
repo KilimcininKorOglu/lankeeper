@@ -130,6 +130,7 @@
     "ntp.syncStatus": "Sync Status",
     "ntp.synced": "Synced",
     "ntp.notSynced": "Not Synced",
+    "ntp.offset": "Offset",
 
     "settings.title": "System Settings",
     "settings.hostname": "Hostname",

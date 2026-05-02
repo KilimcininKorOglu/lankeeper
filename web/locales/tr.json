@@ -130,6 +130,7 @@
     "ntp.syncStatus": "Senkronizasyon Durumu",
     "ntp.synced": "Senkronize",
     "ntp.notSynced": "Senkronize Değil",
+    "ntp.offset": "Sapma",
 
     "settings.title": "Sistem Ayarları",
     "settings.hostname": "Ana Makine Adı",
