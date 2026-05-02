@@ -1,8 +1,26 @@
-# Home Router Software — Implementation Plan
+# Home Router Software — Implementation Plan (Go + HTMX)
 
 ## Context
 
-Turkcell Superonline'ın ISP modemleri bufferbloat sorununa neden oluyor ve 1 Gbps bağlantıda SQM/QoS desteği sunmuyor. Mevcut ZTE modem yerine Intel i5 3470 tabanlı özel donanım üzerine sıfırdan router yazılımı geliştirilecek. Hedef: PPPoE WAN bağlantısı, nftables firewall, WireGuard VPN, Samba NAS ve web dashboard'u tek bir Python uygulamasında birleştirmek.
+Turkcell Superonline'ın ISP modemleri bufferbloat sorununa neden oluyor ve 1 Gbps bağlantıda SQM/QoS desteği sunmuyor. Mevcut ZTE modem yerine Intel i5 3470 tabanlı özel donanım üzerine sıfırdan router yazılımı geliştirilecek. Hedef: PPPoE WAN bağlantısı, nftables firewall, WireGuard VPN, Samba NAS ve web dashboard'u tek bir Go binary'sinde birleştirmek.
+
+## Kurallar
+
+1. **Her değişiklikte commit atılır.** Fonksiyonel bir birim tamamlandığında hemen commit.
+2. **Asla yama yapılmaz.** Sorunun kök nedeni bulunur ve oradan çözülür.
+
+## Neden Go + HTMX?
+
+| Kriter             | Python + FastAPI + Vanilla JS       | Go + HTMX                              |
+|--------------------|-------------------------------------|-----------------------------------------|
+| Deployment         | venv + pip + uvicorn + systemd      | Tek statik binary, `scp` ile deploy     |
+| Bellek             | ~80-120 MB (Python runtime + deps)  | ~10-20 MB (compiled binary)             |
+| Startup            | 2-5 saniye (import + uvicorn)       | <100ms                                  |
+| Concurrency        | asyncio (single-threaded event loop)| goroutine (lightweight threads, multi-core) |
+| Frontend           | Client-side SPA, JS state yönetimi  | Server-side HTML, HTMX partial swap     |
+| Type safety        | Runtime (Pydantic)                  | Compile-time (structs)                  |
+| Bağımlılık         | ~12 pip paketi                      | stdlib + 4-5 Go modülü                  |
+| Router için uyum   | Orta (GC pauses, memory overhead)   | Yüksek (düşük latency, düşük bellek)   |
 
 ## Current State
 
@@ -14,179 +32,265 @@ Turkcell Superonline'ın ISP modemleri bufferbloat sorununa neden oluyor ve 1 Gb
 - IPv6 desteği (v1 kapsamı dışı — `ip6tables -P FORWARD DROP` ile kapatılacak)
 - Wi-Fi yönetimi (kullanıcı ayrı AP'ler kullanıyor)
 - DHCP/DNS sunucu yazılımı (AdGuard Home'a devredilecek)
-- Veritabanı (tüm config YAML/JSON dosyalarında)
-- Frontend framework (React/Vue/Svelte yok — pure vanilla)
+- Veritabanı (tüm config YAML dosyalarında)
+- JavaScript framework (React/Vue/Svelte yok — HTMX + server-side rendering)
 - Çoklu ISP / failover (tek PPPoE bağlantı)
 - Konteyner/Docker desteği
+- ORM veya SQL — dosya tabanlı config
 
 ---
 
 ## Mimari Kararlar
 
-### 1. Privilege Separation (Ayrıcalık Ayrımı)
+### 1. Tek Binary, İki Mod
 
-İki ayrı systemd servisi:
+Python'daki iki ayrı process (agent + web) yerine, Go'da **tek binary iki modda** çalışır:
+
+```
+home-router
+├── home-router serve    → Web sunucu (unprivileged, capability: CAP_NET_BIND_SERVICE)
+└── home-router agent    → Privileged agent (root, UDS listener)
+```
 
 ```
 ┌─────────────────────────────┐     ┌──────────────────────────────┐
-│  home-router-web.service    │     │  home-router-agent.service   │
+│  home-router serve          │     │  home-router agent           │
 │  User: homerouter           │────▶│  User: root                  │
-│  FastAPI + Uvicorn          │ UDS │  Unix Socket IPC             │
-│  Port 8443 (LAN only)      │     │  Op Whitelist Dispatcher     │
+│  net/http + HTMX            │ UDS │  Unix Socket IPC             │
+│  Port 8443 (LAN only)       │     │  Op Whitelist Dispatcher     │
+│  SSE for real-time updates   │     │  goroutine per operation     │
 └─────────────────────────────┘     └──────────────────────────────┘
         │                                      │
         ▼                                      ▼
-   Web Dashboard                    nftables, pppd, wg, tc,
-   REST API, WebSocket              ip rule/route, smartctl
+   html/template → HTMX partials    nftables, pppd, wg, tc,
+   SSE event stream                 ip rule/route, smartctl
 ```
 
-- **Web process** (unprivileged) asla `subprocess` ile root komut çalıştırmaz
+- **Web process** (unprivileged) asla `exec.Command` ile root komut çalıştırmaz
 - **Agent process** (root) strict op whitelist ile yalnızca bilinen işlemleri yürütür
-- IPC: Unix domain socket (`/run/home-router/agent.sock`)
+- IPC: Unix domain socket (`/run/home-router/agent.sock`) + JSON-RPC 2.0
+- Tek binary: `go build -o home-router ./cmd/home-router`
 
-### 2. Atomic Network Changes
+### 2. HTMX + Server-Side Rendering
 
-```python
-async with AtomicChange(service="firewall") as txn:
-    txn.snapshot()          # mevcut nftables ruleset'i kaydet
-    txn.validate(new_rules) # nft -c -f ile dry-run
-    txn.apply(new_rules)    # nft -f ile uygula
-    # hata olursa __aexit__ otomatik rollback yapar
+SPA yerine **hypermedia-driven** yaklaşım:
+
+```
+Tarayıcı                          Go Sunucu
+   │                                  │
+   │─── GET / ───────────────────────▶│ → tam sayfa HTML render
+   │◀── full HTML + HTMX attrs ──────│
+   │                                  │
+   │─── hx-get="/partials/stats" ───▶│ → sadece <div> fragment render
+   │◀── HTML fragment ───────────────│ → HTMX swap: innerHTML
+   │                                  │
+   │─── SSE /events/stats ──────────▶│ → goroutine: 1s interval
+   │◀── data: <html fragment> ───────│ → HTMX SSE swap
+```
+
+- İlk yükleme: tam sayfa HTML (`html/template`)
+- Etkileşimler: HTMX ile partial HTML swap (`hx-get`, `hx-post`, `hx-swap`)
+- Real-time: SSE (Server-Sent Events) ile dashboard metrikleri
+- Drag-and-drop: HTMX Sortable extension + `hx-trigger="drop"`
+- JS minimal: sadece chart (Canvas API) ve drag-drop için küçük helper'lar
+- Tema: CSS custom properties + `prefers-color-scheme`
+
+### 3. Atomic Network Changes
+
+```go
+func (s *FirewallService) Apply(ctx context.Context, rules *NftRuleset) error {
+    txn := NewAtomicChange("firewall")
+    defer txn.Rollback() // hata olursa otomatik rollback
+
+    if err := txn.Snapshot(); err != nil {  // nft list ruleset > backup
+        return err
+    }
+    if err := txn.Validate(rules); err != nil { // nft -c -f (dry-run)
+        return err
+    }
+    if err := txn.Apply(rules); err != nil { // nft -f
+        return err
+    }
+
+    txn.StartWatchdog(30 * time.Second) // 30s onay bekleme
+    txn.Commit() // rollback iptal
+    return nil
+}
 ```
 
 Agent'ta 30 saniyelik watchdog: apply sonrası web'den onay gelmezse otomatik rollback.
 
-### 3. VPN Policy Routing
+### 4. VPN Policy Routing
 
 ```
 nftables fwmark (kaynak IP'ye göre) → ip rule fwmark X lookup table_wgN → per-table default route
 ct mark ile reply paketlerde fwmark korunur
 ```
 
-### 4. AdGuard Home Integration
+### 5. AdGuard Home Integration
 
-AdGuard Home tek DHCP/DNS otoritesi. Router uygulaması kendi DHCP sunucusu çalıştırmaz — tüm DHCP/DNS yönetimi AGH REST API üzerinden proxy edilir.
+AdGuard Home tek DHCP/DNS otoritesi. Router uygulaması kendi DHCP sunucusu çalıştırmaz — tüm DHCP/DNS yönetimi AGH REST API üzerinden proxy edilir (`net/http` client).
+
+### 6. Config Yönetimi
+
+```go
+// YAML config → Go struct (compile-time type safety)
+type Config struct {
+    System     SystemConfig     `yaml:"system"`
+    Interfaces InterfaceConfig  `yaml:"interfaces"`
+    PPPoE      PPPoEConfig      `yaml:"pppoe"`
+    Firewall   FirewallConfig   `yaml:"firewall"`
+    QoS        QoSConfig        `yaml:"qos"`
+    AdGuard    AdGuardConfig    `yaml:"adguard"`
+    VPN        VPNConfig        `yaml:"vpn"`
+    NAS        NASConfig        `yaml:"nas"`
+    Storage    StorageConfig    `yaml:"storage"`
+}
+```
+
+- Atomic write: tmp → fsync → rename
+- Credentials: AES-256-GCM ile şifreleme (Go `crypto/aes` + `crypto/cipher`)
+- Validation: struct tag'ler + custom validator fonksiyonlar
 
 ---
 
 ## Dizin Yapısı
 
 ```
-/opt/home-router/
-├── home_router/                  # Ana Python paketi
-│   ├── __init__.py
-│   ├── main.py                   # FastAPI app factory
-│   ├── config/
-│   │   ├── __init__.py
-│   │   ├── manager.py            # YAML load/save, Fernet encryption
-│   │   ├── schema.py             # Pydantic config modelleri
-│   │   └── defaults.py           # Varsayılan değerler
+home-router/
+├── cmd/
+│   └── home-router/
+│       └── main.go               # CLI entry point (serve | agent)
+├── internal/
 │   ├── agent/
-│   │   ├── __init__.py
-│   │   ├── server.py             # Root agent — UDS dinleyici, op dispatcher
-│   │   ├── client.py             # Web'den agent'a IPC istemcisi
-│   │   ├── operations.py         # İzin verilen op tanımları
-│   │   └── watchdog.py           # Rollback watchdog timer
-│   ├── api/
-│   │   ├── __init__.py
-│   │   ├── deps.py               # Dependency injection (auth, config)
-│   │   ├── middleware.py          # CORS, rate limiting, CSRF
-│   │   └── routes/
-│   │       ├── __init__.py
-│   │       ├── auth.py           # Login/logout/session
-│   │       ├── dashboard.py      # Sistem istatistikleri
-│   │       ├── network.py        # Interface bilgileri
-│   │       ├── pppoe.py          # WAN bağlantı yönetimi
-│   │       ├── firewall.py       # nftables kuralları
-│   │       ├── adguard.py        # AGH proxy endpoint'leri
-│   │       ├── qos.py            # SQM/QoS profilleri
-│   │       ├── vpn.py            # WireGuard tünelleri + cihaz ataması
-│   │       ├── nas.py            # Samba paylaşımları
-│   │       ├── storage.py        # RAID durumu, disk sağlığı
-│   │       └── ws.py             # WebSocket real-time stats
+│   │   ├── server.go             # Root agent — UDS listener, op dispatcher
+│   │   ├── client.go             # Web'den agent'a IPC istemcisi
+│   │   ├── operations.go         # İzin verilen op tanımları + registry
+│   │   └── watchdog.go           # Rollback watchdog timer (goroutine)
+│   ├── config/
+│   │   ├── config.go             # YAML load/save, struct tanımları
+│   │   ├── crypto.go             # AES-256-GCM encrypt/decrypt
+│   │   ├── defaults.go           # Varsayılan config değerleri
+│   │   └── validate.go           # Config doğrulama
+│   ├── web/
+│   │   ├── server.go             # HTTP sunucu setup, middleware chain
+│   │   ├── middleware.go         # Auth, CSRF, rate limit, LAN-only
+│   │   ├── auth.go               # Login/logout, session/cookie, bcrypt
+│   │   ├── sse.go                # SSE broker (real-time stats broadcast)
+│   │   └── handlers/
+│   │       ├── dashboard.go      # GET / → dashboard sayfası
+│   │       ├── network.go        # Interface bilgileri
+│   │       ├── pppoe.go          # WAN bağlantı yönetimi
+│   │       ├── firewall.go       # nftables kuralları
+│   │       ├── adguard.go        # AGH proxy endpoint'leri
+│   │       ├── qos.go            # SQM/QoS profilleri
+│   │       ├── vpn.go            # WireGuard tünelleri + cihaz ataması
+│   │       ├── nas.go            # Samba paylaşımları
+│   │       ├── storage.go        # RAID durumu, disk sağlığı
+│   │       └── system.go         # Ayarlar, yedekleme, reboot
 │   ├── services/
-│   │   ├── __init__.py
-│   │   ├── pppoe_service.py      # pppd yönetimi
-│   │   ├── firewall_service.py   # nftables ruleset oluşturma + uygulama
-│   │   ├── adguard_service.py    # AGH REST API istemcisi
-│   │   ├── qos_service.py        # tc + CAKE qdisc yönetimi
-│   │   ├── vpn_service.py        # WireGuard tunnel + policy routing
-│   │   ├── nas_service.py        # Samba config + M3U parser
-│   │   ├── storage_service.py    # mdadm + smartctl
-│   │   ├── monitor_service.py    # Sistem istatistikleri toplayıcı
-│   │   └── backup_service.py     # Config export/import
-│   ├── templates/                # Jinja2 şablonları (config dosyaları için)
-│   │   ├── nftables/
-│   │   │   └── main.nft.j2       # Ana nftables ruleset
-│   │   ├── pppoe/
-│   │   │   ├── peer.j2           # /etc/ppp/peers/wan
-│   │   │   └── options.j2        # pppd seçenekleri
-│   │   ├── wireguard/
-│   │   │   └── wg.conf.j2        # WireGuard interface config
-│   │   └── samba/
-│   │       └── smb.conf.j2       # Samba paylaşım config
-│   └── utils/
-│       ├── __init__.py
-│       ├── atomic.py             # AtomicChange context manager
-│       ├── crypto.py             # Fernet key yönetimi, WG keypair
-│       ├── netlink.py            # Interface bilgisi okuma
-│       ├── validators.py         # IP, CIDR, port doğrulama
-│       └── process.py            # Güvenli subprocess wrapper
-├── frontend/
-│   ├── index.html                # SPA shell
-│   ├── css/
-│   │   ├── reset.css
-│   │   ├── variables.css         # CSS custom properties (tema)
-│   │   ├── layout.css
-│   │   ├── components.css
-│   │   └── pages.css
-│   ├── js/
-│   │   ├── app.js                # Router, state management
-│   │   ├── api.js                # Fetch wrapper + auth
-│   │   ├── ws.js                 # WebSocket istemcisi
-│   │   ├── components/
-│   │   │   ├── sidebar.js
-│   │   │   ├── toast.js
-│   │   │   ├── modal.js
-│   │   │   ├── chart.js          # Canvas-based grafikler (no lib)
-│   │   │   └── drag-drop.js      # VPN cihaz sürükle-bırak
-│   │   └── pages/
-│   │       ├── dashboard.js
-│   │       ├── network.js
-│   │       ├── firewall.js
-│   │       ├── vpn.js
-│   │       ├── dns.js
-│   │       ├── qos.js
-│   │       ├── nas.js
-│   │       ├── storage.js
-│   │       └── settings.js
-│   └── assets/
-│       ├── icons/                # SVG ikonlar
-│       └── fonts/                # Self-hosted font (Inter veya system)
-├── config/
-│   ├── router.yaml               # Ana yapılandırma
-│   ├── firewall.yaml             # nftables kuralları
-│   ├── vpn.yaml                  # WireGuard tünelleri + cihaz atamaları
-│   ├── qos.yaml                  # SQM profilleri
-│   ├── nas.yaml                  # Samba paylaşımları
-│   └── .credentials.enc          # Fernet ile şifrelenmiş PPPoE credentials
-├── systemd/
-│   ├── home-router.target        # Orchestration target
-│   ├── home-router-agent.service # Root agent
-│   └── home-router-web.service   # Web UI + API
-├── scripts/
+│   │   ├── pppoe.go              # pppd yönetimi
+│   │   ├── firewall.go           # nftables ruleset oluşturma + uygulama
+│   │   ├── adguard.go            # AGH REST API istemcisi (net/http)
+│   │   ├── qos.go                # tc + CAKE qdisc yönetimi
+│   │   ├── vpn.go                # WireGuard tunnel + policy routing
+│   │   ├── nas.go                # Samba config + M3U parser
+│   │   ├── storage.go            # mdadm + smartctl
+│   │   ├── monitor.go            # Sistem istatistikleri toplayıcı (goroutine)
+│   │   └── backup.go             # Config export/import
+│   ├── netutil/
+│   │   ├── atomic.go             # AtomicChange struct + rollback logic
+│   │   ├── exec.go               # Güvenli exec.Command wrapper
+│   │   ├── iface.go              # Interface bilgisi okuma (/proc/net/dev)
+│   │   └── validate.go           # IP, CIDR, MAC, port doğrulama
+│   └── tmpl/
+│       ├── render.go             # Template rendering helper'ları
+│       └── funcs.go              # Template fonksiyonları (formatBytes, humanTime, ...)
+├── web/
+│   ├── templates/
+│   │   ├── layouts/
+│   │   │   ├── base.html         # Ana layout (sidebar + content area)
+│   │   │   └── auth.html         # Login layout (sidebar'sız)
+│   │   ├── pages/
+│   │   │   ├── dashboard.html    # Dashboard tam sayfa
+│   │   │   ├── network.html
+│   │   │   ├── firewall.html
+│   │   │   ├── vpn.html
+│   │   │   ├── dns.html
+│   │   │   ├── qos.html
+│   │   │   ├── nas.html
+│   │   │   ├── storage.html
+│   │   │   ├── settings.html
+│   │   │   └── login.html
+│   │   └── partials/
+│   │       ├── sidebar.html      # Sidebar navigasyon
+│   │       ├── stats_card.html   # Dashboard stat kartı (SSE ile güncellenir)
+│   │       ├── bandwidth.html    # Bandwidth grafiği container
+│   │       ├── lease_table.html  # DHCP lease tablosu (HTMX swap)
+│   │       ├── fw_rules.html     # Firewall kural listesi
+│   │       ├── vpn_panel.html    # VPN cihaz atama paneli
+│   │       ├── vpn_device.html   # Tekil cihaz kartı (draggable)
+│   │       ├── share_list.html   # Samba paylaşım listesi
+│   │       ├── raid_status.html  # RAID durumu
+│   │       ├── toast.html        # Toast notification
+│   │       └── confirm.html      # Onay dialog
+│   ├── static/
+│   │   ├── css/
+│   │   │   ├── reset.css
+│   │   │   ├── variables.css     # CSS custom properties (dark/light tema)
+│   │   │   ├── layout.css
+│   │   │   ├── components.css
+│   │   │   └── pages.css
+│   │   ├── js/
+│   │   │   ├── htmx.min.js      # HTMX library (~14KB gzip)
+│   │   │   ├── htmx-sse.js      # HTMX SSE extension
+│   │   │   ├── htmx-sortable.js # HTMX Sortable extension (drag-drop)
+│   │   │   ├── chart.js         # Canvas-based grafik helper (minimal, custom)
+│   │   │   └── app.js           # Tema toggle, chart init (~50 satır)
+│   │   └── icons/               # SVG ikonlar (inline veya sprite)
+│   └── embed.go                  # go:embed ile static + template'leri binary'ye göm
+├── configs/
+│   ├── sysconf/                  # Sistem config şablonları
+│   │   ├── nftables.conf.tmpl    # nftables ruleset (Go text/template)
+│   │   ├── pppoe-peer.tmpl       # /etc/ppp/peers/wan
+│   │   ├── pppoe-options.tmpl    # pppd seçenekleri
+│   │   ├── wireguard.conf.tmpl   # WireGuard interface config
+│   │   └── smb.conf.tmpl         # Samba paylaşım config
+│   └── defaults/
+│       ├── router.yaml           # Varsayılan ana config
+│       ├── firewall.yaml         # Varsayılan firewall kuralları
+│       ├── qos.yaml              # Varsayılan QoS profilleri
+│       ├── vpn.yaml              # Boş VPN config
+│       └── nas.yaml              # Boş NAS config
+├── deploy/
+│   ├── systemd/
+│   │   ├── home-router.target    # Orchestration target
+│   │   ├── home-router-agent.service
+│   │   └── home-router-web.service
 │   ├── install.sh                # Tam kurulum scripti
 │   ├── setup-interfaces.sh       # udev kuralları + NIC isimlendirme
 │   ├── factory-reset.sh          # Fabrika ayarlarına dönüş
 │   └── backup.sh                 # Cron backup scripti
-├── tests/
-│   ├── unit/                     # pytest unit testleri
-│   ├── integration/              # netns tabanlı network testleri
-│   └── conftest.py
-├── pyproject.toml                # Proje metadata + bağımlılıklar
-├── requirements.txt              # Pinlenmiş bağımlılıklar
+├── go.mod
+├── go.sum
+├── Makefile                      # build, test, lint, deploy, cross-compile
+├── .goreleaser.yaml              # Release automation (opsiyonel)
 └── README.md
 ```
+
+### `go:embed` ile Tek Binary
+
+```go
+// web/embed.go
+package web
+
+import "embed"
+
+//go:embed templates/* static/*
+var EmbeddedFS embed.FS
+```
+
+Tüm HTML template'leri, CSS, JS, ikonlar binary'nin içine gömülür. Deploy = tek dosya kopyala.
 
 ---
 
@@ -196,14 +300,14 @@ AdGuard Home tek DHCP/DNS otoritesi. Router uygulaması kendi DHCP sunucusu çal
 system:
   hostname: "home-router"
   timezone: "Europe/Istanbul"
-  admin_password_hash: "$2b$12$..."      # bcrypt
-  session_secret: "..."                   # 32-byte hex
-  web_port: 8443
-  web_bind: "10.0.0.1"                   # Sadece LAN
+  adminPasswordHash: "$2a$12$..."       # bcrypt
+  sessionSecret: "..."                   # 32-byte hex, cookie signing
+  webPort: 8443
+  webBind: "10.0.0.1"                   # Sadece LAN
 
 interfaces:
   wan:
-    device: "enp3s0"                      # udev rule ile sabitlenmiş
+    device: "enp3s0"                     # udev rule ile sabitlenmiş
     type: "pppoe"
     mtu: 1492
   lan:
@@ -212,456 +316,618 @@ interfaces:
     mtu: 1500
 
 pppoe:
-  username: "..."                         # .credentials.enc'den okunur
+  username: "..."                        # .credentials.enc'den okunur
   password: "..."
   mtu: 1492
   mru: 1492
-  lcp_echo_interval: 10
-  lcp_echo_failure: 3
+  lcpEchoInterval: 10
+  lcpEchoFailure: 3
   persist: true
   holdoff: 5
 
 firewall:
-  default_policy: "drop"                  # WAN input/forward
-  port_forwards: []
-  rate_limits:
+  defaultPolicy: "drop"                 # WAN input/forward
+  portForwards: []
+  rateLimits:
     ssh: "3/minute"
     web: "30/minute"
 
 qos:
   enabled: true
-  profile: "cake"                         # cake | fq_codel | none
-  upload_kbps: 40000                      # ISP upload
-  download_kbps: 950000                   # ISP download (1Gbps - overhead)
-  congestion_control: "bbr"               # bbr | cubic
-  per_device_limits: {}
+  profile: "cake"                        # cake | fq_codel | none
+  uploadKbps: 40000
+  downloadKbps: 950000
+  congestionControl: "bbr"               # bbr | cubic
+  perDeviceLimits: {}
 
 adguard:
   url: "http://127.0.0.1:3000"
   username: "admin"
-  password: "..."                         # .credentials.enc'den
+  password: "..."                        # .credentials.enc'den
 
 vpn:
   tunnels:
     - name: "nl-amsterdam"
       endpoint: "1.2.3.4:51820"
-      private_key: "..."                  # .credentials.enc
-      public_key: "..."
-      allowed_ips: "0.0.0.0/0"
+      privateKey: "..."                  # .credentials.enc
+      publicKey: "..."
+      allowedIPs: "0.0.0.0/0"
       dns: "10.0.0.1"
       table: 100
       fwmark: 100
-  device_assignments:
+  deviceAssignments:
     "aa:bb:cc:dd:ee:ff": "nl-amsterdam"
 
 nas:
   shares:
     - name: "media"
       path: "/mnt/raid/media"
-      guest_ok: true
-      read_only: true
+      guestOk: true
+      readOnly: true
     - name: "backups"
       path: "/mnt/raid/backups"
-      guest_ok: false
-      valid_users: ["admin"]
-  m3u_sources:
+      guestOk: false
+      validUsers: ["admin"]
+  m3uSources:
     - url: "http://example.com/playlist.m3u"
-      download_path: "/mnt/raid/media/iptv"
-      schedule: "0 4 * * *"              # Her gün 04:00
+      downloadPath: "/mnt/raid/media/iptv"
+      schedule: "0 4 * * *"
 
 storage:
   raid:
     device: "/dev/md0"
     level: 1
     members: ["/dev/sda1", "/dev/sdb1"]
-  smart_check_interval: 3600
+  smartCheckInterval: 3600
 ```
 
 ---
 
-## API Endpoint Inventory
+## Route + Handler Inventory
+
+Go'da HTMX ile iki tür endpoint var: **sayfa** (tam HTML) ve **partial** (HTML fragment).
 
 ### Auth
-| Method | Path              | Açıklama                  |
-|--------|-------------------|---------------------------|
-| POST   | /api/auth/login   | Oturum aç (bcrypt + JWT)  |
-| POST   | /api/auth/logout  | Oturum kapat              |
-| GET    | /api/auth/me      | Mevcut kullanıcı bilgisi  |
+| Method | Path               | Tür     | Açıklama                              |
+|--------|--------------------|---------|---------------------------------------|
+| GET    | /login             | Sayfa   | Login formu render                    |
+| POST   | /login             | Partial | Oturum aç → cookie set → redirect    |
+| POST   | /logout            | Partial | Oturum kapat → cookie clear → redirect|
 
 ### Dashboard
-| Method | Path                  | Açıklama                         |
-|--------|-----------------------|----------------------------------|
-| GET    | /api/dashboard        | Özet istatistikler               |
-| WS     | /api/ws/stats         | Real-time sistem metrikleri      |
+| Method | Path                    | Tür     | Açıklama                          |
+|--------|-------------------------|---------|------------------------------------|
+| GET    | /                       | Sayfa   | Dashboard tam sayfa                |
+| GET    | /partials/stats         | Partial | Stat kartları (HTMX poll/SSE)     |
+| GET    | /events/stats           | SSE     | Real-time sistem metrikleri stream |
 
-### PPPoE
-| Method | Path                  | Açıklama                         |
-|--------|-----------------------|----------------------------------|
-| GET    | /api/pppoe/status     | Bağlantı durumu + uptime         |
-| POST   | /api/pppoe/connect    | PPPoE bağlantısını başlat        |
-| POST   | /api/pppoe/disconnect | PPPoE bağlantısını kes           |
-| PUT    | /api/pppoe/config     | PPPoE ayarlarını güncelle        |
+### Network / PPPoE
+| Method | Path                    | Tür     | Açıklama                          |
+|--------|-------------------------|---------|------------------------------------|
+| GET    | /network                | Sayfa   | Ağ ayarları sayfası                |
+| GET    | /partials/wan-status    | Partial | WAN durum kartı                   |
+| POST   | /pppoe/connect          | Partial | PPPoE bağlantısını başlat          |
+| POST   | /pppoe/disconnect       | Partial | PPPoE bağlantısını kes             |
+| PUT    | /pppoe/config           | Partial | PPPoE ayarlarını güncelle          |
 
 ### Firewall
-| Method | Path                       | Açıklama                    |
-|--------|----------------------------|-----------------------------|
-| GET    | /api/firewall/rules        | Aktif nftables kuralları    |
-| PUT    | /api/firewall/rules        | Kuralları güncelle          |
-| GET    | /api/firewall/port-forwards| Port yönlendirme listesi    |
-| POST   | /api/firewall/port-forwards| Yeni port yönlendirme ekle  |
-| DELETE | /api/firewall/port-forwards/{id} | Port yönlendirme sil  |
+| Method | Path                        | Tür     | Açıklama                      |
+|--------|-----------------------------|---------|--------------------------------|
+| GET    | /firewall                   | Sayfa   | Firewall kuralları sayfası     |
+| GET    | /partials/fw-rules          | Partial | Kural listesi (HTMX swap)     |
+| POST   | /firewall/port-forward      | Partial | Port yönlendirme ekle          |
+| DELETE | /firewall/port-forward/{id} | Partial | Port yönlendirme sil           |
+| POST   | /firewall/confirm           | Partial | Watchdog onay (30s timeout)    |
 
-### AdGuard Home
-| Method | Path                    | Açıklama                      |
-|--------|-------------------------|-------------------------------|
-| GET    | /api/adguard/status     | AGH genel durum               |
-| GET    | /api/adguard/stats      | DNS istatistikleri            |
-| GET    | /api/adguard/leases     | DHCP lease listesi            |
-| POST   | /api/adguard/lease      | Statik lease ekle             |
-| DELETE | /api/adguard/lease/{mac}| Lease sil                     |
+### AdGuard Home / DNS
+| Method | Path                    | Tür     | Açıklama                          |
+|--------|-------------------------|---------|------------------------------------|
+| GET    | /dns                    | Sayfa   | DNS istatistikleri sayfası         |
+| GET    | /partials/dns-stats     | Partial | DNS stat kartları                  |
+| GET    | /partials/leases        | Partial | DHCP lease tablosu                 |
+| POST   | /dns/lease              | Partial | Statik lease ekle                  |
+| DELETE | /dns/lease/{mac}        | Partial | Lease sil                          |
 
 ### QoS
-| Method | Path                | Açıklama                        |
-|--------|---------------------|---------------------------------|
-| GET    | /api/qos/status     | Aktif QoS profili + istatistik  |
-| PUT    | /api/qos/profile    | Profil değiştir (CAKE/fq_codel) |
-| PUT    | /api/qos/limits     | Bant genişliği limitleri        |
-| PUT    | /api/qos/congestion | Congestion control (BBR/CUBIC)  |
+| Method | Path                    | Tür     | Açıklama                          |
+|--------|-------------------------|---------|------------------------------------|
+| GET    | /qos                    | Sayfa   | QoS ayarları sayfası               |
+| GET    | /partials/qos-status    | Partial | Aktif QoS profili + istatistik     |
+| PUT    | /qos/profile            | Partial | Profil değiştir                    |
+| PUT    | /qos/limits             | Partial | Bant genişliği limitleri           |
+| PUT    | /qos/congestion         | Partial | Congestion control (BBR/CUBIC)     |
 
 ### VPN
-| Method | Path                          | Açıklama                    |
-|--------|-------------------------------|-----------------------------|
-| GET    | /api/vpn/tunnels              | WireGuard tünel listesi     |
-| POST   | /api/vpn/tunnels              | Yeni tünel ekle             |
-| DELETE | /api/vpn/tunnels/{name}       | Tünel sil                   |
-| GET    | /api/vpn/assignments          | Cihaz-tünel atamaları       |
-| PUT    | /api/vpn/assignments          | Cihaz atamasını güncelle    |
-| GET    | /api/vpn/tunnels/{name}/peers | Peer listesi + transfer     |
+| Method | Path                        | Tür     | Açıklama                      |
+|--------|-----------------------------|---------|--------------------------------|
+| GET    | /vpn                        | Sayfa   | VPN yönetimi sayfası           |
+| GET    | /partials/vpn-panel         | Partial | Tünel + cihaz paneli           |
+| POST   | /vpn/tunnel                 | Partial | Yeni tünel ekle                |
+| DELETE | /vpn/tunnel/{name}          | Partial | Tünel sil                      |
+| PUT    | /vpn/assign                 | Partial | Cihaz-tünel ataması (drag-drop)|
+| DELETE | /vpn/unassign/{mac}         | Partial | Cihaz atamasını kaldır         |
 
 ### NAS
-| Method | Path                    | Açıklama                      |
-|--------|-------------------------|-------------------------------|
-| GET    | /api/nas/shares         | Samba paylaşım listesi        |
-| POST   | /api/nas/shares         | Yeni paylaşım ekle            |
-| PUT    | /api/nas/shares/{name}  | Paylaşım güncelle             |
-| DELETE | /api/nas/shares/{name}  | Paylaşım sil                  |
-| POST   | /api/nas/m3u/sync       | M3U dosyalarını indir + parse |
-| GET    | /api/nas/m3u/status     | M3U senkronizasyon durumu     |
+| Method | Path                    | Tür     | Açıklama                          |
+|--------|-------------------------|---------|------------------------------------|
+| GET    | /nas                    | Sayfa   | NAS yönetimi sayfası               |
+| GET    | /partials/shares        | Partial | Paylaşım listesi                  |
+| POST   | /nas/share              | Partial | Yeni paylaşım ekle                |
+| PUT    | /nas/share/{name}       | Partial | Paylaşım güncelle                 |
+| DELETE | /nas/share/{name}       | Partial | Paylaşım sil                      |
+| POST   | /nas/m3u/sync           | Partial | M3U senkronizasyonu başlat         |
+| GET    | /partials/m3u-status    | Partial | M3U senkronizasyon durumu          |
 
 ### Storage
-| Method | Path                   | Açıklama                       |
-|--------|------------------------|--------------------------------|
-| GET    | /api/storage/raid      | RAID durumu (mdadm)            |
-| GET    | /api/storage/smart     | Disk sağlık bilgileri          |
-| GET    | /api/storage/usage     | Disk kullanım istatistikleri   |
+| Method | Path                    | Tür     | Açıklama                          |
+|--------|-------------------------|---------|------------------------------------|
+| GET    | /storage                | Sayfa   | Depolama sayfası                   |
+| GET    | /partials/raid          | Partial | RAID durumu                        |
+| GET    | /partials/smart         | Partial | Disk sağlık bilgileri              |
+| GET    | /partials/disk-usage    | Partial | Disk kullanımı                     |
 
 ### System
-| Method | Path                   | Açıklama                       |
-|--------|------------------------|--------------------------------|
-| GET    | /api/system/info       | Hostname, uptime, kernel       |
-| POST   | /api/system/reboot     | Sistemi yeniden başlat         |
-| GET    | /api/system/logs       | journalctl çıktısı (paginated)|
-| POST   | /api/backup/export     | Config dışa aktar (.tar.gz)   |
-| POST   | /api/backup/import     | Config içe aktar               |
+| Method | Path                    | Tür     | Açıklama                          |
+|--------|-------------------------|---------|------------------------------------|
+| GET    | /settings               | Sayfa   | Sistem ayarları                    |
+| PUT    | /settings/system        | Partial | Hostname, timezone güncelle        |
+| PUT    | /settings/password      | Partial | Şifre değiştir                     |
+| POST   | /system/reboot          | Partial | Sistemi yeniden başlat             |
+| GET    | /partials/logs          | Partial | journalctl çıktısı (paginated)    |
+| POST   | /backup/export          | Dosya   | Config dışa aktar (.tar.gz)       |
+| POST   | /backup/import          | Partial | Config içe aktar                   |
+
+---
+
+## Go Bağımlılıkları (go.mod)
+
+```
+module github.com/user/home-router
+
+go 1.23
+
+require (
+    gopkg.in/yaml.v3 v3.0.1         // Config YAML parse
+    golang.org/x/crypto v0.31.0      // bcrypt, AES-GCM
+    github.com/gorilla/sessions v1.4.0 // Cookie-based session
+)
+```
+
+**Bilinçli olarak kullanılMAyacaklar:**
+- HTTP router framework yok — `net/http.ServeMux` (Go 1.22+ method routing)
+- ORM yok — dosya tabanlı config
+- Template engine yok — `html/template` (stdlib)
+- WebSocket yok — SSE (çok daha basit, HTMX native desteği)
+- JSON API yok — HTML partial'lar döner (HTMX paradigması)
+
+**Toplam harici bağımlılık: 3 modül.** Geri kalan her şey Go stdlib.
+
+## Sistem Gereksinimleri (install.sh)
+
+```bash
+apt install -y \
+    ppp pppoe \
+    nftables \
+    wireguard-tools \
+    samba samba-common-bin \
+    smartmontools mdadm \
+    iproute2
+
+# AdGuard Home ayrı kurulur (kendi installer'ı var)
+# Go sadece build makinede gerekli, hedef makinede gerekli DEĞİL
+```
+
+## Build & Deploy
+
+```makefile
+# Makefile
+BINARY  := home-router
+VERSION := $(shell git describe --tags --always)
+LDFLAGS := -s -w -X main.version=$(VERSION)
+
+build:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/home-router
+
+test:
+	go test ./... -race -count=1
+
+lint:
+	golangci-lint run
+
+deploy: build
+	scp $(BINARY) router:/opt/home-router/
+	ssh router "systemctl restart home-router.target"
+```
+
+---
+
+## HTMX Etkileşim Örnekleri
+
+### Dashboard Stat Kartı (SSE ile real-time)
+```html
+<!-- base.html layout'ta SSE bağlantısı -->
+<div hx-ext="sse" sse-connect="/events/stats">
+    <div id="stats-cards" sse-swap="stats" hx-swap="innerHTML">
+        {{ template "partials/stats_card.html" .Stats }}
+    </div>
+</div>
+```
+
+### PPPoE Bağlantı Butonu
+```html
+<button hx-post="/pppoe/connect"
+        hx-target="#wan-status"
+        hx-swap="outerHTML"
+        hx-confirm="PPPoE bağlantısı başlatılsın mı?"
+        hx-indicator="#wan-spinner">
+    Bağlan
+</button>
+<div id="wan-status">
+    {{ template "partials/wan-status.html" .WanStatus }}
+</div>
+```
+
+### VPN Drag-and-Drop Cihaz Ataması
+```html
+<!-- Cihaz listesi (sol panel) -->
+<div id="unassigned-devices" class="device-pool">
+    {{ range .UnassignedDevices }}
+    <div class="device-card" draggable="true"
+         data-mac="{{ .MAC }}">
+        <span>{{ .Hostname }}</span>
+        <small>{{ .IP }}</small>
+    </div>
+    {{ end }}
+</div>
+
+<!-- VPN tünel drop zone (sağ panel) -->
+{{ range .Tunnels }}
+<div class="vpn-tunnel-zone"
+     data-tunnel="{{ .Name }}"
+     hx-put="/vpn/assign"
+     hx-target="#vpn-panel"
+     hx-swap="outerHTML"
+     hx-trigger="drop"
+     hx-vals='js:{"mac": event.dataTransfer.getData("text/mac"), "tunnel": "{{ .Name }}"}'>
+    <h3>{{ .Name }}</h3>
+    {{ range .AssignedDevices }}
+        {{ template "partials/vpn_device.html" . }}
+    {{ end }}
+</div>
+{{ end }}
+```
+
+### Firewall Watchdog Onay
+```html
+<!-- Firewall kuralı uygulandıktan sonra gösterilir -->
+<div id="fw-confirm" class="confirm-banner"
+     hx-post="/firewall/confirm"
+     hx-trigger="click"
+     hx-swap="outerHTML">
+    <p>Yeni kurallar uygulandı. 30 saniye içinde onaylanmazsa geri alınacak.</p>
+    <div class="countdown" data-seconds="30"></div>
+    <button>Onayla</button>
+</div>
+```
 
 ---
 
 ## Implementation Phases
 
-### Phase 1: Proje İskeleti + IPC Altyapısı (3 gün)
-**Hedef:** Temel proje yapısını, privilege-separated agent/web mimarisini ve IPC mekanizmasını kurmak.
+### Phase 1: Proje İskeleti + Agent IPC (3 gün)
+**Hedef:** Go module, CLI skeleton, privilege-separated agent/web mimarisi, UDS IPC.
 
 Oluşturulacak dosyalar:
-- `pyproject.toml` — proje metadata, bağımlılıklar (fastapi, uvicorn, pyyaml, cryptography, jinja2, httpx, bcrypt, pyjwt)
-- `home_router/__init__.py`, `home_router/main.py` — FastAPI app factory
-- `home_router/agent/server.py` — Root agent UDS listener
-- `home_router/agent/client.py` — Agent IPC client
-- `home_router/agent/operations.py` — Op whitelist tanımları
-- `home_router/config/manager.py` — YAML config loader + Fernet encryption
-- `home_router/config/schema.py` — Pydantic modeller
-- `home_router/utils/atomic.py` — AtomicChange context manager
-- `home_router/utils/process.py` — Güvenli subprocess wrapper
-- `systemd/home-router-agent.service`
-- `systemd/home-router-web.service`
-- `systemd/home-router.target`
-- `config/router.yaml` — Varsayılan yapılandırma
-- `scripts/install.sh` — Temel kurulum
+- `go.mod`, `go.sum`
+- `Makefile`
+- `cmd/home-router/main.go` — CLI: `serve` ve `agent` subcommand'ları
+- `internal/agent/server.go` — Root agent: UDS dinleyici, JSON-RPC 2.0 dispatcher
+- `internal/agent/client.go` — Agent IPC client (web'den kullanılır)
+- `internal/agent/operations.go` — Op whitelist registry
+- `internal/config/config.go` — YAML config struct + load/save
+- `internal/config/crypto.go` — AES-256-GCM encrypt/decrypt
+- `internal/config/defaults.go` — Varsayılan config
+- `internal/config/validate.go` — Config doğrulama
+- `internal/netutil/atomic.go` — AtomicChange struct
+- `internal/netutil/exec.go` — Güvenli exec.Command wrapper
+- `configs/defaults/router.yaml` — Varsayılan config dosyası
+- `deploy/systemd/home-router-agent.service`
+- `deploy/systemd/home-router-web.service`
+- `deploy/systemd/home-router.target`
+- `deploy/install.sh`
 
 Adımlar:
-1. pyproject.toml + requirements.txt oluştur
-2. Config manager: YAML load/save, Fernet encrypt/decrypt, atomic write (tmp→fsync→rename)
-3. Agent server: asyncio UDS listener, JSON-based protocol, op whitelist dispatcher
-4. Agent client: async context manager, request/response, timeout
-5. FastAPI app: lifespan event'te agent client bağlantısı
-6. systemd unit dosyaları: iki servis + target
-7. install.sh: venv oluştur, bağımlılık kur, systemd enable
+1. `go mod init`, Makefile (build/test/lint)
+2. CLI: `cobra` kullanmadan stdlib `flag` + subcommand dispatch
+3. Config: YAML struct, atomic file write (tmp→fsync→rename)
+4. AES-256-GCM: credential encrypt/decrypt (Go `crypto/aes` + `crypto/cipher`)
+5. Agent server: `net.Listen("unix", socketPath)` + goroutine per connection
+6. JSON-RPC 2.0 protocol: `{"method": "pppoe.connect", "params": {...}, "id": 1}`
+7. Agent client: dial UDS, send request, read response, timeout
+8. Op whitelist: yalnızca kayıtlı method'lar çalışır
+9. systemd unit dosyaları + install.sh
+10. Unit test: agent IPC round-trip
 
 Manuel doğrulama:
-- `systemctl start home-router.target` ile her iki servis de ayakta mı
-- Agent socket'e test mesaj gönder, yanıt al
-- `curl http://10.0.0.1:8443/api/health` yanıt veriyor mu
+- `go build ./...` hatasız derleniyor mu
+- `go test ./... -race` geçiyor mu
+- Agent socket test: JSON-RPC ping/pong
 
-### Phase 2: Auth + Base API (2 gün)
-**Hedef:** Oturum yönetimi, CSRF koruması ve temel API altyapısını kurmak.
+### Phase 2: Web Sunucu + Auth + HTMX Layout (3 gün)
+**Hedef:** HTTP sunucu, session auth, HTMX base layout, login sayfası, middleware chain.
 
 Oluşturulacak dosyalar:
-- `home_router/api/deps.py` — Auth dependency (JWT verify)
-- `home_router/api/middleware.py` — CSRF, rate limit, LAN-only binding
-- `home_router/api/routes/auth.py` — Login/logout/me
-- `home_router/utils/crypto.py` — bcrypt hash, JWT sign/verify
-- `frontend/index.html` — Login sayfası shell
-- `frontend/js/api.js` — Fetch wrapper + token yönetimi
-- `frontend/css/variables.css` + `frontend/css/reset.css`
+- `internal/web/server.go` — HTTP sunucu setup
+- `internal/web/middleware.go` — Auth, CSRF, rate limit, LAN-only
+- `internal/web/auth.go` — Login/logout, bcrypt, session cookie
+- `internal/tmpl/render.go` — Template rendering helper
+- `internal/tmpl/funcs.go` — Template fonksiyonları
+- `web/embed.go` — go:embed
+- `web/templates/layouts/base.html` — Ana layout (sidebar + content)
+- `web/templates/layouts/auth.html` — Login layout
+- `web/templates/pages/login.html`
+- `web/templates/pages/dashboard.html` (placeholder)
+- `web/templates/partials/sidebar.html`
+- `web/templates/partials/toast.html`
+- `web/static/css/reset.css`
+- `web/static/css/variables.css`
+- `web/static/css/layout.css`
+- `web/static/css/components.css`
+- `web/static/js/htmx.min.js`
+- `web/static/js/app.js`
 
 Adımlar:
-1. bcrypt ile admin password hash, JWT token oluşturma/doğrulama
-2. Login endpoint: username/password → JWT token (httpOnly cookie)
-3. Auth dependency: her korumalı route'ta JWT doğrulama
-4. Rate limiting middleware (sliding window, IP tabanlı)
-5. CSRF: double-submit cookie pattern
-6. LAN-only binding: web sadece LAN interface IP'sinde dinler
-7. Frontend login sayfası + API wrapper
+1. `net/http.ServeMux` ile routing (Go 1.22+ pattern: `GET /login`, `POST /login`)
+2. `html/template` ile layout inheritance: `base.html` → `{{block "content" .}}`
+3. `go:embed` ile tüm static + template'leri binary'ye göm
+4. Session: `gorilla/sessions` ile cookie-based (encrypted, httpOnly, secure, sameSite)
+5. bcrypt ile password verify
+6. Rate limiting: token bucket (stdlib `time.Ticker` + `sync.Map`)
+7. CSRF: double-submit cookie (custom header `X-CSRF-Token`)
+8. LAN-only: middleware'de source IP kontrolü
+9. HTMX base layout: sidebar navigasyon, content area, toast
+10. Dark/light tema: CSS custom properties + JS toggle
 
 Manuel doğrulama:
-- Yanlış şifre ile 401 dönüyor mu
-- JWT token ile korumalı endpoint'e erişim sağlanıyor mu
-- WAN interface'den erişim engellenmiş mi
+- `curl -k https://10.0.0.1:8443/login` → login sayfası dönüyor mu
+- Yanlış şifre → login sayfasında hata mesajı (HTMX swap)
+- Doğru şifre → dashboard'a redirect
+- WAN IP'den erişim → 403
 
 ### Phase 3: PPPoE WAN Bağlantısı (3 gün)
-**Hedef:** PPPoE üzerinden internete bağlanmak, auto-reconnect, bağlantı durumu izleme.
+**Hedef:** PPPoE ile internete bağlanma, auto-reconnect, bağlantı durum izleme.
 
 Oluşturulacak dosyalar:
-- `home_router/services/pppoe_service.py`
-- `home_router/templates/pppoe/peer.j2`
-- `home_router/templates/pppoe/options.j2`
-- `home_router/api/routes/pppoe.py`
-- `home_router/api/routes/network.py`
-- `frontend/js/pages/network.js`
+- `internal/services/pppoe.go`
+- `configs/sysconf/pppoe-peer.tmpl`
+- `configs/sysconf/pppoe-options.tmpl`
+- `internal/web/handlers/pppoe.go`
+- `internal/web/handlers/network.go`
+- `web/templates/pages/network.html`
+- `web/templates/partials/wan-status.html`
 
 Adımlar:
-1. Jinja2 şablonları: `/etc/ppp/peers/wan` ve pppd options dosyası
-2. PPPoE service: connect (pppd başlat), disconnect (pppd kill), status (pppd pid + interface durumu)
-3. Credentials .credentials.enc'den Fernet ile çözülecek
-4. Auto-reconnect: pppd `persist` + `holdoff` + service watchdog
+1. `text/template` ile `/etc/ppp/peers/wan` ve options dosyası render
+2. PPPoE service: Connect (`pppd call wan`), Disconnect (`kill pppd`), Status
+3. Credentials `.credentials.enc`'den AES-256-GCM ile çözme
+4. Auto-reconnect: pppd `persist` + `holdoff` seçenekleri
 5. Agent operations: `pppoe.connect`, `pppoe.disconnect`, `pppoe.status`
-6. WAN interface IP, gateway, uptime bilgisi
-7. MTU 1492 + MSS clamping hazırlığı (Phase 4'te uygulanacak)
+6. Network handler: interface listesi, WAN IP, gateway, uptime
+7. HTMX: bağlan/kes butonları → partial swap ile durum güncelleme
 
 Manuel doğrulama:
-- `ppp0` interface'i ayağa kalkıyor mu
-- İnternet erişimi var mı (`ping 8.8.8.8`)
-- Bağlantı koptuğunda auto-reconnect çalışıyor mu
-- Web UI'dan bağlantı durumu görünüyor mu
+- `ppp0` interface ayağa kalkıyor mu
+- İnternet erişimi: `ping 8.8.8.8`
+- Auto-reconnect: pppd kill sonrası tekrar bağlanıyor mu
+- Web UI'dan durum görünüyor + bağlan/kes çalışıyor mu
 
-### Phase 4: nftables Firewall + NAT (5 gün)
-**Hedef:** Zone-based firewall, NAT masquerade, MSS clamping, port forwarding.
+### Phase 4: nftables Firewall + NAT (4 gün)
+**Hedef:** Zone-based firewall, NAT masquerade, MSS clamping, port forwarding, watchdog rollback.
 
 Oluşturulacak dosyalar:
-- `home_router/services/firewall_service.py`
-- `home_router/templates/nftables/main.nft.j2`
-- `home_router/agent/watchdog.py` — 30s rollback watchdog
-- `home_router/api/routes/firewall.py`
-- `config/firewall.yaml`
-- `frontend/js/pages/firewall.js`
+- `internal/services/firewall.go`
+- `internal/agent/watchdog.go`
+- `configs/sysconf/nftables.conf.tmpl`
+- `configs/defaults/firewall.yaml`
+- `internal/web/handlers/firewall.go`
+- `web/templates/pages/firewall.html`
+- `web/templates/partials/fw_rules.html`
+- `web/templates/partials/confirm.html`
 
 Adımlar:
-1. nftables Jinja2 şablonu:
+1. nftables Go `text/template` şablonu:
    - `table inet filter` — input/forward/output chains
    - `table ip nat` — prerouting (DNAT) + postrouting (masquerade)
-   - MSS clamping: `tcp flags syn tcp option maxseg size set rt mtu` (PPPoE 1492 MTU)
+   - MSS clamping: `tcp flags syn tcp option maxseg size set rt mtu`
    - Connection tracking: `ct state established,related accept`
-   - WAN input: default drop, sadece established/related + ICMP
-   - LAN→WAN forward: accept (NAT masquerade ile)
-   - Rate limiting: `limit rate` ile SSH/HTTP brute force koruması
-2. AtomicChange: `nft -c -f` (validate) → snapshot → apply → rollback on failure
-3. Watchdog: apply sonrası 30s içinde web'den `confirm` gelmezse otomatik rollback
-4. Port forwarding: DNAT + forward kuralı ekleme/silme
-5. sysctl ayarları: `net.ipv4.ip_forward=1`, `net.ipv6.conf.all.forwarding=0`
-6. Agent operations: `firewall.apply`, `firewall.confirm`, `firewall.rollback`
+   - WAN input: default drop, established + ICMP
+   - LAN→WAN forward: accept + masquerade
+   - Rate limiting: brute force koruması
+2. AtomicChange: snapshot → validate (`nft -c -f`) → apply → watchdog
+3. Watchdog: 30s goroutine timer, onay gelmezse rollback
+4. Port forwarding: DNAT + forward kuralı CRUD
+5. sysctl: `ip_forward=1`, ipv6 forwarding kapalı
+6. HTMX: kural ekleme formu, silme, watchdog onay banner'ı
 
 Manuel doğrulama:
-- LAN'dan internete çıkılabiliyor mu (NAT çalışıyor mu)
-- WAN'dan LAN'a erişim engellenmiş mi
-- Port forwarding test: dış IP:port → LAN cihaz
+- NAT çalışıyor mu (LAN → internet)
+- WAN → LAN engelli mi
+- Port forwarding çalışıyor mu
+- Watchdog: onaylanmayan değişiklik 30s sonra rollback oluyor mu
 - `nft list ruleset` beklenen kuralları gösteriyor mu
-- Rollback çalışıyor mu (web'den confirm göndermeden bekleme)
 
 ### Phase 5: AdGuard Home Entegrasyonu (2 gün)
-**Hedef:** AGH REST API üzerinden DHCP lease yönetimi, DNS istatistikleri, engelleme bilgileri.
+**Hedef:** AGH REST API üzerinden DHCP lease, DNS stats, engelleme verileri.
 
 Oluşturulacak dosyalar:
-- `home_router/services/adguard_service.py`
-- `home_router/api/routes/adguard.py`
-- `frontend/js/pages/dns.js`
+- `internal/services/adguard.go`
+- `internal/web/handlers/adguard.go`
+- `web/templates/pages/dns.html`
+- `web/templates/partials/dns-stats.html`
+- `web/templates/partials/lease_table.html`
 
 Adımlar:
-1. httpx async client ile AGH REST API wrapper
+1. `net/http` client ile AGH REST API wrapper (Basic Auth)
 2. DHCP leases: liste, statik lease ekle/sil
 3. DNS stats: top clients, top domains, blocked queries
-4. Genel durum: AGH version, çalışıyor mu, filtering enabled
-5. Cihaz listesi: MAC + IP + hostname (diğer modüller tarafından kullanılacak)
-6. Frontend: DNS istatistikleri sayfası, DHCP lease tablosu
+4. Genel durum: AGH version, filtering, query count
+5. Cihaz listesi cache: MAC+IP+hostname (VPN modülü kullanacak)
+6. HTMX: lease tablosu swap, stat kartları poll
 
 Manuel doğrulama:
 - AGH API'den veri geliyor mu
-- Statik lease eklenip silinebiliyor mu
-- DNS istatistikleri dashboard'da görünüyor mu
+- Lease CRUD çalışıyor mu
+- DNS stat kartları güncel mi
 
-### Phase 6: Web Dashboard + WebSocket (4 gün)
-**Hedef:** Ana dashboard, real-time sistem metrikleri, responsive layout, tema desteği.
+### Phase 6: Dashboard + SSE Real-Time (3 gün)
+**Hedef:** Ana dashboard, SSE ile real-time metrikler, Canvas grafikleri.
 
 Oluşturulacak dosyalar:
-- `home_router/services/monitor_service.py`
-- `home_router/api/routes/dashboard.py`
-- `home_router/api/routes/ws.py`
-- `frontend/index.html` (tam SPA shell)
-- `frontend/css/layout.css`, `frontend/css/components.css`, `frontend/css/pages.css`
-- `frontend/js/app.js` — Client-side router
-- `frontend/js/ws.js` — WebSocket client
-- `frontend/js/components/sidebar.js`, `chart.js`, `toast.js`, `modal.js`
-- `frontend/js/pages/dashboard.js`
-- `frontend/js/pages/settings.js`
-- `frontend/assets/icons/*.svg`
+- `internal/services/monitor.go`
+- `internal/web/sse.go` — SSE broker
+- `internal/web/handlers/dashboard.go`
+- `web/templates/pages/dashboard.html` (tam)
+- `web/templates/partials/stats_card.html`
+- `web/templates/partials/bandwidth.html`
+- `web/static/js/chart.js`
+- `web/static/css/pages.css`
 
 Adımlar:
-1. Monitor service: asyncio background task — CPU, RAM, temperature, network throughput (psutil + /proc/net/dev)
-2. WebSocket endpoint: real-time broadcast (1 saniye interval)
-3. Frontend SPA: hash-based routing (#/dashboard, #/network, #/firewall, ...)
-4. Dashboard sayfası: uptime, WAN IP, throughput grafikleri (Canvas API), aktif cihaz sayısı
-5. Sidebar navigasyon
-6. Dark/light tema: CSS custom properties + `prefers-color-scheme`
-7. Responsive layout: CSS Grid + mobile-first
-8. Toast notification sistemi
-9. Settings sayfası: hostname, timezone, password değiştir
+1. Monitor service: goroutine, 1s interval — CPU, RAM, temp, throughput
+   - `/proc/stat` (CPU), `/proc/meminfo` (RAM), `/sys/class/thermal` (temp)
+   - `/proc/net/dev` (interface byte counters → throughput hesaplama)
+2. SSE broker: channel-based pub/sub, goroutine per client
+3. SSE endpoint: `GET /events/stats` → `text/event-stream`
+4. Dashboard: stat kartları (uptime, WAN IP, CPU, RAM, throughput)
+5. Canvas grafik: bandwidth history (son 60 veri noktası, 1s interval)
+6. Responsive layout: CSS Grid, mobile-first
+7. Settings sayfası: hostname, timezone, password değiştir
 
 Manuel doğrulama:
-- Dashboard'da real-time CPU/RAM/bandwidth grafikleri güncelleniyor mu
-- Mobil cihazdan LAN üzerinden erişilebilir mi
-- Tema değişimi çalışıyor mu
-- Sidebar navigasyonu tüm sayfalar arası geçiş yapıyor mu
+- Dashboard'da real-time metrikler güncelleniyor mu (SSE)
+- Bandwidth grafiği canlı çiziliyor mu
+- Mobil cihazdan responsive görünüyor mu
 
 ### Phase 7: SQM/QoS — Bufferbloat Çözümü (3 gün)
-**Hedef:** CAKE qdisc, per-device bandwidth limitleri, BBR/CUBIC congestion control.
+**Hedef:** CAKE qdisc, ingress shaping, BBR/CUBIC, per-device limitleri.
 
 Oluşturulacak dosyalar:
-- `home_router/services/qos_service.py`
-- `home_router/api/routes/qos.py`
-- `config/qos.yaml`
-- `frontend/js/pages/qos.js`
+- `internal/services/qos.go`
+- `internal/web/handlers/qos.go`
+- `configs/defaults/qos.yaml`
+- `web/templates/pages/qos.html`
+- `web/templates/partials/qos-status.html`
 
 Adımlar:
-1. CAKE qdisc uygulama:
+1. CAKE qdisc:
    - Egress: `tc qdisc add dev ppp0 root cake bandwidth {upload}kbit`
-   - Ingress: IFB (Intermediate Functional Block) device oluştur
-   - `tc qdisc add dev ifb0 root cake bandwidth {download}kbit wash ingress`
-2. Per-device bant genişliği limitleri: `tc filter` + `tc class` ile HTB
-3. Congestion control: `sysctl net.ipv4.tcp_congestion_control={bbr|cubic}`
-4. BBR ek: `sysctl net.core.default_qdisc=fq` (BBR için gerekli)
-5. QoS profilleri: cake (varsayılan), fq_codel, none
-6. Agent operations: `qos.apply`, `qos.clear`
-7. Frontend: profil seçimi, bant genişliği ayarı, per-device limitleri
+   - Ingress: IFB device → `tc qdisc add dev ifb0 root cake bandwidth {download}kbit wash ingress`
+2. Congestion control: `sysctl net.ipv4.tcp_congestion_control={bbr|cubic}`
+3. BBR prerequisite: `sysctl net.core.default_qdisc=fq`
+4. Profiller: cake (varsayılan), fq_codel, none
+5. Agent ops: `qos.apply`, `qos.clear`
+6. HTMX: profil seçimi (radio), bandwidth input, apply butonu
 
 Manuel doğrulama:
-- `tc -s qdisc show dev ppp0` CAKE gösteriyor mu
-- Bufferbloat testi: `flent rrul` veya DSLReports Speed Test
-- Online oyun sırasında download yapılırken latency artmıyor mu
-- Per-device limit çalışıyor mu
+- `tc -s qdisc show dev ppp0` → CAKE aktif mi
+- Bufferbloat testi (flent rrul veya waveform.com/tools/bufferbloat)
+- BBR/CUBIC geçişi çalışıyor mu
 
 ### Phase 8: WireGuard VPN + Policy Routing (5 gün)
-**Hedef:** WireGuard tünelleri, per-device VPN routing, drag-and-drop UI.
+**Hedef:** WireGuard tünelleri, per-device policy routing, drag-and-drop UI.
 
 Oluşturulacak dosyalar:
-- `home_router/services/vpn_service.py`
-- `home_router/templates/wireguard/wg.conf.j2`
-- `home_router/api/routes/vpn.py`
-- `config/vpn.yaml`
-- `frontend/js/components/drag-drop.js`
-- `frontend/js/pages/vpn.js`
+- `internal/services/vpn.go`
+- `configs/sysconf/wireguard.conf.tmpl`
+- `configs/defaults/vpn.yaml`
+- `internal/web/handlers/vpn.go`
+- `web/templates/pages/vpn.html`
+- `web/templates/partials/vpn_panel.html`
+- `web/templates/partials/vpn_device.html`
+- `web/static/js/htmx-sortable.js`
 
 Adımlar:
-1. WireGuard config şablonu: private/public key, endpoint, allowed IPs, DNS
-2. Tünel yönetimi: `wg-quick up/down wgN`, tünel ekleme/silme
-3. Policy routing:
-   - Her tünel için: `ip route add default dev wgN table {table_id}`
-   - Cihaz ataması: nftables'da kaynak MAC/IP'ye fwmark
+1. WireGuard config template: key, endpoint, allowed IPs, DNS
+2. Tünel CRUD: `wg-quick up/down wgN`
+3. Keypair: `exec.Command("wg", "genkey")` + `wg pubkey`
+4. Policy routing:
+   - `ip route add default dev wgN table {table_id}`
+   - nftables: `meta mark set {fwmark}` kaynak IP/MAC'e göre
    - `ip rule add fwmark {mark} lookup {table_id}`
-   - `ct mark` ile reply paketlerde fwmark korunması
-4. nftables şablonu güncelleme: VPN fwmark chain ekleme
-5. Keypair oluşturma: `wg genkey | tee private | wg pubkey > public`
-6. Frontend drag-and-drop:
-   - Sol panel: cihaz listesi (AGH DHCP'den)
-   - Sağ panel: aktif VPN tünelleri (drop zone)
-   - Drag: cihazı tünele sürükle → API çağrısı → policy route ekle
-7. Kill switch: VPN düşerse o cihazın trafiğini engelle (opsiyonel, config'den)
+   - `ct mark` ile reply paket fwmark korunması
+5. nftables template güncelleme: VPN fwmark chain
+6. Kill switch: VPN down → ilgili cihaz trafiği engelle
+7. HTMX drag-and-drop:
+   - HTML5 Drag and Drop API + HTMX `hx-trigger="drop"`
+   - Sol panel: cihaz havuzu, sağ panel: tünel drop zone'ları
+   - Drop → `PUT /vpn/assign` → partial swap
+8. Startup restore: `vpn.yaml`'dan tünel + route'ları kur
 
 Manuel doğrulama:
-- WireGuard tünel bağlantısı kurulabiliyor mu (`wg show`)
-- Atanmış cihaz VPN üzerinden çıkıyor mu (whatismyip kontrolü)
-- Atanmamış cihaz normal PPPoE'den çıkmaya devam ediyor mu
-- Drag-and-drop ile cihaz ataması anlık çalışıyor mu
-- Tünel düştüğünde kill switch çalışıyor mu
+- `wg show` → tünel aktif mi, handshake var mı
+- Atanmış cihaz VPN'den çıkıyor mu (whatismyip)
+- Atanmamış cihaz normal PPPoE'den çıkıyor mu
+- Drag-and-drop anlık çalışıyor mu
+- Kill switch: tünel down → cihaz internetsiz mi
 
 ### Phase 9: Samba NAS + M3U Parser (3 gün)
-**Hedef:** Samba paylaşımları, M3U dosya indirme/parse, Kodi uyumlu medya yapısı.
+**Hedef:** Samba paylaşımları, M3U indirme/parse, Kodi-uyumlu medya yapısı.
 
 Oluşturulacak dosyalar:
-- `home_router/services/nas_service.py`
-- `home_router/templates/samba/smb.conf.j2`
-- `home_router/api/routes/nas.py`
-- `config/nas.yaml`
-- `frontend/js/pages/nas.js`
+- `internal/services/nas.go`
+- `configs/sysconf/smb.conf.tmpl`
+- `configs/defaults/nas.yaml`
+- `internal/web/handlers/nas.go`
+- `web/templates/pages/nas.html`
+- `web/templates/partials/share_list.html`
+- `web/templates/partials/m3u-status.html`
 
 Adımlar:
-1. Samba config şablonu: global ayarlar + per-share tanımlar
-2. Paylaşım CRUD: oluştur, güncelle, sil → `smb.conf` regenerate → `smbcontrol reload-config`
+1. Samba config template: global + per-share
+2. Paylaşım CRUD: oluştur/güncelle/sil → `smb.conf` regenerate → `smbcontrol reload-config`
 3. M3U parser:
-   - M3U/M3U8 dosyası indir (httpx)
-   - `#EXTINF` satırlarını parse et: grup, başlık, URL
-   - İçerikleri gruplara göre klasörlere indir
-   - Kodi-friendly .strm dosyaları oluştur
-4. Zamanlı M3U senkronizasyonu (cron veya asyncio scheduled task)
-5. Agent operations: `samba.reload`
-6. Frontend: paylaşım listesi, M3U kaynak yönetimi, senkronizasyon durumu
+   - `net/http` ile M3U/M3U8 indir
+   - `#EXTINF` parse: grup, başlık, URL
+   - İçerikleri gruplara göre klasörlere indir (goroutine pool)
+   - Kodi `.strm` dosyaları oluştur
+4. Zamanlanmış sync: `time.Ticker` goroutine
+5. HTMX: paylaşım listesi, M3U sync butonu, durum göstergesi
 
 Manuel doğrulama:
-- Windows/macOS/Linux'tan Samba paylaşımına erişilebiliyor mu
-- M3U parse doğru çalışıyor mu (dosya yapısı kontrol)
+- Samba erişimi: Windows/macOS/Linux'tan bağlanabiliyor mu
+- M3U parse: `.strm` dosyaları doğru klasör yapısında mı
 - Kodi'den medya oynatılabiliyor mu
-- Yeni paylaşım eklendiğinde `smbclient -L` listede görünüyor mu
 
-### Phase 10: Storage + Backup + Hardening (4 gün)
-**Hedef:** RAID durumu izleme, disk sağlığı, config yedekleme, güvenlik sertleştirme.
+### Phase 10: Storage + Backup + Hardening (3 gün)
+**Hedef:** RAID izleme, disk sağlığı, config backup, güvenlik sertleştirme.
 
 Oluşturulacak dosyalar:
-- `home_router/services/storage_service.py`
-- `home_router/services/backup_service.py`
-- `home_router/api/routes/storage.py`
-- `frontend/js/pages/storage.js`
-- `scripts/factory-reset.sh`
-- `scripts/backup.sh`
+- `internal/services/storage.go`
+- `internal/services/backup.go`
+- `internal/web/handlers/storage.go`
+- `internal/web/handlers/system.go`
+- `web/templates/pages/storage.html`
+- `web/templates/pages/settings.html`
+- `web/templates/partials/raid_status.html`
+- `deploy/factory-reset.sh`
+- `deploy/backup.sh`
 
 Adımlar:
-1. RAID izleme: `mdadm --detail /dev/md0` parse, degraded uyarısı
-2. SMART: `smartctl -a /dev/sdX` → disk sağlık skoru, sıcaklık, hata sayısı
-3. Disk kullanımı: `df`, `du` ile paylaşım bazında kullanım
-4. Config backup:
-   - Export: `config/` dizinini + AGH config'i tar.gz olarak paketle
-   - Import: tar.gz'den çöz, doğrula, uygula, servisleri restart
-   - Zamanlanmış backup: günlük RAID'e, haftalık harici
-5. Factory reset: varsayılan config'e dön, tüm servisleri restart
-6. Güvenlik sertleştirme:
-   - `fail2ban` veya kendi rate limiter (Phase 2'deki middleware)
-   - SSH: sadece key auth, LAN only
-   - sysctl hardening: rp_filter, tcp_syncookies, icmp_ignore_bogus
-   - systemd: ProtectSystem, PrivateTmp, NoNewPrivileges
-   - Otomatik güvenlik güncellemeleri: `unattended-upgrades`
-7. HDD spin-up stagger: `hdparm -S` ile PicoPSU koruma
+1. RAID: `mdadm --detail` parse, degraded alarm
+2. SMART: `smartctl -a` → sağlık skoru, sıcaklık, hata
+3. Config backup: `tar.gz` export/import (config/ + AGH config)
+4. Factory reset: varsayılan config restore
+5. Güvenlik sertleştirme:
+   - systemd: ProtectSystem=strict, PrivateTmp, NoNewPrivileges
+   - sysctl: rp_filter, tcp_syncookies, icmp_ignore_bogus
+   - SSH: key-only, LAN-only
+   - CSP header, X-Frame-Options, X-Content-Type-Options
+6. HDD spin-up stagger: `hdparm -S`
 
 Manuel doğrulama:
-- RAID durumu dashboard'da doğru görünüyor mu
-- SMART verileri okunuyor mu
-- Config export → factory reset → config import çalışıyor mu
-- fail2ban / rate limit brute force'u engelliyor mu
+- RAID durumu doğru gösteriliyor mu
+- Config export → factory reset → import → çalışıyor mu
+- Güvenlik header'ları mevcut mu (`curl -I`)
 
 ---
 
@@ -669,75 +935,49 @@ Manuel doğrulama:
 
 ### PPPoE Bağlantı Akışı
 ```
-Web UI → POST /api/pppoe/connect
-  → auth middleware (JWT doğrula)
-  → pppoe_service.connect()
-    → config'den credentials çöz (Fernet)
-    → Jinja2: /etc/ppp/peers/wan oluştur
-    → agent_client.call("pppoe.connect")
-      → Agent: subprocess("pppd call wan")
-      → ppp0 interface ayağa kalkar
-      → Agent: return {status: "connected", ip: "..."}
-    → pppoe_service: firewall_service.apply() tetikle
-      → NAT masquerade + MSS clamping aktif
+Tarayıcı: <button hx-post="/pppoe/connect">
+  → Go Handler: pppoeConnect(w, r)
+    → authMiddleware: session cookie doğrula
+    → pppoeSvc.Connect(ctx)
+      → config'den credentials çöz (AES-256-GCM)
+      → text/template: /etc/ppp/peers/wan render
+      → agentClient.Call("pppoe.connect", params)
+        → Agent goroutine: exec.Command("pppd", "call", "wan")
+        → ppp0 interface ayağa kalkar
+        → return {status: "connected", ip: "..."}
+      → firewallSvc.Apply() tetikle → NAT + MSS clamping aktif
+    → tmpl.Render(w, "partials/wan-status.html", data)
+  → HTMX: #wan-status outerHTML swap
 ```
 
-### VPN Cihaz Atama Akışı
+### VPN Drag-and-Drop Akışı
 ```
-Web UI → PUT /api/vpn/assignments {mac: "aa:bb:...", tunnel: "nl-amsterdam"}
-  → vpn_service.assign_device(mac, tunnel)
-    → vpn.yaml güncelle (atomic write)
-    → nftables fwmark kuralı oluştur:
-        meta mark set {fwmark} ip saddr {device_ip}
-    → agent_client.call("firewall.apply", nft_rules)
-    → agent_client.call("routing.add_rule", {fwmark, table})
-      → ip rule add fwmark 100 lookup 100
-    → return {status: "assigned"}
-  → WebSocket: tüm client'lara "assignment_changed" event
+Tarayıcı: drag device-card → drop vpn-tunnel-zone
+  → hx-put="/vpn/assign" + hx-vals={mac, tunnel}
+  → Go Handler: vpnAssign(w, r)
+    → vpnSvc.AssignDevice(mac, tunnelName)
+      → vpn.yaml atomic write
+      → nftables fwmark kuralı oluştur
+      → agentClient.Call("firewall.apply", nftRules)
+      → agentClient.Call("routing.addRule", {fwmark, table})
+    → tmpl.Render(w, "partials/vpn_panel.html", data)
+  → HTMX: #vpn-panel outerHTML swap
+  → SSE: "vpn-changed" event → diğer client'lara bildir
 ```
 
 ### Atomic Firewall Change Akışı
 ```
-firewall_service.apply(new_rules)
-  → AtomicChange(service="firewall"):
-    → snapshot(): nft list ruleset > /tmp/nft-backup-{ts}
-    → validate(): nft -c -f /tmp/new-rules.nft (dry run)
-    → apply(): agent_client.call("firewall.apply")
-    → watchdog.start(30s)
-      → 30s içinde confirm() gelirse: snapshot sil, watchdog iptal
-      → 30s içinde confirm() gelmezse: rollback → eski ruleset restore
-```
-
----
-
-## Bağımlılıklar (pyproject.toml)
-
-```
-fastapi >= 0.115
-uvicorn[standard] >= 0.32
-pyyaml >= 6.0
-cryptography >= 43.0      # Fernet encryption
-jinja2 >= 3.1
-httpx >= 0.28              # AGH API client, async
-bcrypt >= 4.2
-pyjwt >= 2.9
-psutil >= 6.0              # Sistem metrikleri
-websockets >= 13.0         # FastAPI WebSocket desteği
-pydantic >= 2.9            # Config validation
-```
-
-## Sistem Gereksinimleri (install.sh)
-
-```
-apt install -y \
-  python3.12 python3.12-venv \
-  ppp pppoe \
-  nftables \
-  wireguard-tools \
-  samba samba-common-bin \
-  smartmontools mdadm \
-  iproute2 \
-  adguardhome
+firewallSvc.Apply(rules)
+  → atomic.Snapshot(): exec("nft list ruleset") > backup
+  → atomic.Validate(): exec("nft -c -f", newRules)  // dry-run
+  → atomic.Apply(): agentClient.Call("firewall.apply")
+  → watchdog goroutine başlat (30s)
+    → <-timer.C: rollback exec("nft -f", backup)
+    → <-confirmCh: timer.Stop(), backup sil
+  → Handler: render "partials/confirm.html" (countdown + onay butonu)
+  → Tarayıcı: <button hx-post="/firewall/confirm">
+    → confirmCh <- struct{}{}
+    → render "partials/toast.html" (başarılı)
 ```
 
 ---
@@ -751,25 +991,28 @@ apt install -y \
 | VPN policy route'lar reboot'ta kaybolur | Agent startup'ta `vpn.yaml`'dan restore                                |
 | Firewall kuralı hatalı → ağ kilitlenir | AtomicChange + 30s watchdog rollback                                   |
 | PicoPSU 180W, 6 disk ile surge riski   | HDD spin-up stagger (`hdparm -S`)                                      |
-| Web UI XSS → firewall manipülasyonu    | CSP header, input sanitization, agent op whitelist                     |
-| PPPoE credential sızıntısı             | Fernet encryption at rest, memory-only decrypt                         |
-| AGH API erişilemez → DHCP bilgisi yok  | Cache layer + health check, degraded mode UI uyarısı                   |
+| Web UI XSS                              | `html/template` auto-escaping + CSP header + agent op whitelist        |
+| PPPoE credential sızıntısı             | AES-256-GCM encryption at rest, memory-only decrypt                    |
+| AGH API erişilemez → DHCP bilgisi yok  | In-memory cache + health check, degraded mode UI uyarısı              |
 | Single point of failure (tek cihaz)    | Config backup + factory reset + RAID-1 depolama                        |
-| Ubuntu unattended-upgrade bozma riski  | Güvenlik güncellemeleri sadece, kernel pin                              |
+| Go binary update sırasında downtime    | systemd: `ExecStartPre` ile binary swap, graceful shutdown             |
+| HTMX: full page refresh gerekebilir   | `hx-boost` ile link'leri HTMX'e çevir, minimal JS fallback            |
 
 ## Tahmini Toplam Süre
 
-| Phase | Gün | Kümülatif |
-|-------|-----|-----------|
-| 1     | 3   | 3         |
-| 2     | 2   | 5         |
-| 3     | 3   | 8         |
-| 4     | 5   | 13        |
-| 5     | 2   | 15        |
-| 6     | 4   | 19        |
-| 7     | 3   | 22        |
-| 8     | 5   | 27        |
-| 9     | 3   | 30        |
-| 10    | 4   | 34        |
+| Phase | Konu                          | Gün | Kümülatif |
+|-------|-------------------------------|-----|-----------|
+| 1     | İskelet + Agent IPC           | 3   | 3         |
+| 2     | Web + Auth + HTMX Layout      | 3   | 6         |
+| 3     | PPPoE WAN                     | 3   | 9         |
+| 4     | nftables Firewall + NAT       | 4   | 13        |
+| 5     | AdGuard Home                  | 2   | 15        |
+| 6     | Dashboard + SSE               | 3   | 18        |
+| 7     | SQM/QoS                       | 3   | 21        |
+| 8     | WireGuard VPN + Policy Routing| 5   | 26        |
+| 9     | Samba NAS + M3U               | 3   | 29        |
+| 10    | Storage + Backup + Hardening  | 3   | 32        |
 
-**Toplam: ~34 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
+**Toplam: ~32 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
+
+Go'nun compile-time type safety'si ve tek binary deploy'u Python'a göre ~2 gün tasarruf sağlıyor.
