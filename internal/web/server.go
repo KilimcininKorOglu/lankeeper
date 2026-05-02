@@ -35,6 +35,7 @@ type Server struct {
 	vpn       *handlers.VPNHandler
 	ovpn      *handlers.OpenVPNHandler
 	routing   *handlers.RoutingHandler
+	nas       *handlers.NASHandler
 	sse       *SSEBroker
 	monitor   *services.MonitorService
 }
@@ -82,6 +83,9 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, we
 	routingSvc := services.NewRoutingService(cfg)
 	routingHandler := handlers.NewRoutingHandler(renderer, routingSvc)
 
+	nasSvc := services.NewNASService(cfg)
+	nasHandler := handlers.NewNASHandler(renderer, nasSvc)
+
 	monitorSvc := services.NewMonitorService()
 	dashboardHandler := handlers.NewDashboardHandler(renderer, monitorSvc, pppoeSvc, dhcpSvc)
 	settingsHandler := handlers.NewSystemHandler(renderer, cfg)
@@ -102,6 +106,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, we
 		vpn:       vpnHandler,
 		ovpn:      ovpnHandler,
 		routing:   routingHandler,
+		nas:       nasHandler,
 		sse:       sseBroker,
 		monitor:   monitorSvc,
 		agent:     agentClient,
@@ -221,6 +226,10 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	mux.Handle("POST /routing/policy", authed(http.HandlerFunc(s.routing.HandleAddPolicy)))
 	mux.Handle("DELETE /routing/policy/{name}", authed(http.HandlerFunc(s.routing.HandleDeletePolicy)))
 	mux.Handle("POST /routing/reorder", authed(http.HandlerFunc(s.routing.HandleReorder)))
+	mux.Handle("GET /nas", authed(http.HandlerFunc(s.nas.HandlePage)))
+	mux.Handle("POST /nas/shares", authed(http.HandlerFunc(s.nas.HandleAddShare)))
+	mux.Handle("DELETE /nas/shares/{name}", authed(http.HandlerFunc(s.nas.HandleDeleteShare)))
+	mux.Handle("POST /nas/m3u/sync", authed(http.HandlerFunc(s.nas.HandleSyncM3U)))
 }
 
 func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {

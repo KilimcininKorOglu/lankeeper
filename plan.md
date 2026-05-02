@@ -2250,8 +2250,8 @@ Adımlar:
    - İçerikleri gruplara göre klasörlere indir (goroutine pool)
    - Kodi `.strm` dosyaları oluştur
 4. ✅ Zamanlanmış sync: `time.Ticker` goroutine
-5. HTMX: paylaşım listesi, M3U sync butonu, durum göstergesi
-6. **i18n:** Paylaşım form etiketleri, M3U durum mesajları `{{ t .Lang "nas.*" }}` ile
+5. ✅ HTMX: paylaşım listesi, M3U sync butonu, durum göstergesi
+6. ✅ **i18n:** Paylaşım form etiketleri, M3U durum mesajları `{{ t .Lang "nas.*" }}` ile
 
 Manuel doğrulama:
 - Samba erişimi: Windows/macOS/Linux'tan bağlanabiliyor mu

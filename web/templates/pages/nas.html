@@ -1,0 +1,61 @@
+{{ define "content" }}
+<div class="content-header">
+    <h1>{{ t .Lang "nas.title" }}</h1>
+</div>
+<div class="content-body">
+    {{ with .Data }}
+
+    <!-- Shares -->
+    <div class="card" style="margin-bottom:var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "nas.shares" }}</span>
+            <button class="btn btn-primary btn-sm" onclick="document.getElementById('share-form').style.display='block'">
+                {{ t $.Lang "nas.addShare" }}
+            </button>
+        </div>
+
+        <form id="share-form" style="display:none; padding:var(--space-md); border:1px solid var(--border-color); border-radius:var(--radius-md); margin-bottom:var(--space-md);"
+              hx-post="/nas/shares" hx-swap="none" hx-on::after-request="this.reset(); this.style.display='none';">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-md); margin-bottom:var(--space-md);">
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "common.name" }}</label>
+                    <input class="input" name="name" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "nas.path" }}</label>
+                    <input class="input" name="path" placeholder="/mnt/raid/share" required>
+                </div>
+            </div>
+            <div style="display:flex; gap:var(--space-lg); margin-bottom:var(--space-md);">
+                <label style="display:flex; align-items:center; gap:var(--space-xs); cursor:pointer;">
+                    <input type="checkbox" name="guestOk" value="true">
+                    {{ t $.Lang "nas.guestAccess" }}
+                </label>
+                <label style="display:flex; align-items:center; gap:var(--space-xs); cursor:pointer;">
+                    <input type="checkbox" name="readOnly" value="true" checked>
+                    {{ t $.Lang "nas.readOnly" }}
+                </label>
+            </div>
+            <div style="display:flex; gap:var(--space-sm);">
+                <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('form').style.display='none'">{{ t $.Lang "common.cancel" }}</button>
+            </div>
+        </form>
+
+        {{ template "share_list" . }}
+    </div>
+
+    <!-- M3U Sources -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "nas.m3u" }}</span>
+            <button class="btn btn-primary btn-sm" hx-post="/nas/m3u/sync" hx-swap="none">
+                {{ t $.Lang "nas.m3u.sync" }}
+            </button>
+        </div>
+        {{ template "m3u-status" . }}
+    </div>
+
+    {{ end }}
+</div>
+{{ end }}

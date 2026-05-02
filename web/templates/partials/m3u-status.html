@@ -1,0 +1,26 @@
+{{ define "m3u-status" }}
+{{ if .M3UStatus }}
+<div style="padding:var(--space-md) 0;">
+    <div style="display:flex; gap:var(--space-2xl);">
+        <div>
+            <span class="input-label">{{ t $.Lang "common.status" }}</span>
+            {{ if .M3UStatus.Running }}
+                <span class="badge badge-info">{{ t $.Lang "common.loading" }}</span>
+            {{ else }}
+                <span class="badge badge-success">{{ t $.Lang "common.enabled" }}</span>
+            {{ end }}
+        </div>
+        {{ if not .M3UStatus.LastSync.IsZero }}
+        <div>
+            <span class="input-label">{{ t $.Lang "healthcheck.lastCheck" }}</span>
+            <span style="font-size:var(--font-sm);">{{ .M3UStatus.LastSync.Format "2006-01-02 15:04" }}</span>
+        </div>
+        {{ end }}
+        <div>
+            <span class="input-label">{{ t $.Lang "common.status" }}</span>
+            <span style="font-weight:700;">{{ .M3UStatus.TotalItems }}</span>
+        </div>
+    </div>
+</div>
+{{ end }}
+{{ end }}
