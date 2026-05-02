@@ -32,7 +32,7 @@ Turkcell Superonline'ın ISP modemleri bufferbloat sorununa neden oluyor ve 1 Gb
 
 - IPv6 desteği (v1 kapsamı dışı — `ip6tables -P FORWARD DROP` ile kapatılacak)
 - Wi-Fi yönetimi (kullanıcı ayrı AP'ler kullanıyor)
-- DHCP/DNS sunucu yazılımı (AdGuard Home'a devredilecek)
+- Harici DNS/DHCP web UI (Pi-hole, AdGuard Home) — Unbound + dnsmasq doğrudan Go'dan yönetilecek
 - Veritabanı (tüm config YAML dosyalarında)
 - JavaScript framework (React/Vue/Svelte yok — HTMX + server-side rendering)
 - Çoklu ISP / failover (tek PPPoE bağlantı)
@@ -241,9 +241,22 @@ nftables fwmark (kaynak IP'ye göre) → ip rule fwmark X lookup table_wgN → p
 ct mark ile reply paketlerde fwmark korunur
 ```
 
-### 6. AdGuard Home Integration
+### 6. DNS + DHCP: Unbound + dnsmasq
 
-AdGuard Home tek DHCP/DNS otoritesi. Router uygulaması kendi DHCP sunucusu çalıştırmaz — tüm DHCP/DNS yönetimi AGH REST API üzerinden proxy edilir (`net/http` client).
+İki ayrı servis, her biri tek bir iş yapar:
+
+- **Unbound** — Recursive DNS resolver. ISP DNS'ine bağımlılık yok, root sunuculardan doğrudan çözer. Reklam engelleme: blocklist dosyası ile (`local-zone: "ads.example.com" always_refuse`). DNS-over-TLS upstream desteği.
+- **dnsmasq** — Yalnızca DHCP sunucu. DNS forwarding kapalı (`port=0`), DHCP lease yönetimi, statik lease ataması.
+
+Her iki servis de Go'dan config dosyası ile yönetilir (`text/template` → config render → `SIGHUP` reload). REST API yok — doğrudan config dosyası + lease dosyası parse.
+
+```
+İstemci DNS sorgusu → Unbound (:53) → recursive resolution / blocklist
+İstemci DHCP isteği → dnsmasq (:67) → IP ata, lease kaydet
+Go Web UI → config dosyası oluştur → SIGHUP ile reload
+Go Web UI → /var/lib/misc/dnsmasq.leases parse → lease tablosu
+Go Web UI → unbound-control stats → DNS istatistikleri
+```
 
 ### 7. Config Yönetimi
 
@@ -255,7 +268,8 @@ type Config struct {
     PPPoE      PPPoEConfig      `yaml:"pppoe"`
     Firewall   FirewallConfig   `yaml:"firewall"`
     QoS        QoSConfig        `yaml:"qos"`
-    AdGuard    AdGuardConfig    `yaml:"adguard"`
+    DNS        DNSConfig        `yaml:"dns"`
+    DHCP       DHCPConfig       `yaml:"dhcp"`
     VPN        VPNConfig        `yaml:"vpn"`
     NAS        NASConfig        `yaml:"nas"`
     Storage    StorageConfig    `yaml:"storage"`
@@ -296,7 +310,8 @@ home-router/
 │   │       ├── network.go        # Interface bilgileri
 │   │       ├── pppoe.go          # WAN bağlantı yönetimi
 │   │       ├── firewall.go       # nftables kuralları
-│   │       ├── adguard.go        # AGH proxy endpoint'leri
+│   │       ├── dns.go            # Unbound DNS yönetimi + istatistik
+│   │       ├── dhcp.go           # dnsmasq DHCP lease yönetimi
 │   │       ├── qos.go            # SQM/QoS profilleri
 │   │       ├── vpn.go            # WireGuard tünelleri + cihaz ataması
 │   │       ├── nas.go            # Samba paylaşımları
@@ -305,7 +320,8 @@ home-router/
 │   ├── services/
 │   │   ├── pppoe.go              # pppd yönetimi
 │   │   ├── firewall.go           # nftables ruleset oluşturma + uygulama
-│   │   ├── adguard.go            # AGH REST API istemcisi (net/http)
+│   │   ├── dns.go                # Unbound config yönetimi + blocklist + unbound-control
+│   │   ├── dhcp.go               # dnsmasq config yönetimi + lease parse
 │   │   ├── qos.go                # tc + CAKE qdisc yönetimi
 │   │   ├── vpn.go                # WireGuard tunnel + policy routing
 │   │   ├── nas.go                # Samba config + M3U parser
@@ -334,6 +350,7 @@ home-router/
 │   │   │   ├── firewall.html
 │   │   │   ├── vpn.html
 │   │   │   ├── dns.html
+│   │   │   ├── dhcp.html
 │   │   │   ├── qos.html
 │   │   │   ├── nas.html
 │   │   │   ├── storage.html
@@ -374,7 +391,9 @@ home-router/
 │   │   ├── nftables.conf.tmpl    # nftables ruleset (Go text/template)
 │   │   ├── pppoe-peer.tmpl       # /etc/ppp/peers/wan
 │   │   ├── pppoe-options.tmpl    # pppd seçenekleri
-│   │   ├── wireguard.conf.tmpl   # WireGuard interface config
+│   │   ├── unbound.conf.tmpl     # Unbound recursive DNS config
+│   │   ├── dnsmasq.conf.tmpl    # dnsmasq DHCP-only config
+│   │   ├── wireguard.conf.tmpl  # WireGuard interface config
 │   │   └── smb.conf.tmpl         # Samba paylaşım config
 │   └── defaults/
 │       ├── router.yaml           # Varsayılan ana config
@@ -461,10 +480,26 @@ qos:
   congestionControl: "bbr"               # bbr | cubic
   perDeviceLimits: {}
 
-adguard:
-  url: "http://127.0.0.1:3000"
-  username: "admin"
-  password: "..."                        # .credentials.enc'den
+dns:
+  upstream: []                           # boş = recursive (root hints), dolu = forwarder
+  dotUpstream: "1.1.1.1@853"             # DNS-over-TLS upstream (opsiyonel)
+  enableDoT: false
+  blocklistUrls:
+    - "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+  blocklistUpdateSchedule: "0 3 * * *"   # Her gün 03:00
+  cacheSize: 50000                       # Unbound msg-cache-size entry sayısı
+  logQueries: true
+
+dhcp:
+  rangeStart: "10.0.0.100"
+  rangeEnd: "10.0.0.250"
+  leaseTime: "12h"
+  gateway: "10.0.0.1"
+  dnsServer: "10.0.0.1"                  # Unbound'a yönlendir
+  staticLeases:
+    - mac: "aa:bb:cc:dd:ee:ff"
+      ip: "10.0.0.10"
+      hostname: "desktop"
 
 vpn:
   tunnels:
@@ -541,14 +576,23 @@ Go'da HTMX ile iki tür endpoint var: **sayfa** (tam HTML) ve **partial** (HTML 
 | DELETE | /firewall/port-forward/{id} | Partial | Port yönlendirme sil           |
 | POST   | /firewall/confirm           | Partial | Watchdog onay (30s timeout)    |
 
-### AdGuard Home / DNS
-| Method | Path                    | Tür     | Açıklama                          |
-|--------|-------------------------|---------|------------------------------------|
-| GET    | /dns                    | Sayfa   | DNS istatistikleri sayfası         |
-| GET    | /partials/dns-stats     | Partial | DNS stat kartları                  |
-| GET    | /partials/leases        | Partial | DHCP lease tablosu                 |
-| POST   | /dns/lease              | Partial | Statik lease ekle                  |
-| DELETE | /dns/lease/{mac}        | Partial | Lease sil                          |
+### DNS (Unbound)
+| Method | Path                       | Tür     | Açıklama                          |
+|--------|----------------------------|---------|------------------------------------|
+| GET    | /dns                       | Sayfa   | DNS ayarları + istatistikler       |
+| GET    | /partials/dns-stats        | Partial | DNS cache/query istatistikleri     |
+| PUT    | /dns/config                | Partial | DNS ayarlarını güncelle            |
+| POST   | /dns/blocklist/update      | Partial | Blocklist'i şimdi güncelle         |
+| GET    | /partials/dns-blocklist    | Partial | Blocklist durumu + kaynak listesi  |
+
+### DHCP (dnsmasq)
+| Method | Path                       | Tür     | Açıklama                          |
+|--------|----------------------------|---------|------------------------------------|
+| GET    | /dhcp                      | Sayfa   | DHCP lease listesi + ayarlar       |
+| GET    | /partials/leases           | Partial | Aktif lease tablosu                |
+| POST   | /dhcp/lease                | Partial | Statik lease ekle                  |
+| DELETE | /dhcp/lease/{mac}          | Partial | Statik lease sil                   |
+| PUT    | /dhcp/config               | Partial | DHCP aralık/süre ayarları          |
 
 ### QoS
 | Method | Path                    | Tür     | Açıklama                          |
@@ -633,9 +677,12 @@ apt install -y \
     wireguard-tools \
     samba samba-common-bin \
     smartmontools mdadm \
-    iproute2
+    iproute2 \
+    unbound \
+    dnsmasq
 
-# AdGuard Home ayrı kurulur (kendi installer'ı var)
+# dnsmasq: DNS kapalı (port=0), sadece DHCP
+# unbound: recursive DNS resolver + blocklist
 # Go sadece build makinede gerekli, hedef makinede gerekli DEĞİL
 ```
 
@@ -912,30 +959,54 @@ Manuel doğrulama:
 - `nft list ruleset` beklenen kuralları gösteriyor mu
 - TR/EN dillerinde firewall metinleri doğru mu
 
-### Phase 5: AdGuard Home Entegrasyonu (2 gün)
-**Hedef:** AGH REST API üzerinden DHCP lease, DNS stats, engelleme verileri.
+### Phase 5: Unbound DNS + dnsmasq DHCP (3 gün)
+**Hedef:** Recursive DNS resolver + reklam engelleme (Unbound), DHCP sunucu (dnsmasq), config dosyası yönetimi.
 
 Oluşturulacak dosyalar:
-- `internal/services/adguard.go`
-- `internal/web/handlers/adguard.go`
+- `internal/services/dns.go` — Unbound config render, blocklist indirme, `unbound-control` wrapper
+- `internal/services/dhcp.go` — dnsmasq config render, lease dosyası parse, SIGHUP reload
+- `configs/sysconf/unbound.conf.tmpl` — Unbound config şablonu
+- `configs/sysconf/dnsmasq.conf.tmpl` — dnsmasq DHCP-only config şablonu
+- `internal/web/handlers/dns.go`
+- `internal/web/handlers/dhcp.go`
 - `web/templates/pages/dns.html`
+- `web/templates/pages/dhcp.html`
 - `web/templates/partials/dns-stats.html`
+- `web/templates/partials/dns-blocklist.html`
 - `web/templates/partials/lease_table.html`
 
 Adımlar:
-1. `net/http` client ile AGH REST API wrapper (Basic Auth)
-2. DHCP leases: liste, statik lease ekle/sil
-3. DNS stats: top clients, top domains, blocked queries
-4. Genel durum: AGH version, filtering, query count
-5. Cihaz listesi cache: MAC+IP+hostname (VPN modülü kullanacak)
-6. HTMX: lease tablosu swap, stat kartları poll
-7. **i18n:** Tüm template metinleri `{{ t .Lang "dns.*" }}` ile
+1. **Unbound config template:**
+   - `server:` �� interface, access-control, cache-size, verbosity
+   - Recursive mode: `root-hints` dosyası ile
+   - Blocklist: `include: /etc/unbound/blocklist.conf` (her satır: `local-zone: "domain" always_refuse`)
+   - Opsiyonel DNS-over-TLS upstream: `forward-zone:` → `forward-tls-upstream: yes`
+2. **Blocklist yönetimi:**
+   - StevenBlack/hosts formatını indir (`net/http`)
+   - Parse: `0.0.0.0 domain` → `local-zone: "domain" always_refuse`
+   - Atomic write → `unbound-control reload`
+   - Zamanlanmış güncelleme (goroutine ticker)
+3. **dnsmasq config template:**
+   - `port=0` (DNS kapalı, sadece DHCP)
+   - `dhcp-range=10.0.0.100,10.0.0.250,12h`
+   - `dhcp-option=option:router,10.0.0.1`
+   - `dhcp-option=option:dns-server,10.0.0.1` (Unbound'a yönlendir)
+   - Statik lease'ler: `dhcp-host=aa:bb:cc:dd:ee:ff,10.0.0.10,desktop`
+4. **Lease parse:** `/var/lib/misc/dnsmasq.leases` dosyasını oku → `{expiry, mac, ip, hostname}`
+5. **DNS istatistikleri:** `unbound-control stats_noreset` → cache hits, misses, query count
+6. **Cihaz listesi:** lease'lerden MAC+IP+hostname (VPN modülü kullanacak)
+7. **Config değişikliği akışı:** Go template render → atomic write → agent `SIGHUP` gönder
+8. **Agent operations:** `dns.reload` (unbound-control reload), `dhcp.reload` (SIGHUP dnsmasq)
+9. HTMX: lease tablosu, DNS istatistikleri, blocklist durumu
+10. **i18n:** Tüm template metinleri `{{ t .Lang "dns.*" }}` ve `{{ t .Lang "dhcp.*" }}` ile
 
 Manuel doğrulama:
-- AGH API'den veri geliyor mu
-- Lease CRUD çalışıyor mu
-- DNS stat kartları güncel mi
-- TR/EN dillerinde DNS sayfası metinleri doğru mu
+- `dig @10.0.0.1 google.com` → Unbound recursive çözümleme çalışıyor mu
+- `dig @10.0.0.1 ads.example.com` → blocklist engelleme çalışıyor mu (REFUSED)
+- DHCP: yeni cihaz IP alıyor mu, lease tablosunda görünüyor mu
+- Statik lease ekle/sil çalışıyor mu
+- `unbound-control stats_noreset` → istatistikler web UI'da doğru mu
+- TR/EN dillerinde DNS ve DHCP sayfası metinleri doğru mu
 
 ### Phase 6: Dashboard + SSE Real-Time (3 gün)
 **Hedef:** Ana dashboard, SSE ile real-time metrikler, Canvas grafikleri.
@@ -1080,7 +1151,7 @@ Oluşturulacak dosyalar:
 Adımlar:
 1. RAID: `mdadm --detail` parse, degraded alarm
 2. SMART: `smartctl -a` → sağlık skoru, sıcaklık, hata
-3. Config backup: `tar.gz` export/import (config/ + AGH config)
+3. Config backup: `tar.gz` export/import (config/ + unbound + dnsmasq config)
 4. Factory reset: varsayılan config restore
 5. Güvenlik sertleştirme:
    - systemd: ProtectSystem=strict, PrivateTmp, NoNewPrivileges
@@ -1162,7 +1233,7 @@ firewallSvc.Apply(rules)
 | PicoPSU 180W, 6 disk ile surge riski   | HDD spin-up stagger (`hdparm -S`)                                      |
 | Web UI XSS                              | `html/template` auto-escaping + CSP header + agent op whitelist        |
 | PPPoE credential sızıntısı             | AES-256-GCM encryption at rest, memory-only decrypt                    |
-| AGH API erişilemez → DHCP bilgisi yok  | In-memory cache + health check, degraded mode UI uyarısı              |
+| Unbound/dnsmasq crash → DNS/DHCP çalışmaz | systemd restart policy + Go health check + degraded mode UI uyarısı  |
 | Single point of failure (tek cihaz)    | Config backup + factory reset + RAID-1 depolama                        |
 | Go binary update sırasında downtime    | systemd: `ExecStartPre` ile binary swap, graceful shutdown             |
 | HTMX: full page refresh gerekebilir   | `hx-boost` ile link'leri HTMX'e çevir, minimal JS fallback            |
@@ -1175,13 +1246,11 @@ firewallSvc.Apply(rules)
 | 2     | Web + Auth + HTMX Layout      | 3   | 6         |
 | 3     | PPPoE WAN                     | 3   | 9         |
 | 4     | nftables Firewall + NAT       | 4   | 13        |
-| 5     | AdGuard Home                  | 2   | 15        |
-| 6     | Dashboard + SSE               | 3   | 18        |
-| 7     | SQM/QoS                       | 3   | 21        |
-| 8     | WireGuard VPN + Policy Routing| 5   | 26        |
-| 9     | Samba NAS + M3U               | 3   | 29        |
-| 10    | Storage + Backup + Hardening  | 3   | 32        |
+| 5     | Unbound DNS + dnsmasq DHCP    | 3   | 16        |
+| 6     | Dashboard + SSE               | 3   | 19        |
+| 7     | SQM/QoS                       | 3   | 22        |
+| 8     | WireGuard VPN + Policy Routing| 5   | 27        |
+| 9     | Samba NAS + M3U               | 3   | 30        |
+| 10    | Storage + Backup + Hardening  | 3   | 33        |
 
-**Toplam: ~32 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
-
-Go'nun compile-time type safety'si ve tek binary deploy'u Python'a göre ~2 gün tasarruf sağlıyor.
+**Toplam: ~33 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
