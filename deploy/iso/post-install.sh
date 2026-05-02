@@ -10,6 +10,19 @@ SYSTEMD_DIR="/etc/systemd/system"
 
 echo "=== Home Router Post-Install ==="
 
+# Install packages from local ISO repo
+if [[ -d /cdrom/pool/extra ]] && [[ -f /cdrom/pool/extra/Packages ]]; then
+    echo "deb [trusted=yes] file:///cdrom/pool extra/" > /etc/apt/sources.list.d/home-router-local.list
+    apt-get update -qq 2>/dev/null || true
+    apt-get install -y -qq \
+        ppp pppoe nftables wireguard-tools openvpn easy-rsa \
+        samba samba-common-bin smartmontools mdadm iproute2 \
+        unbound dnsmasq rsyslog chrony qrencode \
+        wide-dhcpv6-client curl jq hdparm \
+        2>/dev/null || echo "WARN: some packages may not have installed"
+    rm -f /etc/apt/sources.list.d/home-router-local.list
+fi
+
 # Install binary
 cp /tmp/home-router "$INSTALL_DIR/$BINARY_NAME"
 chmod +x "$INSTALL_DIR/$BINARY_NAME"
