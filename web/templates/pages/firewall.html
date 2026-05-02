@@ -1,0 +1,108 @@
+{{ define "content" }}
+<div class="content-header">
+    <h1>{{ t .Lang "firewall.title" }}</h1>
+</div>
+<div class="content-body">
+    {{ with .Data }}
+
+    <!-- Watchdog Confirmation Banner -->
+    {{ if .PendingChange }}
+    <div class="alert alert-error" style="display:flex; align-items:center; justify-content:space-between;">
+        <span>{{ t $.Lang "firewall.watchdogConfirm" }}</span>
+        <div style="display:flex; gap:var(--space-sm);">
+            <button class="btn btn-primary btn-sm" hx-post="/firewall/confirm" hx-swap="none">
+                {{ t $.Lang "firewall.confirm" }}
+            </button>
+            <button class="btn btn-danger btn-sm" hx-post="/firewall/rollback" hx-swap="none">
+                {{ t $.Lang "firewall.rollback" }}
+            </button>
+        </div>
+    </div>
+    {{ end }}
+
+    <!-- TTL Fix Toggle -->
+    <div class="card" style="margin-bottom: var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "firewall.ttlFix" }}</span>
+            {{ if .TTLFixEnabled }}
+                <span class="badge badge-success">{{ t $.Lang "common.enabled" }}</span>
+            {{ else }}
+                <span class="badge badge-error">{{ t $.Lang "common.disabled" }}</span>
+            {{ end }}
+        </div>
+        <p style="color:var(--text-secondary); font-size:var(--font-sm); margin-bottom:var(--space-md);">
+            {{ t $.Lang "firewall.ttlFix.desc" }}
+        </p>
+    </div>
+
+    <!-- Port Forwards -->
+    <div class="card" style="margin-bottom: var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "firewall.portForward" }}</span>
+            <button class="btn btn-primary btn-sm" onclick="document.getElementById('pf-form').style.display='block'">
+                {{ t $.Lang "common.add" }}
+            </button>
+        </div>
+
+        <!-- Add Form (hidden by default) -->
+        <form id="pf-form" style="display:none; margin-bottom:var(--space-lg); padding:var(--space-md); border:1px solid var(--border-color); border-radius:var(--radius-md);"
+              hx-post="/firewall/port-forwards" hx-swap="none"
+              hx-on::after-request="this.reset(); this.style.display='none';">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:var(--space-md);">
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "common.name" }}</label>
+                    <input class="input" name="name" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">Protocol</label>
+                    <select class="input" name="protocol">
+                        <option value="tcp">TCP</option>
+                        <option value="udp">UDP</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">Ext Port</label>
+                    <input class="input" name="extPort" type="number" min="1" max="65535" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">Int IP</label>
+                    <input class="input" name="intIP" placeholder="10.10.10.x" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">Int Port</label>
+                    <input class="input" name="intPort" type="number" min="1" max="65535" required>
+                </div>
+            </div>
+            <div style="margin-top:var(--space-md); display:flex; gap:var(--space-sm);">
+                <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('form').style.display='none'">{{ t $.Lang "common.cancel" }}</button>
+            </div>
+        </form>
+
+        <!-- Port Forward List -->
+        {{ range $idx, $pf := .PortForwards }}
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:var(--space-sm) 0; border-bottom:1px solid var(--border-color);">
+            <div>
+                <span style="font-weight:700;">{{ $pf.Name }}</span>
+                <span style="color:var(--text-secondary); font-size:var(--font-xs); margin-left:var(--space-sm);">
+                    {{ $pf.Protocol }} :{{ $pf.ExtPort }} → {{ $pf.IntIP }}:{{ $pf.IntPort }}
+                </span>
+            </div>
+            <button class="btn btn-danger btn-sm"
+                    hx-delete="/firewall/port-forwards/{{ $idx }}" hx-swap="none"
+                    hx-confirm="{{ t $.Lang "common.confirm" }}">
+                {{ t $.Lang "common.delete" }}
+            </button>
+        </div>
+        {{ end }}
+    </div>
+
+    <!-- Apply Button -->
+    <button class="btn btn-primary btn-lg btn-block"
+            hx-post="/firewall/apply" hx-swap="none">
+        {{ t $.Lang "common.apply" }}
+    </button>
+
+    {{ end }}
+</div>
+{{ end }}

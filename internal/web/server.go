@@ -26,6 +26,7 @@ type Server struct {
 	agent    *agent.Client
 	http     *http.Server
 	network  *handlers.NetworkHandler
+	firewall *handlers.FirewallHandler
 }
 
 func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, webFS fs.FS) (*Server, error) {
@@ -43,12 +44,23 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, we
 
 	networkHandler := handlers.NewNetworkHandler(renderer, networkSvc, pppoeSvc, usbSvc, healthSvc)
 
+	nftTmpl, _ := fs.ReadFile(webFS, "../configs/sysconf/nftables.conf.tmpl")
+	if nftTmpl == nil {
+		nftTmpl = []byte("flush ruleset\n")
+	}
+	firewallSvc, err := services.NewFirewallServiceFromFS(cfg, string(nftTmpl))
+	if err != nil {
+		return nil, fmt.Errorf("init firewall service: %w", err)
+	}
+	firewallHandler := handlers.NewFirewallHandler(renderer, firewallSvc, cfg)
+
 	s := &Server{
 		cfg:      cfg,
 		auth:     auth,
 		renderer: renderer,
 		loc:      loc,
 		network:  networkHandler,
+		firewall: firewallHandler,
 		agent:    agentClient,
 	}
 
@@ -129,6 +141,12 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	authed := AuthRequired(s.auth)
 	mux.Handle("GET /{$}", authed(http.HandlerFunc(s.handleDashboard)))
 	mux.Handle("GET /network", authed(http.HandlerFunc(s.network.HandlePage)))
+	mux.Handle("GET /firewall", authed(http.HandlerFunc(s.firewall.HandlePage)))
+	mux.Handle("POST /firewall/apply", authed(http.HandlerFunc(s.firewall.HandleApply)))
+	mux.Handle("POST /firewall/confirm", authed(http.HandlerFunc(s.firewall.HandleConfirm)))
+	mux.Handle("POST /firewall/rollback", authed(http.HandlerFunc(s.firewall.HandleRollback)))
+	mux.Handle("POST /firewall/port-forwards", authed(http.HandlerFunc(s.firewall.HandleAddPortForward)))
+	mux.Handle("DELETE /firewall/port-forwards/{index}", authed(http.HandlerFunc(s.firewall.HandleDeletePortForward)))
 }
 
 func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {

@@ -1862,8 +1862,8 @@ Adımlar:
    - Config: `firewall.ttlFix.enabled` + `firewall.ttlFix.value`
    - nftables şablonunda conditional render: enabled ise kural eklenir, değilse eklenmez
    - Değişiklik anında uygulanır (AtomicChange + watchdog ile)
-7. HTMX: kural ekleme formu, silme, watchdog onay banner'ı, TTL Fix toggle
-8. **i18n:** Tüm template metinleri `{{ t .Lang "firewall.*" }}` ile — kural tipleri, watchdog uyarısı, onay butonu, TTL Fix açıklaması
+7. ✅ HTMX: kural ekleme formu, silme, watchdog onay banner'ı, TTL Fix toggle
+8. ✅ **i18n:** Tüm template metinleri `{{ t .Lang "firewall.*" }}` ile — kural tipleri, watchdog uyarısı, onay butonu, TTL Fix açıklaması
 
 Manuel doğrulama:
 - NAT çalışıyor mu (LAN → internet)
