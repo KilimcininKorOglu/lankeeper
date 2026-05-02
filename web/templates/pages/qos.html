@@ -1,0 +1,94 @@
+{{ define "content" }}
+<div class="content-header">
+    <h1>{{ t .Lang "qos.title" }}</h1>
+</div>
+<div class="content-body">
+    {{ with .Data }}
+
+    <!-- Status -->
+    {{ if .Status }}
+    <div style="display:flex; gap:var(--space-lg); margin-bottom:var(--space-2xl);">
+        <div class="stat-card" style="flex:1;">
+            <div class="stat-label">{{ t $.Lang "qos.profile" }}</div>
+            <div class="stat-value" style="font-size:var(--font-lg);">{{ .Status.Profile }}</div>
+        </div>
+        <div class="stat-card" style="flex:1;">
+            <div class="stat-label">{{ t $.Lang "qos.congestion" }}</div>
+            <div class="stat-value" style="font-size:var(--font-lg); text-transform:uppercase;">{{ .Status.CongestionControl }}</div>
+        </div>
+        <div class="stat-card" style="flex:1;">
+            <div class="stat-label">{{ t $.Lang "common.status" }}</div>
+            {{ if .Status.Enabled }}
+                <span class="badge badge-success">{{ t $.Lang "common.enabled" }}</span>
+            {{ else }}
+                <span class="badge badge-error">{{ t $.Lang "common.disabled" }}</span>
+            {{ end }}
+        </div>
+    </div>
+    {{ end }}
+
+    <!-- QoS Configuration Form -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "qos.title" }}</span>
+        </div>
+        <form hx-post="/qos/apply" hx-swap="none" style="padding-top:var(--space-md);">
+
+            <div class="input-group" style="margin-bottom:var(--space-lg);">
+                <label class="input-label">{{ t $.Lang "qos.profile" }}</label>
+                <div style="display:flex; gap:var(--space-md);">
+                    <label style="display:flex; align-items:center; gap:var(--space-xs); cursor:pointer;">
+                        <input type="radio" name="profile" value="cake"{{ if eq .Config.Profile "cake" }} checked{{ end }}>
+                        CAKE
+                    </label>
+                    <label style="display:flex; align-items:center; gap:var(--space-xs); cursor:pointer;">
+                        <input type="radio" name="profile" value="fq_codel"{{ if eq .Config.Profile "fq_codel" }} checked{{ end }}>
+                        fq_codel
+                    </label>
+                    <label style="display:flex; align-items:center; gap:var(--space-xs); cursor:pointer;">
+                        <input type="radio" name="profile" value="none"{{ if eq .Config.Profile "none" }} checked{{ end }}>
+                        None
+                    </label>
+                </div>
+            </div>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-lg); margin-bottom:var(--space-lg);">
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "qos.upload" }} (kbps)</label>
+                    <input class="input" type="number" name="uploadKbps" value="{{ .Config.UploadKbps }}" min="100">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "qos.download" }} (kbps)</label>
+                    <input class="input" type="number" name="downloadKbps" value="{{ .Config.DownloadKbps }}" min="100">
+                </div>
+            </div>
+
+            <div class="input-group" style="margin-bottom:var(--space-lg);">
+                <label class="input-label">{{ t $.Lang "qos.congestion" }}</label>
+                <div style="display:flex; gap:var(--space-md);">
+                    <label style="display:flex; align-items:center; gap:var(--space-xs); cursor:pointer;">
+                        <input type="radio" name="congestionControl" value="bbr"{{ if eq .Config.CongestionControl "bbr" }} checked{{ end }}>
+                        BBR
+                    </label>
+                    <label style="display:flex; align-items:center; gap:var(--space-xs); cursor:pointer;">
+                        <input type="radio" name="congestionControl" value="cubic"{{ if eq .Config.CongestionControl "cubic" }} checked{{ end }}>
+                        CUBIC
+                    </label>
+                </div>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:var(--space-sm); margin-bottom:var(--space-lg);">
+                <input type="checkbox" name="enabled" value="true"{{ if .Config.Enabled }} checked{{ end }} id="qos-enabled">
+                <label for="qos-enabled">{{ t $.Lang "common.enabled" }}</label>
+            </div>
+
+            <div style="display:flex; gap:var(--space-sm);">
+                <button type="submit" class="btn btn-primary">{{ t $.Lang "common.apply" }}</button>
+                <button type="button" class="btn btn-danger" hx-post="/qos/clear" hx-swap="none">{{ t $.Lang "common.reset" }}</button>
+            </div>
+        </form>
+    </div>
+
+    {{ end }}
+</div>
+{{ end }}

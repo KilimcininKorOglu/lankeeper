@@ -2020,8 +2020,8 @@ Adımlar:
 3. ✅ BBR prerequisite: `sysctl net.core.default_qdisc=fq`
 4. ✅ Profiller: cake (varsayılan), fq_codel, none
 5. ✅ Agent ops: `qos.apply`, `qos.clear`
-6. HTMX: profil seçimi (radio), bandwidth input, apply butonu
-7. **i18n:** QoS profil açıklamaları, etiketler, birimler `{{ t .Lang "qos.*" }}` ile
+6. ✅ HTMX: profil seçimi (radio), bandwidth input, apply butonu
+7. ✅ **i18n:** QoS profil açıklamaları, etiketler, birimler `{{ t .Lang "qos.*" }}` ile
 
 Manuel doğrulama:
 - `tc -s qdisc show dev ppp0` → CAKE aktif mi

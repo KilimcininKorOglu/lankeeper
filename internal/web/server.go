@@ -31,6 +31,7 @@ type Server struct {
 	dhcp      *handlers.DHCPHandler
 	dashboard *handlers.DashboardHandler
 	settings  *handlers.SystemHandler
+	qos       *handlers.QoSHandler
 	sse       *SSEBroker
 	monitor   *services.MonitorService
 }
@@ -66,6 +67,9 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, we
 	dhcpSvc := services.NewDHCPService(cfg)
 	dhcpHandler := handlers.NewDHCPHandler(renderer, dhcpSvc)
 
+	qosSvc := services.NewQoSService(cfg)
+	qosHandler := handlers.NewQoSHandler(renderer, qosSvc, cfg)
+
 	monitorSvc := services.NewMonitorService()
 	dashboardHandler := handlers.NewDashboardHandler(renderer, monitorSvc, pppoeSvc, dhcpSvc)
 	settingsHandler := handlers.NewSystemHandler(renderer, cfg)
@@ -82,6 +86,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, we
 		dhcp:      dhcpHandler,
 		dashboard: dashboardHandler,
 		settings:  settingsHandler,
+		qos:       qosHandler,
 		sse:       sseBroker,
 		monitor:   monitorSvc,
 		agent:     agentClient,
@@ -187,6 +192,9 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	mux.Handle("POST /dns/clear-log", authed(http.HandlerFunc(s.dns.HandleClearLog)))
 	mux.Handle("GET /dhcp", authed(http.HandlerFunc(s.dhcp.HandlePage)))
 	mux.Handle("POST /dhcp/static", authed(http.HandlerFunc(s.dhcp.HandleAddStatic)))
+	mux.Handle("GET /qos", authed(http.HandlerFunc(s.qos.HandlePage)))
+	mux.Handle("POST /qos/apply", authed(http.HandlerFunc(s.qos.HandleApply)))
+	mux.Handle("POST /qos/clear", authed(http.HandlerFunc(s.qos.HandleClear)))
 }
 
 func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
