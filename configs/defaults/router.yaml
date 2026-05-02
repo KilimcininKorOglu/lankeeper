@@ -1,5 +1,6 @@
 system:
   hostname: "hermes"
+  domain: "lan"
   timezone: "Europe/Istanbul"
   language: "tr"
   adminPasswordHash: ""

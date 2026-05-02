@@ -4,6 +4,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		System: SystemConfig{
 			Hostname:  "hermes",
+			Domain:    "lan",
 			Timezone:  "Europe/Istanbul",
 			Language:  "tr",
 			WebPort:   8443,

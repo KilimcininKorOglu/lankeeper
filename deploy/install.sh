@@ -196,6 +196,16 @@ print_summary() {
     echo "========================================="
 }
 
+setup_dhcp_dns_script() {
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+    mkdir -p /usr/local/lib/home-router
+    cp "$script_dir/dhcp-dns-update.sh" /usr/local/lib/home-router/
+    chmod +x /usr/local/lib/home-router/dhcp-dns-update.sh
+    log_info "Installed DHCP-DNS update script"
+}
+
 setup_udev_rules() {
     cat > /etc/udev/rules.d/70-home-router.rules <<'UDEV'
 # USB tethering — Android RNDIS
@@ -312,6 +322,7 @@ main() {
     install_systemd_units
     setup_sysctl
     setup_udev_rules
+    setup_dhcp_dns_script
     setup_sysconf_templates
     setup_default_config
     setup_admin_password

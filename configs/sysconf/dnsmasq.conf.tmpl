@@ -8,6 +8,9 @@ dhcp-option=option:dns-server,{{ .DNSServer }}
 dhcp-option=option:ntp-server,{{ .Gateway }}
 
 dhcp-leasefile=/var/lib/misc/dnsmasq.leases
+domain={{ .Domain }}
+expand-hosts
+dhcp-script=/usr/local/lib/home-router/dhcp-dns-update.sh
 
 {{- range .StaticLeases }}
 dhcp-host={{ .MAC }},{{ .IP }},{{ .Hostname }}

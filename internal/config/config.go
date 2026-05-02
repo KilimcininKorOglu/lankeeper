@@ -37,6 +37,7 @@ type SystemConfig struct {
 	Language          string    `yaml:"language"`
 	AdminPasswordHash string    `yaml:"adminPasswordHash"`
 	SessionSecret     string    `yaml:"sessionSecret"`
+	Domain            string    `yaml:"domain"`
 	WebPort           int       `yaml:"webPort"`
 	WebBind           string    `yaml:"webBind"`
 	TLS               TLSConfig `yaml:"tls"`
