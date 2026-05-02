@@ -2369,7 +2369,7 @@ Adımlar:
    - Root hesabı devre dışı, `homerouter` kullanıcısı oluştur
    - `late_command`: `post-install.sh`'ı chroot içinde çalıştır
 
-3. **Post-install scripti (`post-install.sh`):**
+3. ✅ **Post-install scripti (`post-install.sh`):**
    - `install.sh`'ın non-interactive versiyonu (tüm cevaplar preseed'den)
    - Tüm apt paketlerini kur (nftables, wireguard-tools, unbound, dnsmasq, chrony, samba...)
    - Go binary'yi ISO'dan `/usr/local/bin/` altına kopyala
