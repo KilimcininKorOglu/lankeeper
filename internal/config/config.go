@@ -349,15 +349,18 @@ type OVPNServerConfig struct {
 	Keepalive      string             `yaml:"keepalive"`
 	ClientToClient bool               `yaml:"clientToClient"`
 	DuplicateCN    bool               `yaml:"duplicateCn"`
+	PublicEndpoint string             `yaml:"publicEndpoint,omitempty"`
 	Clients        []OVPNClientEntry  `yaml:"clients"`
 	CCD            map[string]string  `yaml:"ccd"`
 }
 
 type OVPNClientEntry struct {
-	Name       string `yaml:"name"`
-	CommonName string `yaml:"commonName"`
-	FixedIP    string `yaml:"fixedIP"`
-	Enabled    bool   `yaml:"enabled"`
+	Name          string   `yaml:"name"`
+	CommonName    string   `yaml:"commonName"`
+	FixedIP       string   `yaml:"fixedIP,omitempty"`
+	Enabled       bool     `yaml:"enabled"`
+	IsSiteToSite  bool     `yaml:"isSiteToSite,omitempty"`
+	RemoteSubnets []string `yaml:"remoteSubnets,omitempty"`
 }
 
 type RoutingConfig struct {

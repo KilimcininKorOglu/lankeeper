@@ -237,3 +237,40 @@ func TestFirewallRenderWithoutWireGuard(t *testing.T) {
 		t.Error("should NOT contain WG client rules when no clients")
 	}
 }
+
+const testNftOVPNTemplate = `flush ruleset
+table inet filter {
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+{{- if .OVPNServerEnabled }}
+{{- range .LANInterfaces }}
+        iifname "{{ $.OVPNServerIface }}" oifname "{{ .Device }}" accept
+        iifname "{{ .Device }}" oifname "{{ $.OVPNServerIface }}" accept
+{{- end }}
+{{- end }}
+    }
+}
+`
+
+func TestFirewallRenderWithOpenVPN(t *testing.T) {
+	cfg := testFirewallConfig()
+	cfg.OpenVPN.Server.Enabled = true
+	cfg.OpenVPN.Server.Device = "tun0"
+
+	svc, err := services.NewFirewallServiceFromFS(cfg, testNftOVPNTemplate)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	rendered, err := svc.RenderConfig()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	if !strings.Contains(rendered, `iifname "tun0" oifname "enp0s25" accept`) {
+		t.Errorf("should contain OVPN → LAN rule, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, `iifname "enp0s25" oifname "tun0" accept`) {
+		t.Errorf("should contain LAN → OVPN rule, got:\n%s", rendered)
+	}
+}

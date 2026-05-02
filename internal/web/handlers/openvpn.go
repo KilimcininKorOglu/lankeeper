@@ -3,6 +3,7 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/KilimcininKorOglu/home-router/internal/i18n"
 	"github.com/KilimcininKorOglu/home-router/internal/services"
@@ -22,12 +23,14 @@ func (h *OpenVPNHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 	lang := i18n.LangFromContext(r.Context())
 
 	status, _ := h.ovpn.ServerStatus(r.Context())
+	clients := h.ovpn.ListServerClients()
 
 	data := &tmpl.PageData{
 		Lang: lang,
 		Page: "openvpn",
 		Data: map[string]any{
-			"Server": status,
+			"Server":  status,
+			"Clients": clients,
 		},
 	}
 
@@ -58,7 +61,20 @@ func (h *OpenVPNHandler) HandleAddClient(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.ovpn.AddClient(r.Context(), name); err != nil {
+	peerType := r.FormValue("peerType")
+	siteToSite := peerType == "site-to-site"
+	fixedIP := r.FormValue("fixedIP")
+
+	var remoteSubnets []string
+	if raw := strings.TrimSpace(r.FormValue("remoteSubnets")); raw != "" && siteToSite {
+		for _, s := range strings.Split(raw, ",") {
+			if trimmed := strings.TrimSpace(s); trimmed != "" {
+				remoteSubnets = append(remoteSubnets, trimmed)
+			}
+		}
+	}
+
+	if err := h.ovpn.AddClient(r.Context(), name, siteToSite, remoteSubnets, fixedIP); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -82,4 +98,44 @@ func (h *OpenVPNHandler) HandleDownloadOVPN(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "application/x-openvpn-profile")
 	w.Header().Set("Content-Disposition", "attachment; filename="+name+".ovpn")
 	w.Write([]byte(ovpnContent))
+}
+
+func (h *OpenVPNHandler) HandleServerStart(w http.ResponseWriter, r *http.Request) {
+	if err := h.ovpn.ServerStart(r.Context()); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Refresh", "true")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Redirect(w, r, "/openvpn", http.StatusSeeOther)
+}
+
+func (h *OpenVPNHandler) HandleServerStop(w http.ResponseWriter, r *http.Request) {
+	if err := h.ovpn.ServerStop(r.Context()); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Refresh", "true")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Redirect(w, r, "/openvpn", http.StatusSeeOther)
+}
+
+func (h *OpenVPNHandler) HandleRevokeClient(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if err := h.ovpn.RevokeClient(r.Context(), name); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Refresh", "true")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Redirect(w, r, "/openvpn", http.StatusSeeOther)
 }

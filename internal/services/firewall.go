@@ -36,9 +36,11 @@ type nftTemplateData struct {
 	USBInterface    string
 	TTLFixEnabled   bool
 	TTLFixValue     int
-	WGServerEnabled bool
-	WGServerIface   string
-	WGClientIfaces  []string
+	WGServerEnabled  bool
+	WGServerIface    string
+	WGClientIfaces   []string
+	OVPNServerEnabled bool
+	OVPNServerIface   string
 }
 
 type nftIface struct {
@@ -325,6 +327,14 @@ func (s *FirewallService) buildTemplateData() *nftTemplateData {
 	}
 	for i := range s.cfg.VPN.Clients {
 		data.WGClientIfaces = append(data.WGClientIfaces, fmt.Sprintf("wg%d", i))
+	}
+
+	if s.cfg.OpenVPN.Server.Enabled {
+		data.OVPNServerEnabled = true
+		data.OVPNServerIface = s.cfg.OpenVPN.Server.Device
+		if data.OVPNServerIface == "" {
+			data.OVPNServerIface = "tun0"
+		}
 	}
 
 	return data

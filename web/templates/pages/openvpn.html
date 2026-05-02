@@ -22,9 +22,79 @@
         <div style="color:var(--text-secondary); font-size:var(--font-sm); margin-bottom:var(--space-md);">
             {{ t $.Lang "network.port" }}: {{ .Server.Port }}/{{ .Server.Protocol }} | {{ t $.Lang "network.clients" }}: {{ .Server.ClientCount }}
         </div>
-        <form hx-post="/openvpn/server/client" style="display:flex; gap:var(--space-sm);">
-            <input class="input" name="name" placeholder="{{ t $.Lang "common.name" }}" required style="flex:1;">
-            <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "openvpn.addClient" }}</button>
+        <div style="display:flex; gap:var(--space-sm); margin-bottom:var(--space-md);">
+            {{ if .Server.Active }}
+            <button class="btn btn-danger btn-sm" hx-post="/openvpn/server/stop" hx-swap="none">{{ t $.Lang "openvpn.stopServer" }}</button>
+            {{ else }}
+            <button class="btn btn-primary btn-sm" hx-post="/openvpn/server/start" hx-swap="none">{{ t $.Lang "openvpn.startServer" }}</button>
+            {{ end }}
+        </div>
+
+        {{ if $.Data.Clients }}
+        {{ range $.Data.Clients }}
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:var(--space-sm) 0; border-bottom:1px solid var(--border-color);">
+            <div>
+                <span style="font-weight:700;">{{ .Name }}</span>
+                {{ if .IsSiteToSite }}
+                    <span class="badge badge-success" style="margin-left:var(--space-xs);">{{ t $.Lang "openvpn.siteToSite" }}</span>
+                {{ end }}
+                {{ if not .Enabled }}
+                    <span class="badge badge-error" style="margin-left:var(--space-xs);">{{ t $.Lang "openvpn.revoked" }}</span>
+                {{ end }}
+                {{ if .FixedIP }}
+                <div style="color:var(--text-secondary); font-size:var(--font-xs);">IP: {{ .FixedIP }}</div>
+                {{ end }}
+                {{ if .RemoteSubnets }}
+                <div style="color:var(--text-secondary); font-size:var(--font-xs);">{{ t $.Lang "openvpn.remoteSubnets" }}: {{ range $i, $s := .RemoteSubnets }}{{ if $i }}, {{ end }}{{ $s }}{{ end }}</div>
+                {{ end }}
+            </div>
+            <div style="display:flex; gap:var(--space-sm);">
+                {{ if .Enabled }}
+                <a href="/openvpn/server/client/{{ .Name }}/config" class="btn btn-secondary btn-sm">{{ t $.Lang "openvpn.downloadOvpn" }}</a>
+                <button class="btn btn-danger btn-sm" hx-delete="/openvpn/server/client/{{ .Name }}" hx-swap="none"
+                        hx-confirm="{{ t $.Lang "openvpn.revokeConfirm" }}">{{ t $.Lang "openvpn.revokeClient" }}</button>
+                {{ end }}
+            </div>
+        </div>
+        {{ end }}
+        {{ end }}
+
+        <div style="margin-top:var(--space-md);">
+            <button class="btn btn-primary btn-sm" onclick="document.getElementById('ovpn-client-form').style.display='block'">
+                {{ t $.Lang "openvpn.addClient" }}
+            </button>
+        </div>
+        <form id="ovpn-client-form" hx-post="/openvpn/server/client" style="display:none; padding:var(--space-md); border:1px solid var(--border-color); border-radius:var(--radius-md); margin-top:var(--space-md);"
+              hx-on::after-request="this.reset(); this.style.display='none';">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:var(--space-md);">
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "common.name" }}</label>
+                    <input class="input" name="name" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "openvpn.peerType" }}</label>
+                    <select class="input" name="peerType" onchange="document.getElementById('ovpn-s2s-fields').style.display = this.value === 'site-to-site' ? 'contents' : 'none'">
+                        <option value="road-warrior">{{ t $.Lang "openvpn.roadWarrior" }}</option>
+                        <option value="site-to-site">{{ t $.Lang "openvpn.siteToSite" }}</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "openvpn.fixedIP" }}</label>
+                    <input class="input" name="fixedIP" placeholder="{{ t $.Lang "openvpn.fixedIPPlaceholder" }}">
+                </div>
+            </div>
+            <div id="ovpn-s2s-fields" style="display:none;">
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:var(--space-md); margin-top:var(--space-md);">
+                    <div class="input-group">
+                        <label class="input-label">{{ t $.Lang "openvpn.remoteSubnets" }}</label>
+                        <input class="input" name="remoteSubnets" placeholder="{{ t $.Lang "openvpn.remoteSubnetsPlaceholder" }}">
+                    </div>
+                </div>
+            </div>
+            <div style="display:flex; gap:var(--space-sm); margin-top:var(--space-md);">
+                <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('form').style.display='none'">{{ t $.Lang "common.cancel" }}</button>
+            </div>
         </form>
         {{ end }}
     </div>

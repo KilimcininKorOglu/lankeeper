@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"text/template"
 
 	"github.com/KilimcininKorOglu/home-router/internal/config"
 	"github.com/KilimcininKorOglu/home-router/internal/netutil"
@@ -90,7 +93,7 @@ func (s *OpenVPNService) InitPKI(ctx context.Context) error {
 	return nil
 }
 
-func (s *OpenVPNService) AddClient(ctx context.Context, name string) error {
+func (s *OpenVPNService) AddClient(ctx context.Context, name string, siteToSite bool, remoteSubnets []string, fixedIP string) error {
 	easyrsa := "/usr/share/easy-rsa/easyrsa"
 	os.Setenv("EASYRSA_PKI", "/etc/openvpn/pki")
 
@@ -102,15 +105,24 @@ func (s *OpenVPNService) AddClient(ctx context.Context, name string) error {
 		return fmt.Errorf("sign-req %s: %w", name, err)
 	}
 
+	entry := config.OVPNClientEntry{
+		Name:          name,
+		CommonName:    name,
+		Enabled:       true,
+		IsSiteToSite:  siteToSite,
+		RemoteSubnets: remoteSubnets,
+		FixedIP:       fixedIP,
+	}
+
 	s.mu.Lock()
-	s.cfg.OpenVPN.Server.Clients = append(s.cfg.OpenVPN.Server.Clients, config.OVPNClientEntry{
-		Name:       name,
-		CommonName: name,
-		Enabled:    true,
-	})
+	s.cfg.OpenVPN.Server.Clients = append(s.cfg.OpenVPN.Server.Clients, entry)
 	s.mu.Unlock()
 
-	log.Printf("OpenVPN client %q added", name)
+	if err := s.writeCCD(entry); err != nil {
+		log.Printf("write CCD for %s: %v", name, err)
+	}
+
+	log.Printf("OpenVPN client %q added (s2s=%v)", name, siteToSite)
 	return nil
 }
 
@@ -139,6 +151,14 @@ func (s *OpenVPNService) RevokeClient(ctx context.Context, name string) error {
 	return nil
 }
 
+func (s *OpenVPNService) ListServerClients() []config.OVPNClientEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]config.OVPNClientEntry, len(s.cfg.OpenVPN.Server.Clients))
+	copy(result, s.cfg.OpenVPN.Server.Clients)
+	return result
+}
+
 func (s *OpenVPNService) GenerateClientOVPN(name string) (string, error) {
 	pkiDir := "/etc/openvpn/pki"
 
@@ -163,11 +183,25 @@ func (s *OpenVPNService) GenerateClientOVPN(name string) (string, error) {
 	}
 
 	srv := s.cfg.OpenVPN.Server
+
+	endpoint := srv.PublicEndpoint
+	if endpoint == "" {
+		endpoint = "<YOUR_PUBLIC_IP>"
+	}
+
+	var clientEntry *config.OVPNClientEntry
+	for i := range srv.Clients {
+		if srv.Clients[i].Name == name || srv.Clients[i].CommonName == name {
+			clientEntry = &srv.Clients[i]
+			break
+		}
+	}
+
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "client\n")
 	fmt.Fprintf(&sb, "dev tun\n")
 	fmt.Fprintf(&sb, "proto %s\n", srv.Protocol)
-	fmt.Fprintf(&sb, "remote <YOUR_PUBLIC_IP> %d\n", srv.Port)
+	fmt.Fprintf(&sb, "remote %s %d\n", endpoint, srv.Port)
 	fmt.Fprintf(&sb, "resolv-retry infinite\n")
 	fmt.Fprintf(&sb, "nobind\n")
 	fmt.Fprintf(&sb, "persist-key\n")
@@ -175,8 +209,27 @@ func (s *OpenVPNService) GenerateClientOVPN(name string) (string, error) {
 	fmt.Fprintf(&sb, "cipher %s\n", srv.Cipher)
 	fmt.Fprintf(&sb, "auth %s\n", srv.Auth)
 	fmt.Fprintf(&sb, "key-direction 1\n")
-	fmt.Fprintf(&sb, "verb 3\n\n")
-	fmt.Fprintf(&sb, "<ca>\n%s</ca>\n\n", ca)
+	fmt.Fprintf(&sb, "verb 3\n")
+
+	if clientEntry != nil && clientEntry.IsSiteToSite {
+		fmt.Fprintf(&sb, "route-nopull\n")
+		for _, iface := range s.cfg.Interfaces {
+			if iface.Role == "lan" && iface.Address != "" {
+				subnetIP := subnetFromCIDR(iface.Address)
+				_, mask := cidrToIPMask(iface.Address)
+				if subnetIP != "" {
+					fmt.Fprintf(&sb, "route %s %s\n", subnetIP, mask)
+				}
+			}
+		}
+		ovpnSubnetIP := subnetFromCIDR(srv.Subnet)
+		_, ovpnMask := cidrToIPMask(srv.Subnet)
+		if ovpnSubnetIP != "" {
+			fmt.Fprintf(&sb, "route %s %s\n", ovpnSubnetIP, ovpnMask)
+		}
+	}
+
+	fmt.Fprintf(&sb, "\n<ca>\n%s</ca>\n\n", ca)
 	fmt.Fprintf(&sb, "<cert>\n%s</cert>\n\n", cert)
 	fmt.Fprintf(&sb, "<key>\n%s</key>\n\n", key)
 	fmt.Fprintf(&sb, "<tls-auth>\n%s</tls-auth>\n", ta)
@@ -184,7 +237,136 @@ func (s *OpenVPNService) GenerateClientOVPN(name string) (string, error) {
 	return sb.String(), nil
 }
 
+type ovpnServerTemplateData struct {
+	config.OVPNServerConfig
+	SubnetIP        string
+	SubnetMask      string
+	SiteToSiteRoutes []ovpnRouteEntry
+}
+
+type ovpnRouteEntry struct {
+	SubnetIP   string
+	SubnetMask string
+}
+
+func (s *OpenVPNService) RenderServerConfig() error {
+	srv := s.cfg.OpenVPN.Server
+
+	tmpl, err := template.ParseFiles("configs/sysconf/openvpn-server.conf.tmpl")
+	if err != nil {
+		return fmt.Errorf("parse openvpn server template: %w", err)
+	}
+
+	subnetIP, subnetMask := cidrToIPMask(srv.Subnet)
+
+	data := ovpnServerTemplateData{
+		OVPNServerConfig: srv,
+		SubnetIP:         subnetIP,
+		SubnetMask:       subnetMask,
+	}
+
+	for _, client := range srv.Clients {
+		if client.IsSiteToSite && client.Enabled {
+			for _, subnet := range client.RemoteSubnets {
+				ip, mask := cidrToIPMask(subnet)
+				if ip != "" {
+					data.SiteToSiteRoutes = append(data.SiteToSiteRoutes, ovpnRouteEntry{
+						SubnetIP:   ip,
+						SubnetMask: mask,
+					})
+				}
+			}
+		}
+	}
+
+	os.MkdirAll("/etc/openvpn", 0o755)
+	os.MkdirAll("/etc/openvpn/ccd", 0o755)
+
+	f, err := os.Create("/etc/openvpn/server.conf")
+	if err != nil {
+		return fmt.Errorf("create server.conf: %w", err)
+	}
+	defer f.Close()
+
+	if err := tmpl.Execute(f, data); err != nil {
+		return fmt.Errorf("render server.conf: %w", err)
+	}
+
+	for _, client := range srv.Clients {
+		if client.Enabled {
+			if err := s.writeCCD(client); err != nil {
+				log.Printf("write CCD for %s: %v", client.Name, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (s *OpenVPNService) writeCCD(entry config.OVPNClientEntry) error {
+	ccdDir := "/etc/openvpn/ccd"
+	os.MkdirAll(ccdDir, 0o755)
+
+	var sb strings.Builder
+
+	if entry.FixedIP != "" {
+		ip, mask := cidrToIPMask(entry.FixedIP + "/24")
+		if ip != "" {
+			fmt.Fprintf(&sb, "ifconfig-push %s %s\n", entry.FixedIP, mask)
+			_ = ip
+		}
+	}
+
+	if entry.IsSiteToSite {
+		fmt.Fprintf(&sb, "push-reset\n")
+		for _, iface := range s.cfg.Interfaces {
+			if iface.Role == "lan" && iface.Address != "" {
+				ip, mask := cidrToIPMask(iface.Address)
+				if ip != "" {
+					fmt.Fprintf(&sb, "push \"route %s %s\"\n", subnetFromCIDR(iface.Address), mask)
+				}
+			}
+		}
+		for _, subnet := range entry.RemoteSubnets {
+			ip, mask := cidrToIPMask(subnet)
+			if ip != "" {
+				fmt.Fprintf(&sb, "iroute %s %s\n", ip, mask)
+			}
+		}
+	}
+
+	cn := entry.CommonName
+	if cn == "" {
+		cn = entry.Name
+	}
+
+	return os.WriteFile(filepath.Join(ccdDir, cn), []byte(sb.String()), 0o644)
+}
+
+func cidrToIPMask(cidr string) (string, string) {
+	if !strings.Contains(cidr, "/") {
+		return cidr, "255.255.255.0"
+	}
+	ip, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return "", ""
+	}
+	mask := net.IP(ipNet.Mask).String()
+	return ip.String(), mask
+}
+
+func subnetFromCIDR(cidr string) string {
+	_, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return ""
+	}
+	return ipNet.IP.String()
+}
+
 func (s *OpenVPNService) ServerStart(ctx context.Context) error {
+	if err := s.RenderServerConfig(); err != nil {
+		return fmt.Errorf("render config: %w", err)
+	}
 	_, err := netutil.Run(ctx, "systemctl", "start", "openvpn@server")
 	return err
 }

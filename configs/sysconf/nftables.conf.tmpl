@@ -83,6 +83,14 @@ table inet filter {
 {{- end }}
 {{- end }}
 
+        # OpenVPN Server ↔ LAN forwarding
+{{- if .OVPNServerEnabled }}
+{{- range .LANInterfaces }}
+        iifname "{{ $.OVPNServerIface }}" oifname "{{ .Device }}" accept
+        iifname "{{ .Device }}" oifname "{{ $.OVPNServerIface }}" accept
+{{- end }}
+{{- end }}
+
         # Inter-VLAN isolation
 {{- range .IsolatedVLANs }}
 {{- range $.LANInterfaces }}

@@ -19,6 +19,12 @@ push "redirect-gateway def1"
 {{- end }}
 push "dhcp-option DNS {{ .DNS }}"
 
+client-config-dir /etc/openvpn/ccd
+
+{{- range .SiteToSiteRoutes }}
+route {{ .SubnetIP }} {{ .SubnetMask }}
+{{- end }}
+
 cipher {{ .Cipher }}
 auth {{ .Auth }}
 keepalive {{ .Keepalive }}
@@ -26,11 +32,11 @@ keepalive {{ .Keepalive }}
 {{- if not .Compression }}
 compress
 {{- end }}
-{{- if not .ClientToClient }}
-;client-to-client
+{{- if .ClientToClient }}
+client-to-client
 {{- end }}
-{{- if not .DuplicateCN }}
-;duplicate-cn
+{{- if .DuplicateCN }}
+duplicate-cn
 {{- end }}
 
 max-clients {{ .MaxClients }}
