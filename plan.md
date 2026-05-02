@@ -363,6 +363,7 @@ Go Web UI → unbound-control stats → DNS istatistikleri
 type Config struct {
     System     SystemConfig     `yaml:"system"`
     Interfaces InterfaceConfig  `yaml:"interfaces"`
+    HealthCheck HealthCheckConfig `yaml:"healthCheck"`
     PPPoE      PPPoEConfig      `yaml:"pppoe"`
     Firewall   FirewallConfig   `yaml:"firewall"`
     QoS        QoSConfig        `yaml:"qos"`
@@ -417,6 +418,7 @@ home-router/
 │   │       ├── routing.go       # Policy-based routing kuralları (CRUD + sıralama)
 │   │       ├── nas.go            # Samba paylaşımları
 │   │       ├── storage.go        # RAID durumu, disk sağlığı
+│   │       ├── healthcheck.go     # Health check durum/config handler'ları
 │   │       ├── syslog.go          # Syslog sunucu/client yapılandırma
 │   │       └── system.go         # Ayarlar, yedekleme, reboot
 │   ├── services/
@@ -430,6 +432,7 @@ home-router/
 │   │   ├── nas.go                # Samba config + M3U parser
 │   │   ├── storage.go            # mdadm + smartctl
 │   │   ├── monitor.go            # Sistem istatistikleri toplayıcı (goroutine)
+│   │   ├── healthcheck.go       # Interface internet checker + otomatik recovery
 │   │   ├── syslog.go             # rsyslog config yönetimi (sunucu + client)
 │   │   └── backup.go             # Config export/import
 │   ├── i18n/
@@ -475,6 +478,7 @@ home-router/
 │   │       ├── policy_status.html# PBR canlı eşleşme durumu
 │   │       ├── share_list.html   # Samba paylaşım listesi
 │   │       ├── raid_status.html  # RAID durumu
+│   │       ├── healthcheck.html  # Health check durum kartları + config formu
 │   │       ├── toast.html        # Toast notification
 │   │       └── confirm.html      # Onay dialog
 │   ├── static/
@@ -572,6 +576,33 @@ interfaces:
     address: "10.0.0.1/24"
     mtu: 1500
     mac: "aa:bb:cc:dd:ee:02"
+
+healthCheck:
+  enabled: true
+  checks:
+    - name: "wan-internet"
+      interface: "wan"                     # Interface id
+      targets:                             # Kontrol hedefleri (en az 1'i başarılı = OK)
+        - type: "ping"
+          host: "8.8.8.8"
+        - type: "ping"
+          host: "1.1.1.1"
+        - type: "http"
+          url: "http://connectivitycheck.gstatic.com/generate_204"
+          expectStatus: 204
+      interval: "30s"                      # Kontrol aralığı
+      timeout: "5s"                        # Tek kontrol timeout'u
+      failureThreshold: 3                  # Kaç ardışık başarısızlıkta aksiyon al
+      failureWindow: "5m"                  # Başarısızlık penceresi (3/5dk gibi)
+      actions:                             # Sırayla denenecek aksiyonlar
+        - type: "restartInterface"         # Interface'i restart et
+          delay: "0s"
+        - type: "restartPppoe"             # PPPoE bağlantısını yeniden kur
+          delay: "30s"                     # Önceki aksiyon sonrası bekleme
+        - type: "rebootSystem"             # Son çare: sistemi yeniden başlat
+          delay: "120s"
+      cooldown: "5m"                       # Aksiyon sonrası yeniden kontrol bekleme
+      notify: true                         # Web UI + syslog'a bildirim
 
 pppoe:
   username: "..."                        # .credentials.enc'den okunur
@@ -708,6 +739,15 @@ Go'da HTMX ile iki tür endpoint var: **sayfa** (tam HTML) ve **partial** (HTML 
 | POST   | /pppoe/sniff               | Partial | PPPoE credential yakalama başlat        |
 | GET    | /partials/pppoe-sniff      | Partial | Yakalama durumu + bulunan credentials   |
 | POST   | /pppoe/sniff/stop          | Partial | Yakalama işlemini durdur                |
+
+### Health Check
+| Method | Path                            | Tür     | Açıklama                                    |
+|--------|---------------------------------|---------|----------------------------------------------|
+| GET    | /partials/healthcheck-status    | Partial | Tüm check'lerin güncel durumu (HTMX poll)    |
+| PUT    | /network/healthcheck/config     | Partial | Health check ayarlarını güncelle              |
+| POST   | /network/healthcheck/{name}/run | Partial | Tek bir check'i manuel çalıştır              |
+| POST   | /network/healthcheck/{name}/reset | Partial | Failure counter'ı sıfırla                  |
+| GET    | /events/healthcheck             | SSE     | Health check olay stream'i (durum değişikliği) |
 
 ### Firewall
 | Method | Path                        | Tür     | Açıklama                      |
@@ -1058,21 +1098,24 @@ Manuel doğrulama:
 - **Dil değiştirme:** TR/EN butonlarına tıkla → sayfa seçilen dilde yenileniyor mu
 - **Sidebar:** tüm navigasyon etiketleri aktif dile göre mi
 
-### Phase 3: Network Interface Yönetimi + PPPoE WAN + Credential Yakalama (4 gün)
-**Hedef:** Interface algılama ve isimlendirme, PPPoE ile internete bağlanma, auto-reconnect, bağlantı durum izleme, ISP credential yakalama.
+### Phase 3: Network Interface Yönetimi + PPPoE WAN + Credential Yakalama + Health Check (5 gün)
+**Hedef:** Interface algılama ve isimlendirme, PPPoE ile internete bağlanma, auto-reconnect, bağlantı durum izleme, ISP credential yakalama, interface internet health check + otomatik recovery.
 
 Oluşturulacak dosyalar:
 - `internal/services/network.go` — NIC algılama, interface label/role yönetimi
 - `internal/services/pppoe.go` — pppd yönetimi + pppoe-server credential sniff
+- `internal/services/healthcheck.go` — Interface internet checker + escalating recovery
 - `configs/sysconf/pppoe-peer.tmpl`
 - `configs/sysconf/pppoe-options.tmpl`
 - `configs/sysconf/pppoe-server-options.tmpl` — credential yakalama config'i
 - `internal/web/handlers/pppoe.go`
 - `internal/web/handlers/network.go`
+- `internal/web/handlers/healthcheck.go`
 - `web/templates/pages/network.html`
 - `web/templates/partials/interfaces.html` — Interface listesi + düzenleme
 - `web/templates/partials/wan-status.html`
 - `web/templates/partials/pppoe-sniff.html` — credential yakalama UI
+- `web/templates/partials/healthcheck.html` — Health check durum kartları + config
 
 Adımlar:
 1. **Interface algılama ve yönetimi:**
@@ -1096,7 +1139,24 @@ Adımlar:
    - Web UI: "Credential Yakala" butonu → durum göstergesi → bulunan credentials
    - Güvenlik: credentials sadece maskelenmiş gösterilir (son 4 karakter), full gösterme yok
 9. HTMX: interface kartları, bağlan/kes butonları → partial swap ile durum güncelleme
-10. **i18n:** `{{ t .Lang "network.*" }}` ve `{{ t .Lang "pppoe.*" }}` ile tüm metinler
+10. **Health Check (Internet Connectivity Monitor):**
+    - `healthcheck.go` service: goroutine ile periyodik kontrol (ping + HTTP)
+    - Her check tanımı: interface, hedef listesi, interval, timeout, failure threshold/window
+    - Kontrol mantığı: hedeflerden en az 1 başarılı → OK, hepsi başarısız → failure count++
+    - Failure threshold aşılınca → escalating actions sırasıyla dene:
+      1. `restartInterface` — interface down/up (`ip link set down/up`)
+      2. `restartPppoe` — PPPoE bağlantısını yeniden kur (agent op: `pppoe.reconnect`)
+      3. `rebootSystem` — son çare, sistemi yeniden başlat (agent op: `system.reboot`)
+    - Her action arasında configurable delay (önceki aksiyon sonucu beklenir)
+    - Cooldown süresi: aksiyon sonrası tekrar failure saymaya başlamadan önce bekle
+    - Agent operations: `healthcheck.restart_iface`, `healthcheck.restart_pppoe`
+    - SSE: health check durum değişikliklerini real-time olarak web UI'a yayınla
+    - Web UI (network.html içinde section): check listesi, her birinin durumu (OK/warning/critical), son kontrol zamanı, failure count, son aksiyon
+    - Web UI config: check ekleme/düzenleme formu (hedefler, threshold'lar, aksiyonlar)
+    - Manuel çalıştır butonu: tek check'i anında çalıştır ve sonucu göster
+    - Reset butonu: failure counter'ı sıfırla (yanlış alarm sonrası)
+    - Syslog'a bildirim: durum değişikliklerinde (OK→fail, fail→OK, aksiyon alındığında)
+11. **i18n:** `{{ t .Lang "network.*" }}`, `{{ t .Lang "pppoe.*" }}` ve `{{ t .Lang "healthcheck.*" }}` ile tüm metinler
 
 Manuel doğrulama:
 - **Interface algılama:** tüm fiziksel NIC'ler listeleniyor mu
@@ -1107,6 +1167,11 @@ Manuel doğrulama:
 - Auto-reconnect: pppd kill sonrası tekrar bağlanıyor mu
 - Web UI'dan durum görünüyor + bağlan/kes çalışıyor mu
 - **Credential yakalama:** modem bağlanınca username/password yakalanıyor mu
+- **Health check:** ping/HTTP kontrolleri periyodik çalışıyor mu
+- **Failure escalation:** threshold aşılınca interface restart → pppoe restart → reboot sırası doğru mu
+- **Cooldown:** aksiyon sonrası belirtilen süre boyunca tekrar aksiyon almıyor mu
+- **Web UI:** check durumları gerçek zamanlı güncelleniyor mu, manuel çalıştır çalışıyor mu
+- **Syslog:** durum değişiklikleri loglanıyor mu
 - TR/EN dillerinde tüm network/PPPoE metinleri doğru mu
 
 ### Phase 4: nftables Firewall + NAT (4 gün)
@@ -1480,20 +1545,21 @@ firewallSvc.Apply(rules)
 | Single point of failure (tek cihaz)    | Config backup + factory reset + RAID-1 depolama                        |
 | Go binary update sırasında downtime    | systemd: `ExecStartPre` ile binary swap, graceful shutdown             |
 | HTMX: full page refresh gerekebilir   | `hx-boost` ile link'leri HTMX'e çevir, minimal JS fallback            |
+| Health check reboot döngüsü           | Cooldown süresi + max reboot count/24h limiti + reboot sonrası grace period |
 
 ## Tahmini Toplam Süre
 
-| Phase | Konu                          | Gün | Kümülatif |
-|-------|-------------------------------|-----|-----------|
-| 1     | İskelet + Agent IPC           | 3   | 3         |
-| 2     | Web + Auth + HTMX Layout      | 3   | 6         |
-| 3     | Network Interface + PPPoE WAN | 4   | 10        |
-| 4     | nftables Firewall + NAT       | 4   | 14        |
-| 5     | Unbound DNS + dnsmasq DHCP    | 3   | 17        |
-| 6     | Dashboard + SSE               | 3   | 20        |
-| 7     | SQM/QoS                       | 3   | 23        |
-| 8     | WireGuard VPN + Policy-Based Routing | 7   | 30        |
-| 9     | Samba NAS + M3U               | 3   | 33        |
-| 10    | Storage + Syslog + Backup + Hardening | 4   | 37        |
+| Phase | Konu                                  | Gün | Kümülatif |
+|-------|---------------------------------------|-----|-----------|
+| 1     | İskelet + Agent IPC                   | 3   | 3         |
+| 2     | Web + Auth + HTMX Layout              | 3   | 6         |
+| 3     | Network + PPPoE + Health Check        | 5   | 11        |
+| 4     | nftables Firewall + NAT               | 4   | 15        |
+| 5     | Unbound DNS + dnsmasq DHCP            | 3   | 18        |
+| 6     | Dashboard + SSE                       | 3   | 21        |
+| 7     | SQM/QoS                               | 3   | 24        |
+| 8     | WireGuard VPN + Policy-Based Routing  | 7   | 31        |
+| 9     | Samba NAS + M3U                       | 3   | 34        |
+| 10    | Storage + Syslog + Backup + Hardening | 4   | 38        |
 
-**Toplam: ~37 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
+**Toplam: ~38 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
