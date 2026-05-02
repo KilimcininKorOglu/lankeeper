@@ -559,13 +559,16 @@ Go'da HTMX ile iki tür endpoint var: **sayfa** (tam HTML) ve **partial** (HTML 
 | GET    | /events/stats           | SSE     | Real-time sistem metrikleri stream |
 
 ### Network / PPPoE
-| Method | Path                    | Tür     | Açıklama                          |
-|--------|-------------------------|---------|------------------------------------|
-| GET    | /network                | Sayfa   | Ağ ayarları sayfası                |
-| GET    | /partials/wan-status    | Partial | WAN durum kartı                   |
-| POST   | /pppoe/connect          | Partial | PPPoE bağlantısını başlat          |
-| POST   | /pppoe/disconnect       | Partial | PPPoE bağlantısını kes             |
-| PUT    | /pppoe/config           | Partial | PPPoE ayarlarını güncelle          |
+| Method | Path                       | Tür     | Açıklama                               |
+|--------|----------------------------|---------|-----------------------------------------|
+| GET    | /network                   | Sayfa   | Ağ ayarları sayfası                     |
+| GET    | /partials/wan-status       | Partial | WAN durum kartı                        |
+| POST   | /pppoe/connect             | Partial | PPPoE bağlantısını başlat               |
+| POST   | /pppoe/disconnect          | Partial | PPPoE bağlantısını kes                  |
+| PUT    | /pppoe/config              | Partial | PPPoE ayarlarını güncelle               |
+| POST   | /pppoe/sniff               | Partial | PPPoE credential yakalama başlat        |
+| GET    | /partials/pppoe-sniff      | Partial | Yakalama durumu + bulunan credentials   |
+| POST   | /pppoe/sniff/stop          | Partial | Yakalama işlemini durdur                |
 
 ### Firewall
 | Method | Path                        | Tür     | Açıklama                      |
@@ -893,17 +896,19 @@ Manuel doğrulama:
 - **Dil değiştirme:** TR/EN butonlarına tıkla → sayfa seçilen dilde yenileniyor mu
 - **Sidebar:** tüm navigasyon etiketleri aktif dile göre mi
 
-### Phase 3: PPPoE WAN Bağlantısı (3 gün)
-**Hedef:** PPPoE ile internete bağlanma, auto-reconnect, bağlantı durum izleme.
+### Phase 3: PPPoE WAN Bağlantısı + Credential Yakalama (3 gün)
+**Hedef:** PPPoE ile internete bağlanma, auto-reconnect, bağlantı durum izleme, ISP credential yakalama (pppoe-server).
 
 Oluşturulacak dosyalar:
-- `internal/services/pppoe.go`
+- `internal/services/pppoe.go` — pppd yönetimi + pppoe-server credential sniff
 - `configs/sysconf/pppoe-peer.tmpl`
 - `configs/sysconf/pppoe-options.tmpl`
+- `configs/sysconf/pppoe-server-options.tmpl` — credential yakalama config'i
 - `internal/web/handlers/pppoe.go`
 - `internal/web/handlers/network.go`
 - `web/templates/pages/network.html`
 - `web/templates/partials/wan-status.html`
+- `web/templates/partials/pppoe-sniff.html` — credential yakalama UI
 
 Adımlar:
 1. `text/template` ile `/etc/ppp/peers/wan` ve options dosyası render
@@ -912,14 +917,23 @@ Adımlar:
 4. Auto-reconnect: pppd `persist` + `holdoff` seçenekleri
 5. Agent operations: `pppoe.connect`, `pppoe.disconnect`, `pppoe.status`
 6. Network handler: interface listesi, WAN IP, gateway, uptime
-7. HTMX: bağlan/kes butonları → partial swap ile durum güncelleme
-8. **i18n:** Tüm template metinleri `{{ t .Lang "pppoe.*" }}` ile — buton etiketleri, durum mesajları, onay diyalogları
+7. **PPPoE Credential Yakalama (pppoe-server):**
+   - Agent op: `pppoe.sniff.start` → WAN NIC'te `pppoe-server` başlat (require-pap, debug, logfile)
+   - ISP modem bağlandığında PAP username/password logdan parse
+   - Agent op: `pppoe.sniff.stop` → pppoe-server durdur
+   - Yakalanan credentials → AES-256-GCM ile `.credentials.enc`'ye kaydet
+   - Web UI: "Credential Yakala" butonu → durum göstergesi → bulunan credentials
+   - Güvenlik: credentials sadece maskelenmiş gösterilir (son 4 karakter), full gösterme yok
+8. HTMX: bağlan/kes butonları → partial swap ile durum güncelleme
+9. **i18n:** Tüm template metinleri `{{ t .Lang "pppoe.*" }}` ile — buton etiketleri, durum mesajları, onay diyalogları, sniff UI
 
 Manuel doğrulama:
 - `ppp0` interface ayağa kalkıyor mu
 - İnternet erişimi: `ping 8.8.8.8`
 - Auto-reconnect: pppd kill sonrası tekrar bağlanıyor mu
 - Web UI'dan durum görünüyor + bağlan/kes çalışıyor mu
+- **Credential yakalama:** modem bağlanınca username/password yakalanıyor mu
+- Yakalanan credentials `.credentials.enc`'ye kaydediliyor mu
 - TR/EN dillerinde tüm PPPoE metinleri doğru mu
 
 ### Phase 4: nftables Firewall + NAT (4 gün)
