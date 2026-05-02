@@ -1,0 +1,29 @@
+[Interface]
+PrivateKey = {{ .PrivateKey }}
+ListenPort = {{ .ListenPort }}
+Address = {{ .Address }}
+{{- if .Address6 }}
+Address = {{ .Address6 }}
+{{- end }}
+{{- if .MTU }}
+MTU = {{ .MTU }}
+{{- end }}
+{{- if .PostUp }}
+PostUp = {{ .PostUp }}
+{{- end }}
+{{- if .PostDown }}
+PostDown = {{ .PostDown }}
+{{- end }}
+
+{{ range .Peers }}
+[Peer]
+# {{ .Name }}
+PublicKey = {{ .PublicKey }}
+{{- if .PresharedKey }}
+PresharedKey = {{ .PresharedKey }}
+{{- end }}
+AllowedIPs = {{ .AllowedIPs }}
+{{- if .Keepalive }}
+PersistentKeepalive = {{ .Keepalive }}
+{{- end }}
+{{ end }}

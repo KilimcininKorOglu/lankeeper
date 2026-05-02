@@ -2060,13 +2060,13 @@ Oluşturulacak dosyalar:
 - `web/static/js/htmx-sortable.js`
 
 Adımlar:
-1. **WireGuard client tünel yönetimi (outbound):**
+1. ✅ **WireGuard client tünel yönetimi (outbound):**
    - Config template: key, endpoint, allowed IPs, DNS
    - IPv6 desteği: `AllowedIPs = 0.0.0.0/0, ::/0` (full tunnel dual-stack)
    - Tünel CRUD: `wg-quick up/down wgN`
    - Keypair: `exec.Command("wg", "genkey")` + `wg pubkey`
    - Per-tünel routing table: `ip route add default dev wgN table {table_id}` + `ip -6 route add default dev wgN table {table_id}`
-2. **WireGuard server (inbound — road warrior):**
+2. ✅ **WireGuard server (inbound — road warrior):**
    - İlk kurulumda otomatik server keypair üretimi (`wg genkey` + `wg pubkey`)
    - Server config template: `[Interface]` (listenPort, privateKey, address) + `[Peer]` blokları
    - Server interface: `wg0-server` (client interface'lerden ayrı namespace: `wg0`, `wg1`... client, `wgs0` server)

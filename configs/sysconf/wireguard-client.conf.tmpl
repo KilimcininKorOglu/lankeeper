@@ -1,0 +1,24 @@
+[Interface]
+PrivateKey = {{ .PrivateKey }}
+{{- if .Address }}
+Address = {{ .Address }}
+{{- end }}
+{{- if .DNS }}
+DNS = {{ .DNS }}
+{{- end }}
+{{- if .MTU }}
+MTU = {{ .MTU }}
+{{- end }}
+Table = {{ .Table }}
+FwMark = {{ .FwMark }}
+
+[Peer]
+PublicKey = {{ .PublicKey }}
+{{- if .PresharedKey }}
+PresharedKey = {{ .PresharedKey }}
+{{- end }}
+Endpoint = {{ .Endpoint }}
+AllowedIPs = {{ .AllowedIPs }}
+{{- if .Keepalive }}
+PersistentKeepalive = {{ .Keepalive }}
+{{- end }}
