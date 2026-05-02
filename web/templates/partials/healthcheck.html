@@ -1,0 +1,20 @@
+{{ define "healthcheck" }}
+{{ range $name, $check := .HealthChecks }}
+<div style="display:flex; align-items:center; justify-content:space-between; padding:var(--space-sm) 0; border-bottom:1px solid var(--border-color);">
+    <div>
+        <span style="font-weight:700;">{{ $name }}</span>
+        {{ if $check.LastAction }}
+        <span style="color:var(--text-secondary); font-size:var(--font-xs); margin-left:var(--space-sm);">{{ t $.Lang "healthcheck.recovery" }}: {{ $check.LastAction }}</span>
+        {{ end }}
+    </div>
+    <div style="display:flex; align-items:center; gap:var(--space-sm);">
+        {{ if eq $check.Status "ok" }}
+            <span class="badge badge-success">{{ t $.Lang "healthcheck.healthy" }}</span>
+        {{ else }}
+            <span class="badge badge-error">{{ t $.Lang "healthcheck.unhealthy" }} ({{ $check.FailureCount }})</span>
+        {{ end }}
+        <button class="btn btn-secondary btn-sm" hx-post="/network/healthcheck/{{ $name }}/reset" hx-swap="none">{{ t $.Lang "common.reset" }}</button>
+    </div>
+</div>
+{{ end }}
+{{ end }}

@@ -1,0 +1,18 @@
+{{ define "interfaces" }}
+{{ range .Interfaces }}
+<div style="display:flex; align-items:center; justify-content:space-between; padding:var(--space-sm) 0; border-bottom:1px solid var(--border-color);">
+    <div>
+        <div style="font-weight:700;">{{ .Name }}</div>
+        <div style="color:var(--text-secondary); font-size:var(--font-xs);">{{ .MAC }}</div>
+    </div>
+    <div style="text-align:right;">
+        {{ if eq .State "up" }}
+            <span class="badge badge-success">UP</span>
+        {{ else }}
+            <span class="badge badge-error">DOWN</span>
+        {{ end }}
+        {{ if .Speed }}<span style="color:var(--text-secondary); font-size:var(--font-xs); margin-left:var(--space-sm);">{{ .Speed }} Mbps</span>{{ end }}
+    </div>
+</div>
+{{ end }}
+{{ end }}

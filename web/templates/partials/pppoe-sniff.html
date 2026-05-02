@@ -1,0 +1,14 @@
+{{ define "pppoe-sniff" }}
+<div class="card" style="margin-top:var(--space-lg);">
+    <div class="card-header">
+        <span class="card-title">PPPoE Credential Capture</span>
+    </div>
+    <p style="color:var(--text-secondary); font-size:var(--font-sm); margin-bottom:var(--space-md);">
+        Start PPPoE server on WAN interface to capture ISP credentials from modem.
+    </p>
+    <div style="display:flex; gap:var(--space-sm);">
+        <button class="btn btn-primary btn-sm" hx-post="/network/pppoe/sniff/start" hx-swap="none">Start Capture</button>
+        <button class="btn btn-danger btn-sm" hx-post="/network/pppoe/sniff/stop" hx-swap="none">Stop Capture</button>
+    </div>
+</div>
+{{ end }}

@@ -1,0 +1,18 @@
+{{ define "wan-status" }}
+{{ if .PPPoE }}
+<div class="card-header">
+    <span class="card-title">{{ t $.Lang "pppoe.title" }}</span>
+    {{ if .PPPoE.Connected }}
+        <span class="badge badge-success">{{ t $.Lang "pppoe.status.connected" }}</span>
+    {{ else }}
+        <span class="badge badge-error">{{ t $.Lang "pppoe.status.disconnected" }}</span>
+    {{ end }}
+</div>
+{{ if .PPPoE.LocalIP }}
+<div style="margin-top:var(--space-sm);">
+    <span class="input-label">IPv4:</span> <strong>{{ .PPPoE.LocalIP }}</strong>
+    {{ if .PPPoE.LocalIPv6 }} | <span class="input-label">IPv6:</span> <strong>{{ .PPPoE.LocalIPv6 }}</strong>{{ end }}
+</div>
+{{ end }}
+{{ end }}
+{{ end }}
