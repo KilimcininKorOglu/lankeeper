@@ -1,0 +1,62 @@
+{{ define "content" }}
+<div class="content-header">
+    <h1>{{ t .Lang "vpn.title" }}</h1>
+</div>
+<div class="content-body">
+    {{ with .Data }}
+
+    <!-- WG Server -->
+    {{ if .Server }}
+    <div class="card" style="margin-bottom:var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "vpn.server" }}</span>
+            {{ if .Server.Active }}
+                <span class="badge badge-success">{{ t $.Lang "vpn.status.active" }}</span>
+            {{ else }}
+                <span class="badge badge-error">{{ t $.Lang "vpn.status.inactive" }}</span>
+            {{ end }}
+        </div>
+        {{ if .Server.Peers }}
+        {{ range .Server.Peers }}
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:var(--space-sm) 0; border-bottom:1px solid var(--border-color);">
+            <div>
+                <span style="font-weight:700;">{{ .Name }}</span>
+                <span style="color:var(--text-secondary); font-size:var(--font-xs); margin-left:var(--space-sm);">{{ .AllowedIPs }}</span>
+            </div>
+            <div style="display:flex; gap:var(--space-sm);">
+                <a href="/vpn/server/peer/{{ .Name }}/config" class="btn btn-secondary btn-sm">{{ t $.Lang "vpn.downloadConfig" }}</a>
+                <button class="btn btn-danger btn-sm" hx-delete="/vpn/server/peer/{{ .Name }}" hx-swap="none">{{ t $.Lang "common.delete" }}</button>
+            </div>
+        </div>
+        {{ end }}
+        {{ end }}
+        <form hx-post="/vpn/server/peer" style="display:flex; gap:var(--space-sm); margin-top:var(--space-md);">
+            <input class="input" name="name" placeholder="{{ t $.Lang "common.name" }}" required style="flex:1;">
+            <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "vpn.addPeer" }}</button>
+        </form>
+    </div>
+    {{ end }}
+
+    <!-- WG Client Tunnels -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "vpn.clients" }}</span>
+        </div>
+        {{ range .Tunnels }}
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:var(--space-sm) 0; border-bottom:1px solid var(--border-color);">
+            <div>
+                <span style="font-weight:700;">{{ .Name }}</span>
+                <span style="color:var(--text-secondary); font-size:var(--font-xs); margin-left:var(--space-sm);">{{ .Endpoint }}</span>
+            </div>
+            {{ if .Active }}
+                <span class="badge badge-success">{{ t $.Lang "vpn.status.active" }}</span>
+            {{ else }}
+                <span class="badge badge-error">{{ t $.Lang "vpn.status.inactive" }}</span>
+            {{ end }}
+        </div>
+        {{ end }}
+    </div>
+
+    {{ end }}
+</div>
+{{ end }}

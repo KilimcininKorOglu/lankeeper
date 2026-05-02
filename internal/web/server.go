@@ -32,6 +32,9 @@ type Server struct {
 	dashboard *handlers.DashboardHandler
 	settings  *handlers.SystemHandler
 	qos       *handlers.QoSHandler
+	vpn       *handlers.VPNHandler
+	ovpn      *handlers.OpenVPNHandler
+	routing   *handlers.RoutingHandler
 	sse       *SSEBroker
 	monitor   *services.MonitorService
 }
@@ -70,6 +73,15 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, we
 	qosSvc := services.NewQoSService(cfg)
 	qosHandler := handlers.NewQoSHandler(renderer, qosSvc, cfg)
 
+	vpnSvc := services.NewVPNService(cfg)
+	vpnHandler := handlers.NewVPNHandler(renderer, vpnSvc)
+
+	ovpnSvc := services.NewOpenVPNService(cfg)
+	ovpnHandler := handlers.NewOpenVPNHandler(renderer, ovpnSvc)
+
+	routingSvc := services.NewRoutingService(cfg)
+	routingHandler := handlers.NewRoutingHandler(renderer, routingSvc)
+
 	monitorSvc := services.NewMonitorService()
 	dashboardHandler := handlers.NewDashboardHandler(renderer, monitorSvc, pppoeSvc, dhcpSvc)
 	settingsHandler := handlers.NewSystemHandler(renderer, cfg)
@@ -87,6 +99,9 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, we
 		dashboard: dashboardHandler,
 		settings:  settingsHandler,
 		qos:       qosHandler,
+		vpn:       vpnHandler,
+		ovpn:      ovpnHandler,
+		routing:   routingHandler,
 		sse:       sseBroker,
 		monitor:   monitorSvc,
 		agent:     agentClient,
@@ -195,6 +210,17 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	mux.Handle("GET /qos", authed(http.HandlerFunc(s.qos.HandlePage)))
 	mux.Handle("POST /qos/apply", authed(http.HandlerFunc(s.qos.HandleApply)))
 	mux.Handle("POST /qos/clear", authed(http.HandlerFunc(s.qos.HandleClear)))
+	mux.Handle("GET /vpn", authed(http.HandlerFunc(s.vpn.HandlePage)))
+	mux.Handle("POST /vpn/server/peer", authed(http.HandlerFunc(s.vpn.HandleAddPeer)))
+	mux.Handle("DELETE /vpn/server/peer/{name}", authed(http.HandlerFunc(s.vpn.HandleRemovePeer)))
+	mux.Handle("GET /openvpn", authed(http.HandlerFunc(s.ovpn.HandlePage)))
+	mux.Handle("POST /openvpn/init-pki", authed(http.HandlerFunc(s.ovpn.HandleInitPKI)))
+	mux.Handle("POST /openvpn/server/client", authed(http.HandlerFunc(s.ovpn.HandleAddClient)))
+	mux.Handle("GET /openvpn/server/client/{name}/config", authed(http.HandlerFunc(s.ovpn.HandleDownloadOVPN)))
+	mux.Handle("GET /routing", authed(http.HandlerFunc(s.routing.HandlePage)))
+	mux.Handle("POST /routing/policy", authed(http.HandlerFunc(s.routing.HandleAddPolicy)))
+	mux.Handle("DELETE /routing/policy/{name}", authed(http.HandlerFunc(s.routing.HandleDeletePolicy)))
+	mux.Handle("POST /routing/reorder", authed(http.HandlerFunc(s.routing.HandleReorder)))
 }
 
 func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {

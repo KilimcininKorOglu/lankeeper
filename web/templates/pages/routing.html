@@ -1,0 +1,71 @@
+{{ define "content" }}
+<div class="content-header">
+    <h1>{{ t .Lang "routing.title" }}</h1>
+</div>
+<div class="content-body">
+    {{ with .Data }}
+
+    <!-- Policy List (drag-and-drop sortable) -->
+    <div class="card" style="margin-bottom:var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "routing.title" }}</span>
+            <button class="btn btn-primary btn-sm" onclick="document.getElementById('policy-form').style.display='block'">
+                {{ t $.Lang "routing.addPolicy" }}
+            </button>
+        </div>
+        {{ range .Policies }}
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:var(--space-sm) 0; border-bottom:1px solid var(--border-color);" data-name="{{ .Name }}">
+            <div style="display:flex; align-items:center; gap:var(--space-md);">
+                <span style="color:var(--text-tertiary); font-size:var(--font-xs); width:30px;">{{ .Priority }}</span>
+                <div>
+                    <span style="font-weight:700;">{{ .Name }}</span>
+                    <span style="color:var(--text-secondary); font-size:var(--font-xs); margin-left:var(--space-sm);">→ {{ .Tunnel }}</span>
+                </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:var(--space-sm);">
+                {{ if .Enabled }}
+                    <span class="badge badge-success">{{ t $.Lang "routing.enabled" }}</span>
+                {{ else }}
+                    <span class="badge badge-error">{{ t $.Lang "routing.disabled" }}</span>
+                {{ end }}
+                <button class="btn btn-danger btn-sm" hx-delete="/routing/policy/{{ .Name }}" hx-swap="none"
+                        hx-confirm="{{ t $.Lang "common.confirm" }}">{{ t $.Lang "common.delete" }}</button>
+            </div>
+        </div>
+        {{ end }}
+    </div>
+
+    <!-- Add Policy Form -->
+    <div class="card" id="policy-form" style="display:none;">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "routing.addPolicy" }}</span>
+        </div>
+        <form hx-post="/routing/policy" hx-swap="none" hx-on::after-request="this.reset(); document.getElementById('policy-form').style.display='none';" style="padding-top:var(--space-md);">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-md); margin-bottom:var(--space-md);">
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "common.name" }}</label>
+                    <input class="input" name="name" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "routing.tunnel" }}</label>
+                    <input class="input" name="tunnel" placeholder="nl-amsterdam" required>
+                </div>
+            </div>
+            <div class="input-group" style="margin-bottom:var(--space-md);">
+                <label class="input-label">{{ t $.Lang "routing.source" }} (MAC)</label>
+                <input class="input" name="srcMacs" placeholder="aa:bb:cc:dd:ee:ff">
+            </div>
+            <div class="input-group" style="margin-bottom:var(--space-md);">
+                <label class="input-label">{{ t $.Lang "routing.destination" }} (IP/CIDR)</label>
+                <input class="input" name="dstIps" placeholder="1.2.3.0/24">
+            </div>
+            <div style="display:flex; gap:var(--space-sm);">
+                <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('policy-form').style.display='none'">{{ t $.Lang "common.cancel" }}</button>
+            </div>
+        </form>
+    </div>
+
+    {{ end }}
+</div>
+{{ end }}

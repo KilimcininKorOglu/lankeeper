@@ -2175,7 +2175,7 @@ Adımlar:
    - Firewall template güncelleme: PBR chain'i forward chain'e entegre
 8. ✅ **Kill switch:** VPN client tünel down (WG veya OVPN) → ilgili politikadaki cihazların trafiğini engelle
 9. ✅ **Startup restore:** `routing.yaml` + `vpn.yaml` + `openvpn` config'den tüm tünel + server + politika kurallarını kur
-10. **Web UI — WireGuard sayfası (HTMX):**
+10. ✅ **Web UI — WireGuard sayfası (HTMX):**
     - İki tab/section: **WG Client Tünelleri** + **WG Server**
     - Client: tünel listesi (durum, handshake, transfer), CRUD formu
     - Server: açma/kapama toggle, dinleme portu, subnet, peer listesi
@@ -2183,7 +2183,7 @@ Adımlar:
     - Peer ekleme formu: isim gir → keypair + psk + IP otomatik üret → config indir/QR göster
     - Config indirme butonu (`.conf` dosyası) + QR kodu görüntüleme (mobil için)
     - Tunnel mode seçimi: full tunnel / split tunnel (peer bazında)
-11. **Web UI — OpenVPN sayfası (HTMX):**
+11. ✅ **Web UI — OpenVPN sayfası (HTMX):**
     - İki tab/section: **OVPN Client** + **OVPN Server**
     - Client tab: .ovpn dosya import (file upload), bağlantı listesi, connect/disconnect butonları
     - Server tab:
@@ -2194,7 +2194,7 @@ Adımlar:
       - Client ekleme: isim gir → sertifika oluştur → .ovpn dosya indir / QR göster
       - Client revoke/enable/disable butonları
       - Bağlı client listesi (real-time): IP, bağlantı süresi, transfer
-12. **Web UI — PBR sayfası (HTMX):**
+12. ✅ **Web UI — PBR sayfası (HTMX):**
     - Politika listesi: sürükle-bırak ile priority sıralama (`htmx-sortable.js`)
     - Politika ekleme/düzenleme formu:
       - Kaynak: cihaz dropdown (DHCP lease'lerden) veya CIDR input
@@ -2204,7 +2204,7 @@ Adımlar:
       - Action: dropdown (wan, WG tünel, OVPN tünel, drop)
     - Enable/disable toggle
     - Canlı eşleşme durumu: SSE ile hangi cihaz hangi politikaya eşleşiyor
-13. **i18n:** `{{ t .Lang "vpn.*" }}`, `{{ t .Lang "openvpn.*" }}` ve `{{ t .Lang "routing.*" }}` ile tüm UI metinleri
+13. ✅ **i18n:** `{{ t .Lang "vpn.*" }}`, `{{ t .Lang "openvpn.*" }}` ve `{{ t .Lang "routing.*" }}` ile tüm UI metinleri
 
 Manuel doğrulama:
 - **WG Client:** `wg show wg0` → client tünel aktif mi, handshake var mı

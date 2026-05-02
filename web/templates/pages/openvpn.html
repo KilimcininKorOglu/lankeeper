@@ -1,0 +1,35 @@
+{{ define "content" }}
+<div class="content-header">
+    <h1>{{ t .Lang "openvpn.title" }}</h1>
+</div>
+<div class="content-body">
+    {{ with .Data }}
+
+    {{ if .Server }}
+    <div class="card" style="margin-bottom:var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "openvpn.server" }}</span>
+            {{ if .Server.Active }}
+                <span class="badge badge-success">{{ t $.Lang "vpn.status.active" }}</span>
+            {{ else }}
+                <span class="badge badge-error">{{ t $.Lang "vpn.status.inactive" }}</span>
+            {{ end }}
+        </div>
+        {{ if not .Server.PKIReady }}
+        <div class="alert alert-error" style="margin-bottom:var(--space-md);">PKI not initialized</div>
+        <button class="btn btn-primary btn-sm" hx-post="/openvpn/init-pki" hx-swap="none">Initialize PKI</button>
+        {{ else }}
+        <div style="color:var(--text-secondary); font-size:var(--font-sm); margin-bottom:var(--space-md);">
+            Port: {{ .Server.Port }}/{{ .Server.Protocol }} | Clients: {{ .Server.ClientCount }}
+        </div>
+        <form hx-post="/openvpn/server/client" style="display:flex; gap:var(--space-sm);">
+            <input class="input" name="name" placeholder="{{ t $.Lang "common.name" }}" required style="flex:1;">
+            <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "openvpn.addClient" }}</button>
+        </form>
+        {{ end }}
+    </div>
+    {{ end }}
+
+    {{ end }}
+</div>
+{{ end }}
