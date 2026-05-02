@@ -1618,15 +1618,15 @@ Oluşturulacak dosyalar:
 - `web/static/js/app.js`
 
 Adımlar:
-1. `net/http.ServeMux` ile routing (Go 1.22+ pattern: `GET /login`, `POST /login`, `POST /settings/lang`)
-2. `html/template` ile layout inheritance: `base.html` → `{{block "content" .}}`
+1. ✅ `net/http.ServeMux` ile routing (Go 1.22+ pattern: `GET /login`, `POST /login`, `POST /settings/lang`)
+2. ✅ `html/template` ile layout inheritance: `base.html` → `{{block "content" .}}`
 3. ✅ **Template FuncMap'e i18n fonksiyonları ekle:**
    - `t`: `func(lang, key string) string` → çeviri döndür
    - `tp`: `func(lang, key string, params ...string) string` → parametreli çeviri
-4. **Her handler'da `.Lang` context'e ekle:** `data.Lang = i18n.LangFromContext(r.Context())`
-5. **Dil değiştirme handler:** `POST /settings/lang` → `lang` cookie set → `HX-Refresh: true`
-6. **`<html lang="{{ .Lang }}">` attribute'u** base layout'ta dinamik
-7. `go:embed` ile tüm static + template + locale dosyalarını binary'ye göm
+4. ✅ **Her handler'da `.Lang` context'e ekle:** `data.Lang = i18n.LangFromContext(r.Context())`
+5. ✅ **Dil değiştirme handler:** `POST /settings/lang` → `lang` cookie set → `HX-Refresh: true`
+6. ✅ **`<html lang="{{ .Lang }}">` attribute'u** base layout'ta dinamik
+7. ✅ `go:embed` ile tüm static + template + locale dosyalarını binary'ye göm
 8. **TLS sertifika yönetimi:**
    - `config/tls.go`: TLS modu okuma (self-signed | mkcert | acme)
    - **Self-signed (varsayılan):** ilk başlatmada Go `crypto/ecdsa` (P-256) + `crypto/x509` ile otomatik cert üret

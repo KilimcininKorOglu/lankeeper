@@ -1,0 +1,219 @@
+package web
+
+import (
+	"context"
+	"crypto/tls"
+	"fmt"
+	"io/fs"
+	"log"
+	"net"
+	"net/http"
+	"time"
+
+	"github.com/KilimcininKorOglu/home-router/internal/agent"
+	"github.com/KilimcininKorOglu/home-router/internal/config"
+	"github.com/KilimcininKorOglu/home-router/internal/i18n"
+	"github.com/KilimcininKorOglu/home-router/internal/tmpl"
+)
+
+type Server struct {
+	cfg      *config.Config
+	auth     *Auth
+	renderer *tmpl.Renderer
+	loc      *i18n.I18n
+	agent    *agent.Client
+	http     *http.Server
+}
+
+func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, webFS fs.FS) (*Server, error) {
+	auth := NewAuth(cfg.System.SessionSecret, cfg.System.AdminPasswordHash)
+
+	renderer, err := tmpl.NewRenderer(webFS, loc)
+	if err != nil {
+		return nil, fmt.Errorf("init renderer: %w", err)
+	}
+
+	s := &Server{
+		cfg:      cfg,
+		auth:     auth,
+		renderer: renderer,
+		loc:      loc,
+		agent:    agentClient,
+	}
+
+	mux := http.NewServeMux()
+	s.routes(mux, webFS)
+
+	var handler http.Handler = mux
+
+	_, lanNet, _ := net.ParseCIDR("10.10.10.0/24")
+	allowedNets := []*net.IPNet{lanNet}
+	for _, iface := range cfg.Interfaces {
+		if iface.Role == "lan" && iface.Address != "" {
+			_, n, err := net.ParseCIDR(iface.Address)
+			if err == nil {
+				allowedNets = append(allowedNets, n)
+			}
+		}
+	}
+
+	handler = RequestLogger(handler)
+	handler = SecurityHeaders(handler)
+	handler = CSRFProtect(handler)
+	rateLimiter := NewRateLimiter(30, 60)
+	handler = rateLimiter.Middleware(handler)
+	handler = i18n.Middleware(loc)(handler)
+	handler = LANOnly(allowedNets)(handler)
+
+	addr := fmt.Sprintf("%s:%d", cfg.System.WebBind, cfg.System.WebPort)
+	s.http = &http.Server{
+		Addr:         addr,
+		Handler:      handler,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+		TLSConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		},
+	}
+
+	return s, nil
+}
+
+func (s *Server) Serve(ctx context.Context) error {
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		s.http.Shutdown(shutdownCtx)
+	}()
+
+	log.Printf("web server listening on %s (TLS mode: %s)", s.http.Addr, s.cfg.System.TLS.Mode)
+
+	certFile := s.cfg.System.TLS.CertFile
+	keyFile := s.cfg.System.TLS.KeyFile
+	if certFile == "" {
+		certFile = "/var/lib/home-router/tls/server.crt"
+	}
+	if keyFile == "" {
+		keyFile = "/var/lib/home-router/tls/server.key"
+	}
+
+	err := s.http.ListenAndServeTLS(certFile, keyFile)
+	if err == http.ErrServerClosed {
+		return nil
+	}
+	return err
+}
+
+func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
+	staticFS, _ := fs.Sub(webFS, "static")
+	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
+
+	mux.HandleFunc("GET /login", s.handleLoginPage)
+	mux.HandleFunc("POST /login", s.handleLogin)
+	mux.HandleFunc("POST /logout", s.handleLogout)
+	mux.HandleFunc("POST /settings/lang", s.handleLangSwitch)
+
+	authed := AuthRequired(s.auth)
+	mux.Handle("GET /{$}", authed(http.HandlerFunc(s.handleDashboard)))
+}
+
+func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	if s.auth.IsAuthenticated(r) {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	lang := i18n.LangFromContext(r.Context())
+	data := &tmpl.PageData{
+		Lang:      lang,
+		Page:      "login",
+		CSRFToken: getOrCreateCSRFToken(w, r),
+	}
+	if err := s.renderer.Render(w, "login", "auth", data); err != nil {
+		log.Printf("render login: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	lang := i18n.LangFromContext(r.Context())
+	password := r.FormValue("password")
+
+	if !s.auth.VerifyPassword(password) {
+		data := &tmpl.PageData{
+			Lang:      lang,
+			Page:      "login",
+			CSRFToken: getOrCreateCSRFToken(w, r),
+			Error:     s.loc.T(lang, "auth.wrongPassword"),
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+		if err := s.renderer.Render(w, "login", "auth", data); err != nil {
+			log.Printf("render login error: %v", err)
+		}
+		return
+	}
+
+	if err := s.auth.Login(w, r); err != nil {
+		log.Printf("login session error: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Redirect", "/")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	s.auth.Logout(w, r)
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Redirect", "/login")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+func (s *Server) handleLangSwitch(w http.ResponseWriter, r *http.Request) {
+	lang := r.FormValue("lang")
+	if !s.loc.HasLocale(lang) {
+		lang = s.loc.Fallback()
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "lang",
+		Value:    lang,
+		Path:     "/",
+		MaxAge:   365 * 24 * 3600,
+		HttpOnly: false,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+	})
+
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Refresh", "true")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	http.Redirect(w, r, r.Referer(), http.StatusSeeOther)
+}
+
+func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	lang := i18n.LangFromContext(r.Context())
+	data := &tmpl.PageData{
+		Lang:      lang,
+		Page:      "dashboard",
+		CSRFToken: getOrCreateCSRFToken(w, r),
+	}
+	if err := s.renderer.Render(w, "dashboard", "base", data); err != nil {
+		log.Printf("render dashboard: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
+}
