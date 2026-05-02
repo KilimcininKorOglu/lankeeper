@@ -147,12 +147,14 @@ type WGServerStatus struct {
 }
 
 type WGPeerStatus struct {
-	Name         string
-	PublicKey    string
-	AllowedIPs   string
-	Handshake    string
-	Transfer     string
-	Online       bool
+	Name          string
+	PublicKey     string
+	AllowedIPs    string
+	Handshake     string
+	Transfer      string
+	Online        bool
+	IsSiteToSite  bool
+	RemoteSubnets []string
 }
 
 func (s *VPNService) ServerStatus(ctx context.Context) (*WGServerStatus, error) {
@@ -174,9 +176,11 @@ func (s *VPNService) ServerStatus(ctx context.Context) (*WGServerStatus, error) 
 
 	for _, peer := range s.cfg.VPN.Server.Peers {
 		ps := WGPeerStatus{
-			Name:       peer.Name,
-			PublicKey:  peer.PublicKey,
-			AllowedIPs: peer.AllowedIPs,
+			Name:          peer.Name,
+			PublicKey:     peer.PublicKey,
+			AllowedIPs:   peer.AllowedIPs,
+			IsSiteToSite:  peer.IsSiteToSite,
+			RemoteSubnets: peer.RemoteSubnets,
 		}
 		status.Peers = append(status.Peers, ps)
 	}
@@ -199,7 +203,7 @@ func (s *VPNService) ServerDown(ctx context.Context) error {
 	return err
 }
 
-func (s *VPNService) AddPeer(ctx context.Context, name string) (*config.WGServerPeer, string, error) {
+func (s *VPNService) AddPeer(ctx context.Context, name string, siteToSite bool, remoteSubnets []string, endpoint string) (*config.WGServerPeer, string, error) {
 	privKey, pubKey, err := s.GenerateKeypair(ctx)
 	if err != nil {
 		return nil, "", err
@@ -209,12 +213,20 @@ func (s *VPNService) AddPeer(ctx context.Context, name string) (*config.WGServer
 
 	nextIP := fmt.Sprintf("10.10.11.%d/32", len(s.cfg.VPN.Server.Peers)+2)
 
+	allowedIPs := nextIP
+	if siteToSite && len(remoteSubnets) > 0 {
+		allowedIPs = nextIP + ", " + strings.Join(remoteSubnets, ", ")
+	}
+
 	peer := config.WGServerPeer{
-		Name:         name,
-		PublicKey:    pubKey,
-		PresharedKey: psk,
-		AllowedIPs:   nextIP,
-		Keepalive:    25,
+		Name:          name,
+		PublicKey:     pubKey,
+		PresharedKey:  psk,
+		AllowedIPs:    allowedIPs,
+		Keepalive:     25,
+		Endpoint:      endpoint,
+		RemoteSubnets: remoteSubnets,
+		IsSiteToSite:  siteToSite,
 	}
 
 	s.mu.Lock()
@@ -240,11 +252,18 @@ func (s *VPNService) RemovePeer(name string) error {
 func (s *VPNService) GeneratePeerConfig(peer *config.WGServerPeer, peerPrivKey string) string {
 	server := s.cfg.VPN.Server
 
+	peerTunnelIP := peer.AllowedIPs
+	if idx := strings.Index(peerTunnelIP, ","); idx != -1 {
+		peerTunnelIP = strings.TrimSpace(peerTunnelIP[:idx])
+	}
+
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "[Interface]\n")
 	fmt.Fprintf(&sb, "PrivateKey = %s\n", peerPrivKey)
-	fmt.Fprintf(&sb, "Address = %s\n", peer.AllowedIPs)
-	fmt.Fprintf(&sb, "DNS = %s\n", server.DNS)
+	fmt.Fprintf(&sb, "Address = %s\n", peerTunnelIP)
+	if !peer.IsSiteToSite {
+		fmt.Fprintf(&sb, "DNS = %s\n", server.DNS)
+	}
 	if server.MTU > 0 {
 		fmt.Fprintf(&sb, "MTU = %d\n", server.MTU)
 	}
@@ -254,12 +273,39 @@ func (s *VPNService) GeneratePeerConfig(peer *config.WGServerPeer, peerPrivKey s
 		fmt.Fprintf(&sb, "PresharedKey = %s\n", peer.PresharedKey)
 	}
 	fmt.Fprintf(&sb, "Endpoint = <YOUR_PUBLIC_IP>:%d\n", server.ListenPort)
-	fmt.Fprintf(&sb, "AllowedIPs = 0.0.0.0/0, ::/0\n")
+
+	if peer.IsSiteToSite {
+		var localSubnets []string
+		for _, iface := range s.cfg.Interfaces {
+			if iface.Role == "lan" && iface.Address != "" {
+				localSubnets = append(localSubnets, s.addressToSubnet(iface.Address))
+			}
+		}
+		if addr := server.Address; addr != "" {
+			localSubnets = append(localSubnets, s.addressToSubnet(addr))
+		}
+		fmt.Fprintf(&sb, "AllowedIPs = %s\n", strings.Join(localSubnets, ", "))
+	} else {
+		fmt.Fprintf(&sb, "AllowedIPs = 0.0.0.0/0, ::/0\n")
+	}
+
 	if peer.Keepalive > 0 {
 		fmt.Fprintf(&sb, "PersistentKeepalive = %d\n", peer.Keepalive)
 	}
 
 	return sb.String()
+}
+
+func (s *VPNService) addressToSubnet(addr string) string {
+	if idx := strings.LastIndex(addr, "."); idx != -1 {
+		slashIdx := strings.Index(addr, "/")
+		mask := "/24"
+		if slashIdx != -1 {
+			mask = addr[slashIdx:]
+		}
+		return addr[:idx] + ".0" + mask
+	}
+	return addr
 }
 
 func (s *VPNService) findClient(name string) (int, *config.WGClientTunnel) {

@@ -74,6 +74,13 @@
     "vpn.downloadConfig": "Config İndir",
     "vpn.showQr": "QR Göster",
     "vpn.killSwitch": "Kill Switch",
+    "vpn.peerType": "Eş Tipi",
+    "vpn.roadWarrior": "Uzak İstemci",
+    "vpn.siteToSite": "Siteden Siteye",
+    "vpn.remoteSubnets": "Uzak Alt Ağlar",
+    "vpn.remoteSubnetsPlaceholder": "ör: 192.168.2.0/24",
+    "vpn.remoteEndpoint": "Uzak Uç Nokta",
+    "vpn.remoteEndpointPlaceholder": "ör: 1.2.3.4:51820",
     "vpn.status.active": "Aktif",
     "vpn.status.inactive": "Pasif",
 

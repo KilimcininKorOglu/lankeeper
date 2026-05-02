@@ -23,6 +23,9 @@ PublicKey = {{ .PublicKey }}
 PresharedKey = {{ .PresharedKey }}
 {{- end }}
 AllowedIPs = {{ .AllowedIPs }}
+{{- if .Endpoint }}
+Endpoint = {{ .Endpoint }}
+{{- end }}
 {{- if .Keepalive }}
 PersistentKeepalive = {{ .Keepalive }}
 {{- end }}

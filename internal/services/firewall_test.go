@@ -158,3 +158,82 @@ func TestFirewallHasPendingChange(t *testing.T) {
 		t.Error("should not have pending change initially")
 	}
 }
+
+const testNftWGTemplate = `flush ruleset
+table inet filter {
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+{{- range .LANInterfaces }}
+{{- range $.WANInterfaces }}
+        iifname "{{ $.LANDevice }}" oifname "{{ .Device }}" accept
+{{- end }}
+{{- end }}
+{{- if .WGServerEnabled }}
+{{- range .LANInterfaces }}
+        iifname "{{ $.WGServerIface }}" oifname "{{ .Device }}" accept
+        iifname "{{ .Device }}" oifname "{{ $.WGServerIface }}" accept
+{{- end }}
+{{- end }}
+{{- range $wg := .WGClientIfaces }}
+{{- range $.LANInterfaces }}
+        iifname "{{ $wg }}" oifname "{{ .Device }}" accept
+        iifname "{{ .Device }}" oifname "{{ $wg }}" accept
+{{- end }}
+{{- end }}
+    }
+}
+`
+
+func TestFirewallRenderWithWireGuard(t *testing.T) {
+	cfg := testFirewallConfig()
+	cfg.VPN.Server.Enabled = true
+	cfg.VPN.Clients = []config.WGClientTunnel{
+		{Name: "nl-amsterdam", Table: 100, Fwmark: 100},
+		{Name: "us-newyork", Table: 101, Fwmark: 101},
+	}
+
+	svc, err := services.NewFirewallServiceFromFS(cfg, testNftWGTemplate)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	rendered, err := svc.RenderConfig()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	if !strings.Contains(rendered, `iifname "wgs0" oifname "enp0s25" accept`) {
+		t.Errorf("should contain WG server → LAN rule, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, `iifname "enp0s25" oifname "wgs0" accept`) {
+		t.Errorf("should contain LAN → WG server rule, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, `iifname "wg0" oifname "enp0s25" accept`) {
+		t.Errorf("should contain WG client 0 → LAN rule, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, `iifname "wg1" oifname "enp0s25" accept`) {
+		t.Errorf("should contain WG client 1 → LAN rule, got:\n%s", rendered)
+	}
+}
+
+func TestFirewallRenderWithoutWireGuard(t *testing.T) {
+	cfg := testFirewallConfig()
+	cfg.VPN.Server.Enabled = false
+
+	svc, err := services.NewFirewallServiceFromFS(cfg, testNftWGTemplate)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	rendered, err := svc.RenderConfig()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	if strings.Contains(rendered, "wgs0") {
+		t.Error("should NOT contain WG server rules when disabled")
+	}
+	if strings.Contains(rendered, "wg0") {
+		t.Error("should NOT contain WG client rules when no clients")
+	}
+}

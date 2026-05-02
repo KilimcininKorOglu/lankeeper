@@ -22,20 +22,23 @@ type FirewallService struct {
 }
 
 type nftTemplateData struct {
-	LANInterfaces  []nftIface
-	WANInterfaces  []nftIface
-	LANDevice      string
-	WANDevice      string
-	IsolatedVLANs  []nftVLAN
-	VLANDevice     string
-	PortForwards   []config.PortForward
-	RateLimits     map[string]string
-	WebPort        int
-	IPv6Enabled    bool
-	USBNATEnabled  bool
-	USBInterface   string
-	TTLFixEnabled  bool
-	TTLFixValue    int
+	LANInterfaces   []nftIface
+	WANInterfaces   []nftIface
+	LANDevice       string
+	WANDevice       string
+	IsolatedVLANs   []nftVLAN
+	VLANDevice      string
+	PortForwards    []config.PortForward
+	RateLimits      map[string]string
+	WebPort         int
+	IPv6Enabled     bool
+	USBNATEnabled   bool
+	USBInterface    string
+	TTLFixEnabled   bool
+	TTLFixValue     int
+	WGServerEnabled bool
+	WGServerIface   string
+	WGClientIfaces  []string
 }
 
 type nftIface struct {
@@ -314,6 +317,14 @@ func (s *FirewallService) buildTemplateData() *nftTemplateData {
 		if data.USBInterface == "" {
 			data.USBInterface = "usb0"
 		}
+	}
+
+	if s.cfg.VPN.Server.Enabled {
+		data.WGServerEnabled = true
+		data.WGServerIface = "wgs0"
+	}
+	for i := range s.cfg.VPN.Clients {
+		data.WGClientIfaces = append(data.WGClientIfaces, fmt.Sprintf("wg%d", i))
 	}
 
 	return data

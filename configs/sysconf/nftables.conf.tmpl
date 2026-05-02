@@ -67,6 +67,22 @@ table inet filter {
 {{- end }}
 {{- end }}
 
+        # WireGuard Server ↔ LAN forwarding
+{{- if .WGServerEnabled }}
+{{- range .LANInterfaces }}
+        iifname "{{ $.WGServerIface }}" oifname "{{ .Device }}" accept
+        iifname "{{ .Device }}" oifname "{{ $.WGServerIface }}" accept
+{{- end }}
+{{- end }}
+
+        # WireGuard Client tunnels ↔ LAN forwarding
+{{- range $wg := .WGClientIfaces }}
+{{- range $.LANInterfaces }}
+        iifname "{{ $wg }}" oifname "{{ .Device }}" accept
+        iifname "{{ .Device }}" oifname "{{ $wg }}" accept
+{{- end }}
+{{- end }}
+
         # Inter-VLAN isolation
 {{- range .IsolatedVLANs }}
 {{- range $.LANInterfaces }}

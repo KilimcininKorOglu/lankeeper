@@ -21,7 +21,13 @@
         <div style="display:flex; align-items:center; justify-content:space-between; padding:var(--space-sm) 0; border-bottom:1px solid var(--border-color);">
             <div>
                 <span style="font-weight:700;">{{ .Name }}</span>
-                <span style="color:var(--text-secondary); font-size:var(--font-xs); margin-left:var(--space-sm);">{{ .AllowedIPs }}</span>
+                {{ if .IsSiteToSite }}
+                    <span class="badge badge-success" style="margin-left:var(--space-xs);">{{ t $.Lang "vpn.siteToSite" }}</span>
+                {{ end }}
+                <div style="color:var(--text-secondary); font-size:var(--font-xs);">{{ .AllowedIPs }}</div>
+                {{ if .RemoteSubnets }}
+                <div style="color:var(--text-secondary); font-size:var(--font-xs);">{{ t $.Lang "vpn.remoteSubnets" }}: {{ range $i, $s := .RemoteSubnets }}{{ if $i }}, {{ end }}{{ $s }}{{ end }}</div>
+                {{ end }}
             </div>
             <div style="display:flex; gap:var(--space-sm);">
                 <a href="/vpn/server/peer/{{ .Name }}/config" class="btn btn-secondary btn-sm">{{ t $.Lang "vpn.downloadConfig" }}</a>
@@ -30,9 +36,43 @@
         </div>
         {{ end }}
         {{ end }}
-        <form hx-post="/vpn/server/peer" style="display:flex; gap:var(--space-sm); margin-top:var(--space-md);">
-            <input class="input" name="name" placeholder="{{ t $.Lang "common.name" }}" required style="flex:1;">
-            <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "vpn.addPeer" }}</button>
+
+        <div style="margin-top:var(--space-md);">
+            <button class="btn btn-primary btn-sm" onclick="document.getElementById('peer-form').style.display='block'">
+                {{ t $.Lang "vpn.addPeer" }}
+            </button>
+        </div>
+        <form id="peer-form" hx-post="/vpn/server/peer" style="display:none; padding:var(--space-md); border:1px solid var(--border-color); border-radius:var(--radius-md); margin-top:var(--space-md);"
+              hx-on::after-request="this.reset(); this.style.display='none';">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:var(--space-md);">
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "common.name" }}</label>
+                    <input class="input" name="name" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "vpn.peerType" }}</label>
+                    <select class="input" name="peerType" onchange="document.getElementById('s2s-fields').style.display = this.value === 'site-to-site' ? 'contents' : 'none'">
+                        <option value="road-warrior">{{ t $.Lang "vpn.roadWarrior" }}</option>
+                        <option value="site-to-site">{{ t $.Lang "vpn.siteToSite" }}</option>
+                    </select>
+                </div>
+            </div>
+            <div id="s2s-fields" style="display:none;">
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:var(--space-md); margin-top:var(--space-md);">
+                    <div class="input-group">
+                        <label class="input-label">{{ t $.Lang "vpn.remoteSubnets" }}</label>
+                        <input class="input" name="remoteSubnets" placeholder="{{ t $.Lang "vpn.remoteSubnetsPlaceholder" }}">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">{{ t $.Lang "vpn.remoteEndpoint" }}</label>
+                        <input class="input" name="endpoint" placeholder="{{ t $.Lang "vpn.remoteEndpointPlaceholder" }}">
+                    </div>
+                </div>
+            </div>
+            <div style="display:flex; gap:var(--space-sm); margin-top:var(--space-md);">
+                <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('form').style.display='none'">{{ t $.Lang "common.cancel" }}</button>
+            </div>
         </form>
     </div>
     {{ end }}

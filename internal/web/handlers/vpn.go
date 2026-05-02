@@ -3,6 +3,7 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/KilimcininKorOglu/home-router/internal/i18n"
 	"github.com/KilimcininKorOglu/home-router/internal/services"
@@ -47,7 +48,20 @@ func (h *VPNHandler) HandleAddPeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	peer, privKey, err := h.vpn.AddPeer(r.Context(), name)
+	peerType := r.FormValue("peerType")
+	siteToSite := peerType == "site-to-site"
+	endpoint := r.FormValue("endpoint")
+
+	var remoteSubnets []string
+	if raw := strings.TrimSpace(r.FormValue("remoteSubnets")); raw != "" && siteToSite {
+		for _, s := range strings.Split(raw, ",") {
+			if trimmed := strings.TrimSpace(s); trimmed != "" {
+				remoteSubnets = append(remoteSubnets, trimmed)
+			}
+		}
+	}
+
+	peer, privKey, err := h.vpn.AddPeer(r.Context(), name, siteToSite, remoteSubnets, endpoint)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

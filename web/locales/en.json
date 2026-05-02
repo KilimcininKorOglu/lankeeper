@@ -74,6 +74,13 @@
     "vpn.downloadConfig": "Download Config",
     "vpn.showQr": "Show QR",
     "vpn.killSwitch": "Kill Switch",
+    "vpn.peerType": "Peer Type",
+    "vpn.roadWarrior": "Road Warrior",
+    "vpn.siteToSite": "Site-to-Site",
+    "vpn.remoteSubnets": "Remote Subnets",
+    "vpn.remoteSubnetsPlaceholder": "e.g. 192.168.2.0/24",
+    "vpn.remoteEndpoint": "Remote Endpoint",
+    "vpn.remoteEndpointPlaceholder": "e.g. 1.2.3.4:51820",
     "vpn.status.active": "Active",
     "vpn.status.inactive": "Inactive",
 

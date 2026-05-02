@@ -308,11 +308,14 @@ type WGServerConfig struct {
 }
 
 type WGServerPeer struct {
-	Name         string `yaml:"name"`
-	PublicKey    string `yaml:"publicKey"`
-	PresharedKey string `yaml:"presharedKey"`
-	AllowedIPs   string `yaml:"allowedIPs"`
-	Keepalive    int    `yaml:"keepalive"`
+	Name          string   `yaml:"name"`
+	PublicKey     string   `yaml:"publicKey"`
+	PresharedKey  string   `yaml:"presharedKey"`
+	AllowedIPs    string   `yaml:"allowedIPs"`
+	Keepalive     int      `yaml:"keepalive"`
+	Endpoint      string   `yaml:"endpoint,omitempty"`
+	RemoteSubnets []string `yaml:"remoteSubnets,omitempty"`
+	IsSiteToSite  bool     `yaml:"isSiteToSite,omitempty"`
 }
 
 type OpenVPNConfig struct {
