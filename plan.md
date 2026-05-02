@@ -116,6 +116,7 @@ web/locales/
     "nav.network": "Network",
     "nav.firewall": "Firewall",
     "nav.vpn": "VPN",
+    "nav.routing": "Routing",
     "nav.dns": "DNS",
     "nav.qos": "QoS",
     "nav.nas": "NAS",
@@ -234,12 +235,109 @@ func (s *FirewallService) Apply(ctx context.Context, rules *NftRuleset) error {
 
 Agent'ta 30 saniyelik watchdog: apply sonrası web'den onay gelmezse otomatik rollback.
 
-### 5. VPN Policy Routing
+### 5. Policy-Based Routing (PBR) Motoru
 
+Basit "cihaz → VPN" atamasının ötesinde, çok boyutlu politika kuralları:
+
+**Match kriterleri:**
+- Kaynak: cihaz (MAC/IP/hostname), subnet (CIDR)
+- Hedef: IP, CIDR, domain (DNS-based)
+- Port / protokol: TCP/UDP + port aralığı
+- Zaman: schedule (cron-like, ör: "22:00-08:00", "weekdays")
+- Kombinasyon: yukarıdakilerin hepsi AND ile birleştirilebilir
+
+**Action'lar:**
+- `wan` — direkt PPPoE çıkış
+- `{tunnel_name}` — belirli WireGuard tünelinden çıkış
+- `drop` — trafiği engelle
+
+**Priority:** Düşük sayı = yüksek öncelik. Web UI'da sürükle-bırak ile sıralama.
+
+**Akış:**
 ```
-nftables fwmark (kaynak IP'ye göre) → ip rule fwmark X lookup table_wgN → per-table default route
-ct mark ile reply paketlerde fwmark korunur
+Paket gelir → nftables PBR chain
+  → priority sırasıyla kural eşleştirme:
+    1. match: src_device + dst_port + protocol + schedule
+    2. eşleşen kural → fwmark ata
+    3. eşleşmeyen → sonraki kural
+    4. hiçbiri eşleşmez → default route (wan)
+  → ip rule fwmark X lookup table Y
+  → table Y: default via wgN veya ppp0
+  → ct mark: reply paketlerde fwmark korunur
 ```
+
+**Domain-based routing mekanizması:**
+```
+1. Politika kuralında "dstDomains: [netflix.com, *.nflxvideo.net]" tanımlı
+2. Go service: domain listesini Unbound'a local-data olarak ekler
+   → Unbound DNS yanıtını çözer
+3. Go service: DNS yanıtından çözümlenen IP'leri yakalar
+   (unbound-control dump_cache veya Unbound Python module)
+4. Çözümlenen IP'ler → nftables named set'e eklenir:
+   nft add element inet filter pbr_netflix { 1.2.3.4, 5.6.7.8 }
+5. nftables kuralı: ip daddr @pbr_netflix meta mark set {fwmark}
+6. TTL dolduğunda IP set'ten kaldırılır, yeni DNS sorgusu yeni IP ekler
+```
+
+**Config (routing.yaml):**
+```yaml
+defaultRoute: "wan"
+
+policies:
+  - name: "gaming-direct"
+    enabled: true
+    priority: 100
+    match:
+      srcDevices: ["xbox", "ps5"]
+      dstPorts: [3074, 3478, 3479]
+      protocol: "udp"
+    action:
+      route: "wan"
+
+  - name: "streaming-nl"
+    enabled: true
+    priority: 200
+    match:
+      dstDomains: ["netflix.com", "*.nflxvideo.net", "disneyplus.com"]
+    action:
+      route: "nl-amsterdam"
+
+  - name: "laptop-vpn"
+    enabled: true
+    priority: 300
+    match:
+      srcDevices: ["laptop"]
+    action:
+      route: "de-frankfurt"
+
+  - name: "night-vpn"
+    enabled: true
+    priority: 500
+    match:
+      schedule: "22:00-08:00"
+      srcDevices: ["*"]
+    action:
+      route: "nl-amsterdam"
+
+  - name: "torrent-block"
+    enabled: false
+    priority: 600
+    match:
+      dstPorts: [6881-6889]
+      protocol: "tcp"
+    action:
+      route: "drop"
+```
+
+**Web UI (HTMX):**
+- Politika listesi: sürükle-bırak ile priority sıralama
+- Politika ekleme/düzenleme: form → match kriterleri + action seçimi
+- Cihaz seçimi: DHCP lease'lerden dropdown (hostname + MAC)
+- Domain girişi: metin alanı, wildcard (*.domain.com) destekli
+- Tünel seçimi: aktif WireGuard tünellerinden dropdown
+- Schedule: görsel zaman aralığı seçici
+- Enable/disable toggle: politikayı devre dışı bırak (silmeden)
+- Canlı durum: hangi cihaz hangi politikaya eşleşiyor (SSE ile)
 
 ### 6. DNS + DHCP: Unbound + dnsmasq
 
@@ -271,6 +369,7 @@ type Config struct {
     DNS        DNSConfig        `yaml:"dns"`
     DHCP       DHCPConfig       `yaml:"dhcp"`
     VPN        VPNConfig        `yaml:"vpn"`
+    Routing    RoutingConfig    `yaml:"routing"`
     NAS        NASConfig        `yaml:"nas"`
     Syslog     SyslogConfig     `yaml:"syslog"`
     Storage    StorageConfig    `yaml:"storage"`
@@ -314,7 +413,8 @@ home-router/
 │   │       ├── dns.go            # Unbound DNS yönetimi + istatistik
 │   │       ├── dhcp.go           # dnsmasq DHCP lease yönetimi
 │   │       ├── qos.go            # SQM/QoS profilleri
-│   │       ├── vpn.go            # WireGuard tünelleri + cihaz ataması
+│   │       ├── vpn.go            # WireGuard tünel yönetimi
+│   │       ├── routing.go       # Policy-based routing kuralları (CRUD + sıralama)
 │   │       ├── nas.go            # Samba paylaşımları
 │   │       ├── storage.go        # RAID durumu, disk sağlığı
 │   │       ├── syslog.go          # Syslog sunucu/client yapılandırma
@@ -325,7 +425,8 @@ home-router/
 │   │   ├── dns.go                # Unbound config yönetimi + blocklist + unbound-control
 │   │   ├── dhcp.go               # dnsmasq config yönetimi + lease parse
 │   │   ├── qos.go                # tc + CAKE qdisc yönetimi
-│   │   ├── vpn.go                # WireGuard tunnel + policy routing
+│   │   ├── vpn.go                # WireGuard tunnel yönetimi
+│   │   ├── routing.go            # Policy-based routing motoru (PBR)
 │   │   ├── nas.go                # Samba config + M3U parser
 │   │   ├── storage.go            # mdadm + smartctl
 │   │   ├── monitor.go            # Sistem istatistikleri toplayıcı (goroutine)
@@ -352,6 +453,7 @@ home-router/
 │   │   │   ├── network.html
 │   │   │   ├── firewall.html
 │   │   │   ├── vpn.html
+│   │   │   ├── routing.html      # Policy-based routing yönetimi
 │   │   │   ├── dns.html
 │   │   │   ├── dhcp.html
 │   │   │   ├── qos.html
@@ -368,6 +470,9 @@ home-router/
 │   │       ├── fw_rules.html     # Firewall kural listesi
 │   │       ├── vpn_panel.html    # VPN cihaz atama paneli
 │   │       ├── vpn_device.html   # Tekil cihaz kartı (draggable)
+│   │       ├── policy_list.html  # PBR politika listesi (sürükle-bırak sıralama)
+│   │       ├── policy_form.html  # PBR politika ekleme/düzenleme formu
+│   │       ├── policy_status.html# PBR canlı eşleşme durumu
 │   │       ├── share_list.html   # Samba paylaşım listesi
 │   │       ├── raid_status.html  # RAID durumu
 │   │       ├── toast.html        # Toast notification
@@ -405,6 +510,7 @@ home-router/
 │       ├── firewall.yaml         # Varsayılan firewall kuralları
 │       ├── qos.yaml              # Varsayılan QoS profilleri
 │       ├── vpn.yaml              # Boş VPN config
+│       ├── routing.yaml          # Varsayılan PBR politikaları (boş)
 │       └── nas.yaml              # Boş NAS config
 ├── deploy/
 │   ├── systemd/
@@ -630,15 +736,27 @@ Go'da HTMX ile iki tür endpoint var: **sayfa** (tam HTML) ve **partial** (HTML 
 | PUT    | /qos/limits             | Partial | Bant genişliği limitleri           |
 | PUT    | /qos/congestion         | Partial | Congestion control (BBR/CUBIC)     |
 
-### VPN
+### VPN (Tünel Yönetimi)
 | Method | Path                        | Tür     | Açıklama                      |
 |--------|-----------------------------|---------|--------------------------------|
-| GET    | /vpn                        | Sayfa   | VPN yönetimi sayfası           |
-| GET    | /partials/vpn-panel         | Partial | Tünel + cihaz paneli           |
+| GET    | /vpn                        | Sayfa   | VPN tünel yönetimi sayfası     |
+| GET    | /partials/vpn-tunnels       | Partial | Tünel listesi + durum          |
 | POST   | /vpn/tunnel                 | Partial | Yeni tünel ekle                |
+| PUT    | /vpn/tunnel/{name}          | Partial | Tünel düzenle                  |
 | DELETE | /vpn/tunnel/{name}          | Partial | Tünel sil                      |
-| PUT    | /vpn/assign                 | Partial | Cihaz-tünel ataması (drag-drop)|
-| DELETE | /vpn/unassign/{mac}         | Partial | Cihaz atamasını kaldır         |
+
+### Policy-Based Routing (PBR)
+| Method | Path                          | Tür     | Açıklama                              |
+|--------|-------------------------------|---------|----------------------------------------|
+| GET    | /routing                      | Sayfa   | PBR politika yönetimi sayfası          |
+| GET    | /partials/policies            | Partial | Politika listesi (sürükle-bırak sıralama) |
+| POST   | /routing/policy               | Partial | Yeni politika ekle                     |
+| PUT    | /routing/policy/{name}        | Partial | Politika düzenle                       |
+| DELETE | /routing/policy/{name}        | Partial | Politika sil                           |
+| PUT    | /routing/policy/{name}/toggle | Partial | Politikayı etkinleştir/devre dışı bırak|
+| PUT    | /routing/reorder              | Partial | Politika sıralamasını güncelle (drag-drop) |
+| GET    | /partials/policy-status       | Partial | Canlı eşleşme durumu (hangi cihaz hangi politikada) |
+| GET    | /events/routing               | SSE     | PBR durum değişiklikleri (real-time)   |
 
 ### NAS
 | Method | Path                    | Tür     | Açıklama                          |
@@ -1115,43 +1233,79 @@ Manuel doğrulama:
 - BBR/CUBIC geçişi çalışıyor mu
 - TR/EN dillerinde QoS sayfası metinleri doğru mu
 
-### Phase 8: WireGuard VPN + Policy Routing (5 gün)
-**Hedef:** WireGuard tünelleri, per-device policy routing, drag-and-drop UI.
+### Phase 8: WireGuard VPN + Policy-Based Routing (7 gün)
+**Hedef:** WireGuard tünelleri, tam kapsamlı policy-based routing motoru (kaynak/hedef/port/domain/zaman), web UI ile yönetim.
 
 Oluşturulacak dosyalar:
-- `internal/services/vpn.go`
+- `internal/services/vpn.go` — WireGuard tünel yönetimi
+- `internal/services/routing.go` — PBR motoru (kural eşleştirme, nftables entegrasyonu, DNS-based routing)
 - `configs/sysconf/wireguard.conf.tmpl`
 - `configs/defaults/vpn.yaml`
+- `configs/defaults/routing.yaml`
 - `internal/web/handlers/vpn.go`
+- `internal/web/handlers/routing.go`
 - `web/templates/pages/vpn.html`
-- `web/templates/partials/vpn_panel.html`
-- `web/templates/partials/vpn_device.html`
+- `web/templates/pages/routing.html`
+- `web/templates/partials/vpn_tunnels.html`
+- `web/templates/partials/policy_list.html`
+- `web/templates/partials/policy_form.html`
+- `web/templates/partials/policy_status.html`
 - `web/static/js/htmx-sortable.js`
 
 Adımlar:
-1. WireGuard config template: key, endpoint, allowed IPs, DNS
-2. Tünel CRUD: `wg-quick up/down wgN`
-3. Keypair: `exec.Command("wg", "genkey")` + `wg pubkey`
-4. Policy routing:
-   - `ip route add default dev wgN table {table_id}`
-   - nftables: `meta mark set {fwmark}` kaynak IP/MAC'e göre
-   - `ip rule add fwmark {mark} lookup {table_id}`
-   - `ct mark` ile reply paket fwmark korunması
-5. nftables template güncelleme: VPN fwmark chain
-6. Kill switch: VPN down → ilgili cihaz trafiği engelle
-7. HTMX drag-and-drop:
-   - HTML5 Drag and Drop API + HTMX `hx-trigger="drop"`
-   - Sol panel: cihaz havuzu, sağ panel: tünel drop zone'ları
-   - Drop → `PUT /vpn/assign` → partial swap
-8. Startup restore: `vpn.yaml`'dan tünel + route'ları kur
-9. **i18n:** Tünel isimleri hariç tüm UI metinleri `{{ t .Lang "vpn.*" }}` ile (drag-drop ipuçları, butonlar, durum etiketleri)
+1. **WireGuard tünel yönetimi:**
+   - Config template: key, endpoint, allowed IPs, DNS
+   - Tünel CRUD: `wg-quick up/down wgN`
+   - Keypair: `exec.Command("wg", "genkey")` + `wg pubkey`
+   - Per-tünel routing table: `ip route add default dev wgN table {table_id}`
+2. **PBR motoru — kural eşleştirme:**
+   - `routing.yaml`'dan politika kurallarını yükle
+   - Her politikayı nftables kuralına çevir:
+     - Kaynak eşleştirme: `ip saddr {device_ip}` veya `ether saddr {mac}`
+     - Hedef IP/CIDR: `ip daddr {cidr}`
+     - Port/protokol: `tcp dport {port}` veya `udp dport {port-range}`
+     - Zaman: nftables `meta hour` + `meta day` (kernel 5.4+)
+   - fwmark atama: `meta mark set {fwmark}`
+   - `ip rule add fwmark {mark} lookup {table_id} priority {prio}`
+   - `ct mark` ile reply paketlerde fwmark korunması
+3. **Domain-based routing:**
+   - Politikadaki domain listesi → Unbound'a `local-zone` + `local-data` hook
+   - DNS yanıtından çözümlenen IP'leri yakala (unbound-control dump_cache parse)
+   - nftables named set: `nft add element inet filter pbr_{policy_name} { resolved_ip }`
+   - Kural: `ip daddr @pbr_{policy_name} meta mark set {fwmark}`
+   - Goroutine: TTL bazlı set temizleme + yeni sorgu ile refresh
+4. **nftables PBR chain:**
+   - `chain pbr_policies` — priority sırasıyla kural zinciri
+   - Firewall template güncelleme: PBR chain'i forward chain'e entegre
+5. **Kill switch:** VPN tünel down → ilgili politikadaki cihazların trafiğini engelle
+6. **Startup restore:** `routing.yaml` + `vpn.yaml`'dan tünel + tüm politika kurallarını kur
+7. **Web UI — VPN sayfası (HTMX):**
+   - Tünel listesi: durum, handshake, transfer bilgisi
+   - Tünel CRUD formu
+8. **Web UI — PBR sayfası (HTMX):**
+   - Politika listesi: sürükle-bırak ile priority sıralama (`htmx-sortable.js`)
+   - Politika ekleme/düzenleme formu:
+     - Kaynak: cihaz dropdown (DHCP lease'lerden) veya CIDR input
+     - Hedef: IP/CIDR input veya domain listesi (textarea, wildcard destekli)
+     - Port/protokol: input + TCP/UDP/any seçimi
+     - Zaman: schedule picker (başlangıç-bitiş saat + gün seçimi)
+     - Action: dropdown (wan, tünel isimleri, drop)
+   - Enable/disable toggle
+   - Canlı eşleşme durumu: SSE ile hangi cihaz hangi politikaya eşleşiyor
+9. **i18n:** `{{ t .Lang "vpn.*" }}` ve `{{ t .Lang "routing.*" }}` ile tüm UI metinleri
 
 Manuel doğrulama:
 - `wg show` → tünel aktif mi, handshake var mı
-- Atanmış cihaz VPN'den çıkıyor mu (whatismyip)
-- Atanmamış cihaz normal PPPoE'den çıkıyor mu
-- Drag-and-drop anlık çalışıyor mu
-- Kill switch: tünel down → cihaz internetsiz mi
+- **Kaynak bazlı:** Xbox'a politika ata → VPN'den çıkıyor mu, diğer cihazlar direkt mi
+- **Hedef IP bazlı:** 1.2.3.0/24'e giden trafik → belirtilen tünelden çıkıyor mu
+- **Domain bazlı:** netflix.com politikası → `dig netflix.com`, çözümlenen IP VPN'den mi
+- **Port bazlı:** UDP 3478 → direkt, geri kalan → VPN
+- **Zaman bazlı:** schedule aktifken VPN, schedule dışında direkt
+- **Kombinasyon:** Xbox + UDP gaming portları → direkt, Xbox geri kalan → VPN
+- **Priority:** yüksek öncelikli kural düşük öncelikliden önce uygulanıyor mu
+- **Kill switch:** tünel down → ilgili cihaz internetsiz mi
+- **Sürükle-bırak:** politika sıralaması değiştirince priority güncelleniyor mu
+- TR/EN dillerinde VPN ve routing sayfası metinleri doğru mu
 
 ### Phase 9: Samba NAS + M3U Parser (3 gün)
 **Hedef:** Samba paylaşımları, M3U indirme/parse, Kodi-uyumlu medya yapısı.
@@ -1318,8 +1472,8 @@ firewallSvc.Apply(rules)
 | 5     | Unbound DNS + dnsmasq DHCP    | 3   | 16        |
 | 6     | Dashboard + SSE               | 3   | 19        |
 | 7     | SQM/QoS                       | 3   | 22        |
-| 8     | WireGuard VPN + Policy Routing| 5   | 27        |
-| 9     | Samba NAS + M3U               | 3   | 30        |
-| 10    | Storage + Syslog + Backup + Hardening | 4   | 34        |
+| 8     | WireGuard VPN + Policy-Based Routing | 7   | 29        |
+| 9     | Samba NAS + M3U               | 3   | 32        |
+| 10    | Storage + Syslog + Backup + Hardening | 4   | 36        |
 
-**Toplam: ~34 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
+**Toplam: ~36 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
