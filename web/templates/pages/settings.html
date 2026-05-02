@@ -10,29 +10,49 @@
     <div class="alert alert-error">{{ $.Error }}</div>
     {{ end }}
 
+    <!-- Hostname -->
     <div class="card settings-section">
         <div class="card-header">
-            <span class="card-title">{{ t $.Lang "settings.title" }}</span>
+            <span class="card-title">{{ t $.Lang "settings.updateHostname" }}</span>
         </div>
-        <div class="settings-row">
-            <span class="settings-label">{{ t $.Lang "settings.hostname" }}</span>
-            <span class="settings-value">{{ .Hostname }}</span>
-        </div>
-        <div class="settings-row">
-            <span class="settings-label">{{ t $.Lang "settings.timezone" }}</span>
-            <span class="settings-value">{{ .Timezone }}</span>
-        </div>
-        <div class="settings-row">
-            <span class="settings-label">{{ t $.Lang "tls.mode" }}</span>
-            <span class="settings-value">{{ .TLSMode }}</span>
-        </div>
+        <form hx-post="/settings/hostname" hx-swap="none" style="padding-top:var(--space-md);">
+            <div class="input-group" style="margin-bottom:var(--space-md);">
+                <label class="input-label">{{ t $.Lang "settings.hostname" }}</label>
+                <input type="text" class="input" name="hostname" value="{{ .Hostname }}" maxlength="63" required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
+        </form>
     </div>
 
+    <!-- Timezone -->
     <div class="card settings-section">
         <div class="card-header">
-            <span class="card-title">{{ t $.Lang "settings.changePassword" }}</span>
+            <span class="card-title">{{ t $.Lang "settings.updateTimezone" }}</span>
         </div>
-        <form hx-post="/settings/password" hx-swap="none" style="padding-top:var(--space-md);">
+        <form hx-post="/settings/timezone" hx-swap="none" style="padding-top:var(--space-md);">
+            <div class="input-group" style="margin-bottom:var(--space-md);">
+                <label class="input-label">{{ t $.Lang "settings.timezone" }}</label>
+                <select class="input" name="timezone">
+                    <option value="Europe/Istanbul"{{ if eq .Timezone "Europe/Istanbul" }} selected{{ end }}>Europe/Istanbul</option>
+                    <option value="Europe/London"{{ if eq .Timezone "Europe/London" }} selected{{ end }}>Europe/London</option>
+                    <option value="Europe/Berlin"{{ if eq .Timezone "Europe/Berlin" }} selected{{ end }}>Europe/Berlin</option>
+                    <option value="Europe/Paris"{{ if eq .Timezone "Europe/Paris" }} selected{{ end }}>Europe/Paris</option>
+                    <option value="America/New_York"{{ if eq .Timezone "America/New_York" }} selected{{ end }}>America/New_York</option>
+                    <option value="America/Los_Angeles"{{ if eq .Timezone "America/Los_Angeles" }} selected{{ end }}>America/Los_Angeles</option>
+                    <option value="Asia/Tokyo"{{ if eq .Timezone "Asia/Tokyo" }} selected{{ end }}>Asia/Tokyo</option>
+                    <option value="UTC"{{ if eq .Timezone "UTC" }} selected{{ end }}>UTC</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
+        </form>
+    </div>
+
+    <!-- Web UI Password -->
+    <div class="card settings-section">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "settings.changeWebPassword" }}</span>
+        </div>
+        <form hx-post="/settings/web-password" hx-swap="none" hx-on::after-request="this.reset();" style="padding-top:var(--space-md);">
             <div class="input-group" style="margin-bottom:var(--space-md);">
                 <label class="input-label">{{ t $.Lang "settings.newPassword" }}</label>
                 <input type="password" class="input" name="newPassword" minlength="8" required>
@@ -45,6 +65,36 @@
         </form>
     </div>
 
+    <!-- Root Password -->
+    <div class="card settings-section">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "settings.changeRootPassword" }}</span>
+        </div>
+        <form hx-post="/settings/root-password" hx-swap="none" hx-on::after-request="this.reset();" style="padding-top:var(--space-md);">
+            <div class="input-group" style="margin-bottom:var(--space-md);">
+                <label class="input-label">{{ t $.Lang "settings.rootPassword" }}</label>
+                <input type="password" class="input" name="rootPassword" minlength="8" required>
+            </div>
+            <div class="input-group" style="margin-bottom:var(--space-md);">
+                <label class="input-label">{{ t $.Lang "settings.rootPasswordConfirm" }}</label>
+                <input type="password" class="input" name="rootPasswordConfirm" minlength="8" required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
+        </form>
+    </div>
+
+    <!-- TLS -->
+    <div class="card settings-section">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "tls.title" }}</span>
+        </div>
+        <div class="settings-row">
+            <span class="settings-label">{{ t $.Lang "tls.mode" }}</span>
+            <span class="settings-value">{{ .TLSMode }}</span>
+        </div>
+    </div>
+
+    <!-- Backup -->
     <div class="card settings-section">
         <div class="card-header">
             <span class="card-title">{{ t $.Lang "settings.backup" }}</span>
@@ -55,9 +105,13 @@
         </div>
     </div>
 
+    <!-- Danger Zone -->
     <div style="display:flex; gap:var(--space-sm); margin-top:var(--space-2xl);">
         <button class="btn btn-danger btn-sm" hx-post="/system/reboot" hx-confirm="{{ t $.Lang "settings.confirmReboot" }}">
             {{ t $.Lang "settings.reboot" }}
+        </button>
+        <button class="btn btn-danger btn-sm" hx-post="/system/factory-reset" hx-confirm="{{ t $.Lang "settings.confirmReset" }}">
+            {{ t $.Lang "settings.factoryReset" }}
         </button>
     </div>
 
