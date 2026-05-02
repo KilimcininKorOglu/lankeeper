@@ -1,0 +1,20 @@
+{{- range .Client.Sources }}
+server {{ . }} iburst
+{{- end }}
+{{- if .Client.Fallback }}
+server {{ .Client.Fallback }} iburst
+{{- end }}
+
+driftfile /var/lib/chrony/drift
+makestep 1.0 3
+{{- if .RTCSync }}
+rtcsync
+{{- end }}
+logdir /var/log/chrony
+
+{{- if .Server.Enabled }}
+{{- range .AllowSubnets }}
+allow {{ . }}
+{{- end }}
+local stratum 10
+{{- end }}

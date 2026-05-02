@@ -1,0 +1,26 @@
+module(load="builtin:omfile")
+
+{{- if .Server.Enabled }}
+# Syslog server — receive logs from network devices
+module(load="imudp")
+input(type="imudp" port="{{ .Server.ListenUDP }}")
+{{- if .Server.ListenTCP }}
+module(load="imtcp")
+input(type="imtcp" port="{{ .Server.ListenTCP }}")
+{{- end }}
+
+{{- if .Server.PerHostDirs }}
+template(name="RemoteHost" type="string" string="{{ .Server.LogPath }}/%HOSTNAME%/%PROGRAMNAME%.log")
+if $fromhost-ip != '127.0.0.1' then {
+    action(type="omfile" dynaFile="RemoteHost")
+    stop
+}
+{{- end }}
+{{- end }}
+
+{{- if .Client.Enabled }}
+# Syslog client — forward logs to remote server
+{{- range .Client.Facilities }}
+{{ . }} {{ if eq $.Client.Protocol "tcp" }}@@{{ else }}@{{ end }}{{ $.Client.RemoteHost }}
+{{- end }}
+{{- end }}

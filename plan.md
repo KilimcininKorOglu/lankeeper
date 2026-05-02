@@ -2285,27 +2285,27 @@ Oluşturulacak dosyalar:
 - `deploy/backup.sh`
 
 Adımlar:
-1. RAID: `mdadm --detail` parse, degraded alarm
-2. SMART: `smartctl -a` → sağlık skoru, sıcaklık, hata
-3. Config backup: `tar.gz` export/import (config/ + unbound + dnsmasq + chrony config)
-4. Factory reset: varsayılan config restore
-5. Güvenlik sertleştirme:
+1. ✅ RAID: `mdadm --detail` parse, degraded alarm
+2. ✅ SMART: `smartctl -a` → sağlık skoru, sıcaklık, hata
+3. ✅ Config backup: `tar.gz` export/import (config/ + unbound + dnsmasq + chrony config)
+4. ✅ Factory reset: varsayılan config restore
+5. ✅ Güvenlik sertleştirme:
    - systemd: ProtectSystem=strict, PrivateTmp, NoNewPrivileges
    - sysctl: rp_filter, tcp_syncookies, icmp_ignore_bogus
    - SSH: key-only, LAN-only
    - CSP header, X-Frame-Options, X-Content-Type-Options
-6. HDD spin-up stagger: `hdparm -S`
-7. **Syslog sunucu:**
+6. ✅ HDD spin-up stagger: `hdparm -S`
+7. ✅ **Syslog sunucu:**
    - rsyslog config template: `module(load="imudp")` + `input(type="imudp" port="514")`
    - Per-host log dizini: `/var/log/remote/{hostname}/`
    - Log rotation: rsyslog `outchannel` veya logrotate config
    - Web UI: uzak cihaz loglarını filtreli görüntüleme (host, facility, severity)
    - Opsiyonel TLS: `module(load="imtcp") input(type="imtcp" port="6514" ... streamdriver.mode="1")`
-8. **Syslog client:**
+8. ✅ **Syslog client:**
    - rsyslog forward kuralı: `*.* @@remote:514` (TCP) veya `*.* @remote:514` (UDP)
    - Facility seçimi: config'den hangi logların iletileceğini belirle
    - Opsiyonel TLS forwarding
-9. **NTP sunucu (chrony):**
+9. ✅ **NTP sunucu (chrony):**
    - chrony config template render:
      - Client modu: `server 0.tr.pool.ntp.org iburst` (upstream NTP kaynakları)
      - Server modu: `allow 10.10.10.0/24` + `allow 10.10.11.0/24` (LAN + VPN peer'ları)
@@ -2319,7 +2319,7 @@ Adımlar:
    - DHCP entegrasyonu: dnsmasq config'e `dhcp-option=option:ntp-server,10.10.10.1` ekle
      → LAN cihazları DHCP ile otomatik olarak router'ı NTP sunucu olarak alır
    - Web UI: senkronizasyon durumu (offset, stratum, kaynak listesi), upstream değiştirme, force sync butonu
-10. Agent ops: `syslog.reload` (systemctl reload rsyslog)
+10. ✅ Agent ops: `syslog.reload` (systemctl reload rsyslog)
 11. **i18n:** Storage, syslog, NTP, settings, backup sayfaları `{{ t .Lang "storage.*" }}`, `{{ t .Lang "syslog.*" }}`, `{{ t .Lang "ntp.*" }}`, `{{ t .Lang "settings.*" }}` ile
 12. **i18n doğrulama:** Tüm locale JSON dosyalarında eksik anahtar testi (build time check)
 
