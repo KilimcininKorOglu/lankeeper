@@ -34,7 +34,7 @@ Turkcell Superonline'ın ISP modemleri bufferbloat sorununa neden oluyor ve 1 Gb
 - Harici DNS/DHCP web UI (Pi-hole, AdGuard Home) — Unbound + dnsmasq doğrudan Go'dan yönetilecek
 - Veritabanı (tüm config YAML dosyalarında)
 - JavaScript framework (React/Vue/Svelte yok — HTMX + server-side rendering)
-- Çoklu ISP / failover (tek PPPoE bağlantı)
+- Çoklu ISP / load balancing (tek PPPoE ana bağlantı + USB tethering yedek)
 - Konteyner/Docker desteği
 - ORM veya SQL — dosya tabanlı config
 
@@ -517,6 +517,7 @@ home-router/
 │   │   ├── storage.go            # mdadm + smartctl
 │   │   ├── monitor.go            # Sistem istatistikleri toplayıcı (goroutine)
 │   │   ├── healthcheck.go       # Interface internet checker + otomatik recovery
+│   │   ├── usbtethering.go     # Android USB tethering failover yönetimi
 │   │   ├── syslog.go             # rsyslog config yönetimi (sunucu + client)
 │   │   ├── ntp.go                # chrony config yönetimi (sunucu + client)
 │   │   └── backup.go             # Config export/import
@@ -744,6 +745,8 @@ healthCheck:
           delay: "0s"
         - type: "restartPppoe"             # PPPoE bağlantısını yeniden kur
           delay: "30s"                     # Önceki aksiyon sonrası bekleme
+        - type: "failoverUsb"             # USB tethering'e geç (telefon bağlıysa)
+          delay: "10s"
         - type: "rebootSystem"             # Son çare: sistemi yeniden başlat
           delay: "120s"
       cooldown: "5m"                       # Aksiyon sonrası yeniden kontrol bekleme
@@ -759,6 +762,17 @@ pppoe:
   persist: true
   holdoff: 5
   ipv6cp: true                           # IPv6CP negotiation etkinleştir (+ipv6 pppd seçeneği)
+
+usbTethering:
+  enabled: false                           # USB tethering desteği (Android telefon)
+  autoFailover: true                       # PPPoE düşünce otomatik USB'ye geç
+  autoFailback: true                       # PPPoE geri gelince otomatik ana bağlantıya dön
+  failoverDelay: "10s"                     # PPPoE fail → USB geçiş bekleme süresi
+  failbackDelay: "30s"                     # PPPoE geri geldi → ana bağlantıya dönüş bekleme
+  interface: "usb0"                        # Tethering interface adı (genelde usb0 veya rndis0)
+  metric: 100                              # Route metric (PPPoE: 0, USB: 100 → PPPoE öncelikli)
+  nat: true                                # USB interface üzerinden NAT masquerade
+  ttlFix: true                             # USB üzerinden çıkan paketlerde TTL sabitleme (tethering tespiti)
 
 firewall:
   defaultPolicy: "drop"                 # WAN input/forward
@@ -989,6 +1003,11 @@ Go'da HTMX ile iki tür endpoint var: **sayfa** (tam HTML) ve **partial** (HTML 
 | POST   | /pppoe/sniff               | Partial | PPPoE credential yakalama başlat        |
 | GET    | /partials/pppoe-sniff      | Partial | Yakalama durumu + bulunan credentials   |
 | POST   | /pppoe/sniff/stop          | Partial | Yakalama işlemini durdur                |
+| GET    | /partials/usb-tethering    | Partial | USB tethering durumu (bağlı/bağlı değil)|
+| POST   | /network/usb-tethering/enable  | Partial | USB tethering failover'ı etkinleştir|
+| POST   | /network/usb-tethering/disable | Partial | USB tethering failover'ı kapat     |
+| POST   | /network/usb-tethering/activate | Partial | Manuel olarak USB'ye geç          |
+| POST   | /network/usb-tethering/deactivate | Partial | Manuel olarak PPPoE'ye dön      |
 
 ### Health Check
 | Method | Path                            | Tür     | Açıklama                                    |
@@ -1431,7 +1450,7 @@ Manuel doğrulama:
 - **Dil değiştirme:** TR/EN butonlarına tıkla → sayfa seçilen dilde yenileniyor mu
 - **Sidebar:** tüm navigasyon etiketleri aktif dile göre mi
 
-### Phase 3: Network Interface + VLAN + PPPoE WAN + IPv6 + Health Check (7 gün)
+### Phase 3: Network Interface + VLAN + PPPoE WAN + USB Tethering + IPv6 + Health Check (8 gün)
 **Hedef:** Interface algılama ve isimlendirme, 802.1Q VLAN desteği (WAN + LAN), PPPoE ile internete bağlanma, auto-reconnect, ISP credential yakalama, interface health check + otomatik recovery.
 
 Oluşturulacak dosyalar:
@@ -1498,14 +1517,40 @@ Adımlar:
    - Web UI: "Credential Yakala" butonu → durum göstergesi → bulunan credentials
    - Güvenlik: credentials sadece maskelenmiş gösterilir (son 4 karakter), full gösterme yok
 9. HTMX: interface kartları, bağlan/kes butonları → partial swap ile durum güncelleme
-10. **Health Check (Internet Connectivity Monitor):**
+10. **Android USB Tethering (Yedek WAN):**
+    - **Algılama:** udev rule ile Android telefon USB bağlandığında `usb0` (veya `rndis0`) interface otomatik tanınır
+      - udev rule: `SUBSYSTEM=="net", ACTION=="add", ATTRS{idVendor}=="18d1", NAME="usb0"` (Google vendor ID)
+      - Farklı telefon markaları: Samsung `04e8`, Xiaomi `2717` vb. → generic RNDIS class match: `DRIVER=="rndis_host"`
+    - **DHCP client:** telefon USB tethering açıldığında `usb0` üzerinde DHCP server çalıştırır → router `dhclient usb0` ile IP alır
+    - **NAT:** `table ip nat` → `oifname "usb0" masquerade` (PPPoE NAT'ın yanına)
+    - **Failover mantığı (otomatik):**
+      1. Health check PPPoE'yi fail olarak tespit eder
+      2. Escalating actions sırasında `failoverUsb` aksiyonuna ulaşılır
+      3. `usb0` interface aktif mi kontrol et (telefon bağlı + tethering açık)
+      4. Aktifse: default route'u `usb0` üzerinden ayarla (`ip route replace default dev usb0 metric 100`)
+      5. nftables'da USB interface için masquerade kuralı etkinleştir
+      6. SSE ile web UI'a "USB tethering aktif" bildirimi gönder
+    - **Failback mantığı (otomatik):**
+      1. PPPoE bağlantısı geri geldiğinde (health check OK)
+      2. `failbackDelay` süresi kadar bekle (stabil mi?)
+      3. Default route'u tekrar `ppp0`'a çevir (`ip route replace default dev ppp0 metric 0`)
+      4. USB masquerade kuralını devre dışı bırak
+      5. SSE bildirimi: "PPPoE bağlantısı geri geldi"
+    - **Manuel geçiş:** Web UI'dan "USB'ye Geç" / "PPPoE'ye Dön" butonları
+    - **TTL Fix:** USB tethering aktifken ISP (mobil operatör) tethering tespiti → config'deki `usbTethering.ttlFix` etkinse TTL sabitleme
+    - **Route metric:** PPPoE metric=0, USB metric=100 → PPPoE her zaman öncelikli
+    - **Telefon algılama:** USB bağlantısı olmadığında interface yok → failover atlanır, sonraki aksiyona geçilir
+    - Agent operations: `usb.activate`, `usb.deactivate`, `usb.status`
+    - Web UI (network.html içinde section): USB tethering durumu (bağlı/bağlı değil, aktif WAN mı), enable/disable toggle, manuel geçiş butonları
+11. **Health Check (Internet Connectivity Monitor):**
     - `healthcheck.go` service: goroutine ile periyodik kontrol (ping + HTTP)
     - Her check tanımı: interface, hedef listesi, interval, timeout, failure threshold/window
     - Kontrol mantığı: hedeflerden en az 1 başarılı → OK, hepsi başarısız → failure count++
     - Failure threshold aşılınca → escalating actions sırasıyla dene:
       1. `restartInterface` — interface down/up (`ip link set down/up`)
       2. `restartPppoe` — PPPoE bağlantısını yeniden kur (agent op: `pppoe.reconnect`)
-      3. `rebootSystem` — son çare, sistemi yeniden başlat (agent op: `system.reboot`)
+      3. `failoverUsb` — USB tethering'e geç (telefon bağlıysa, agent op: `usb.activate`)
+      4. `rebootSystem` — son çare, sistemi yeniden başlat (agent op: `system.reboot`)
     - Her action arasında configurable delay (önceki aksiyon sonucu beklenir)
     - Cooldown süresi: aksiyon sonrası tekrar failure saymaya başlamadan önce bekle
     - Agent operations: `healthcheck.restart_iface`, `healthcheck.restart_pppoe`
@@ -1541,7 +1586,14 @@ Manuel doğrulama:
 - **VLAN LAN (misafir):** misafir ağından internete çıkılabiliyor mu
 - **VLAN DHCP:** misafir VLAN'da ayrı DHCP havuzundan IP alınıyor mu
 - **VLAN boot:** reboot sonrası VLAN'lar otomatik oluşturulup ayağa kalkıyor mu
-- TR/EN dillerinde tüm network/PPPoE/VLAN metinleri doğru mu
+- **USB tethering algılama:** Android telefon USB ile bağlayınca `usb0` interface görünüyor mu (`ip link show usb0`)
+- **USB tethering DHCP:** router `usb0` üzerinden IP alıyor mu (`dhclient usb0`)
+- **USB failover:** PPPoE kesilince (kablo çek) → USB'ye otomatik geçiş oluyor mu
+- **USB failback:** PPPoE geri gelince → otomatik ana bağlantıya dönüyor mu
+- **USB manuel geçiş:** web UI'dan "USB'ye Geç" butonu çalışıyor mu
+- **USB NAT:** USB tethering aktifken LAN cihazları internete çıkabiliyor mu
+- **USB telefon yok:** telefon bağlı değilken failover USB'yi atlayıp sonraki aksiyona geçiyor mu
+- TR/EN dillerinde tüm network/PPPoE/VLAN/USB metinleri doğru mu
 
 ### Phase 4: nftables Firewall + NAT + IPv6 (5 gün)
 **Hedef:** Zone-based firewall, NAT masquerade (IPv4), IPv6 stateful firewall (NAT66 yok), dual-stack MSS clamping, port forwarding, watchdog rollback.
@@ -2132,20 +2184,24 @@ firewallSvc.Apply(rules)
 | Self-signed cert tarayıcı uyarısı   | mkcert modu ile LAN'da güvenilir CA, ACME ile public domain desteği                |
 | ACME DNS challenge API key sızması   | Token `.credentials.enc`'de AES-256-GCM, agent op whitelist                        |
 | Let's Encrypt rate limit (5/hafta)  | Staging ortamı ile test, production'da dikkatli kullanım                            |
+| USB tethering telefon bağlı değil   | failoverUsb aksiyonu telefon yoksa atlanır, sonraki aksiyona geçilir                |
+| Mobil operatör tethering algılama    | USB üzerinden TTL Fix (ayrı toggle), hotspot tespiti bypass                        |
+| USB tethering bant genişliği düşük  | Yedek amaçlı — sadece temel bağlantı, QoS/VPN devre dışı bırakılabilir            |
+| USB interface ismi değişkenliği     | udev rule RNDIS class match (vendor-agnostic), Samsung/Xiaomi/Google test          |
 
 ## Tahmini Toplam Süre
 
-| Phase | Konu                                           | Gün | Kümülatif |
-|-------|------------------------------------------------|-----|-----------|
-| 1     | İskelet + Agent IPC                            | 3   | 3         |
-| 2     | Web + Auth + HTMX Layout                       | 3   | 6         |
-| 3     | Network + VLAN + PPPoE + IPv6 + Health Check   | 7   | 13        |
-| 4     | nftables Firewall + NAT + IPv6                 | 5   | 18        |
-| 5     | Unbound DNS + DHCP + Query Logging + IPv6 RA   | 5   | 23        |
-| 6     | Dashboard + SSE                                | 3   | 26        |
-| 7     | SQM/QoS                                        | 3   | 29        |
-| 8     | WireGuard + OpenVPN + PBR                      | 11  | 40        |
-| 9     | Samba NAS + M3U                                | 3   | 43        |
-| 10    | Storage + Syslog + NTP + Backup                | 5   | 48        |
+| Phase | Konu                                                    | Gün | Kümülatif |
+|-------|---------------------------------------------------------|-----|-----------|
+| 1     | İskelet + Agent IPC                                     | 3   | 3         |
+| 2     | Web + Auth + HTMX Layout                                | 3   | 6         |
+| 3     | Network + VLAN + PPPoE + USB Tethering + IPv6 + Health  | 8   | 14        |
+| 4     | nftables Firewall + NAT + IPv6                          | 5   | 19        |
+| 5     | Unbound DNS + DHCP + Query Logging + IPv6 RA            | 5   | 24        |
+| 6     | Dashboard + SSE                                         | 3   | 27        |
+| 7     | SQM/QoS                                                 | 3   | 30        |
+| 8     | WireGuard + OpenVPN + PBR                               | 11  | 41        |
+| 9     | Samba NAS + M3U                                         | 3   | 44        |
+| 10    | Storage + Syslog + NTP + Backup                         | 5   | 49        |
 
-**Toplam: ~48 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
+**Toplam: ~49 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
