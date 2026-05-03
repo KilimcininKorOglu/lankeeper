@@ -71,7 +71,7 @@ func (s *Server) Serve(ctx context.Context) error {
 		return fmt.Errorf("listen unix: %w", err)
 	}
 
-	if err := os.Chmod(s.socketPath, 0o660); err != nil {
+	if err := os.Chmod(s.socketPath, 0o666); err != nil {
 		return fmt.Errorf("chmod socket: %w", err)
 	}
 
