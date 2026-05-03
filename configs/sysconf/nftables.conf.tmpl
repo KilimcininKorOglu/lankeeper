@@ -38,13 +38,11 @@ table inet filter {
             mld2-listener-report
         } accept
 
-        # Rate-limited services on WAN
-{{- if .RateLimits.SSH }}
-        tcp dport 22 ct state new limit rate {{ .RateLimits.SSH }} accept
-{{- end }}
-{{- if .RateLimits.Web }}
-        tcp dport { {{ .WebPort }} } ct state new limit rate {{ .RateLimits.Web }} accept
-{{- end }}
+        # SSH (port 22) and the web UI (WebPort) are intentionally
+        # NOT exposed on WAN. LAN traffic is already accepted above;
+        # WAN inbound on these ports falls through to the default drop.
+        # Use an explicit port-forward via the web UI to allow remote
+        # SSH if you need it.
 
         # DHCPv6 client (WAN side — receive RA and DHCPv6 replies)
 {{- if .IPv6Enabled }}
