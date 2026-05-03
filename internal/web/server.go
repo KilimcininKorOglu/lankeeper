@@ -383,7 +383,7 @@ func (s *Server) handleLangSwitch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, r.Referer(), http.StatusSeeOther)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (s *Server) publishStats(ctx context.Context) {
