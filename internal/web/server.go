@@ -40,6 +40,8 @@ type Server struct {
 	syslogh   *handlers.SyslogHandler
 	ntph      *handlers.NTPHandler
 	vlan      *handlers.VLANHandler
+	pppoe     *handlers.PPPoEHandler
+	health    *handlers.HealthCheckHandler
 	sse       *SSEBroker
 	monitor   *services.MonitorService
 }
@@ -59,6 +61,8 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, we
 	healthSvc := services.NewHealthCheckService(cfg)
 
 	networkHandler := handlers.NewNetworkHandler(renderer, networkSvc, pppoeSvc, usbSvc, healthSvc)
+	pppoeHandler := handlers.NewPPPoEHandler(renderer, pppoeSvc)
+	healthHandler := handlers.NewHealthCheckHandler(renderer, healthSvc)
 
 	nftTmpl, _ := fs.ReadFile(webFS, "../configs/sysconf/nftables.conf.tmpl")
 	if nftTmpl == nil {
@@ -100,9 +104,10 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, we
 	ntpSvc := services.NewNTPService(cfg)
 	ntpHandler := handlers.NewNTPHandler(renderer, ntpSvc)
 
+	backupSvc := services.NewBackupService("/etc/home-router")
 	monitorSvc := services.NewMonitorService()
 	dashboardHandler := handlers.NewDashboardHandler(renderer, monitorSvc, pppoeSvc, dhcpSvc)
-	settingsHandler := handlers.NewSystemHandler(renderer, cfg, dhcpSvc)
+	settingsHandler := handlers.NewSystemHandler(renderer, cfg, dhcpSvc, backupSvc)
 	sseBroker := NewSSEBroker()
 
 	s := &Server{
@@ -122,6 +127,8 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, we
 		routing:   routingHandler,
 		nas:       nasHandler,
 		vlan:      vlanHandler,
+		pppoe:     pppoeHandler,
+		health:    healthHandler,
 		storageh:  storageHandler,
 		syslogh:   syslogHandler,
 		ntph:      ntpHandler,
@@ -222,7 +229,12 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	mux.Handle("POST /settings/root-password", authed(http.HandlerFunc(s.settings.HandleChangeRootPassword)))
 	mux.Handle("POST /settings/hostname", authed(http.HandlerFunc(s.settings.HandleUpdateHostname)))
 	mux.Handle("POST /settings/timezone", authed(http.HandlerFunc(s.settings.HandleUpdateTimezone)))
+	mux.Handle("POST /system/reboot", authed(http.HandlerFunc(s.settings.HandleReboot)))
+	mux.Handle("POST /system/factory-reset", authed(http.HandlerFunc(s.settings.HandleFactoryReset)))
 	mux.Handle("GET /network", authed(http.HandlerFunc(s.network.HandlePage)))
+	mux.Handle("POST /network/pppoe/connect", authed(http.HandlerFunc(s.pppoe.HandleConnect)))
+	mux.Handle("POST /network/pppoe/disconnect", authed(http.HandlerFunc(s.pppoe.HandleDisconnect)))
+	mux.Handle("POST /network/healthcheck/{name}/reset", authed(http.HandlerFunc(s.health.HandleReset)))
 	mux.Handle("POST /network/vlan", authed(http.HandlerFunc(s.vlan.HandleAdd)))
 	mux.Handle("DELETE /network/vlan/{id}", authed(http.HandlerFunc(s.vlan.HandleDelete)))
 	mux.Handle("GET /firewall", authed(http.HandlerFunc(s.firewall.HandlePage)))

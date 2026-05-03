@@ -114,7 +114,14 @@ func generateSelfSigned(cfg *TLSConfig, certPath, keyPath string) (*TLSCertInfo,
 
 	if len(template.DNSNames) == 0 && len(template.IPAddresses) == 0 {
 		template.DNSNames = []string{cn, "localhost"}
-		template.IPAddresses = []net.IP{net.ParseIP("10.10.10.1"), net.ParseIP("127.0.0.1")}
+		template.IPAddresses = []net.IP{net.ParseIP("127.0.0.1")}
+		if localIPs, err := net.InterfaceAddrs(); err == nil {
+			for _, addr := range localIPs {
+				if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() && ipNet.IP.To4() != nil {
+					template.IPAddresses = append(template.IPAddresses, ipNet.IP)
+				}
+			}
+		}
 	}
 
 	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)

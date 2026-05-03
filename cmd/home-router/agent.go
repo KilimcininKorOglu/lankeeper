@@ -32,6 +32,7 @@ func runAgent() error {
 	defer cancel()
 
 	srv := agent.NewServer(*socketPath)
+	agent.RegisterBuiltinOps(srv)
 
 	log.Printf("home-router agent starting (socket=%s)", *socketPath)
 

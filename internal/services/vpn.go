@@ -272,7 +272,11 @@ func (s *VPNService) GeneratePeerConfig(peer *config.WGServerPeer, peerPrivKey s
 	if peer.PresharedKey != "" {
 		fmt.Fprintf(&sb, "PresharedKey = %s\n", peer.PresharedKey)
 	}
-	fmt.Fprintf(&sb, "Endpoint = <YOUR_PUBLIC_IP>:%d\n", server.ListenPort)
+	wgEndpoint := server.PublicEndpoint
+	if wgEndpoint == "" {
+		wgEndpoint = "<YOUR_PUBLIC_IP>"
+	}
+	fmt.Fprintf(&sb, "Endpoint = %s:%d\n", wgEndpoint, server.ListenPort)
 
 	if peer.IsSiteToSite {
 		var localSubnets []string

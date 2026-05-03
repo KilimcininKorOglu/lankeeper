@@ -18,10 +18,11 @@ type SystemHandler struct {
 	renderer *tmpl.Renderer
 	cfg      *config.Config
 	dhcp     *services.DHCPService
+	backup   *services.BackupService
 }
 
-func NewSystemHandler(renderer *tmpl.Renderer, cfg *config.Config, dhcp *services.DHCPService) *SystemHandler {
-	return &SystemHandler{renderer: renderer, cfg: cfg, dhcp: dhcp}
+func NewSystemHandler(renderer *tmpl.Renderer, cfg *config.Config, dhcp *services.DHCPService, backup *services.BackupService) *SystemHandler {
+	return &SystemHandler{renderer: renderer, cfg: cfg, dhcp: dhcp, backup: backup}
 }
 
 func (h *SystemHandler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
@@ -162,4 +163,26 @@ func (h *SystemHandler) HandleUpdateTimezone(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+}
+
+func (h *SystemHandler) HandleReboot(w http.ResponseWriter, r *http.Request) {
+	log.Println("system reboot requested via web UI")
+	_, err := netutil.Run(r.Context(), "systemctl", "reboot")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *SystemHandler) HandleFactoryReset(w http.ResponseWriter, r *http.Request) {
+	log.Println("factory reset requested via web UI")
+	if h.backup != nil {
+		if err := h.backup.FactoryReset(r.Context()); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	netutil.Run(r.Context(), "systemctl", "reboot")
+	w.WriteHeader(http.StatusOK)
 }

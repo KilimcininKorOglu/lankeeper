@@ -294,17 +294,18 @@ type WGClientTunnel struct {
 }
 
 type WGServerConfig struct {
-	Enabled    bool           `yaml:"enabled"`
-	ListenPort int            `yaml:"listenPort"`
-	PrivateKey string         `yaml:"privateKey"`
-	PublicKey  string         `yaml:"publicKey"`
-	Address    string         `yaml:"address"`
-	Address6   string         `yaml:"address6"`
-	DNS        string         `yaml:"dns"`
-	PostUp     string         `yaml:"postUp"`
-	PostDown   string         `yaml:"postDown"`
-	MTU        int            `yaml:"mtu"`
-	Peers      []WGServerPeer `yaml:"peers"`
+	Enabled        bool           `yaml:"enabled"`
+	ListenPort     int            `yaml:"listenPort"`
+	PrivateKey     string         `yaml:"privateKey"`
+	PublicKey      string         `yaml:"publicKey"`
+	Address        string         `yaml:"address"`
+	Address6       string         `yaml:"address6"`
+	DNS            string         `yaml:"dns"`
+	PostUp         string         `yaml:"postUp"`
+	PostDown       string         `yaml:"postDown"`
+	MTU            int            `yaml:"mtu"`
+	PublicEndpoint string         `yaml:"publicEndpoint,omitempty"`
+	Peers          []WGServerPeer `yaml:"peers"`
 }
 
 type WGServerPeer struct {
