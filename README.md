@@ -194,7 +194,24 @@ home-router.target
 
 ### System Dependencies (installed by install.sh)
 
-nftables, ppp, pppoe, wireguard-tools, openvpn, easy-rsa, unbound, dnsmasq, samba, smartmontools, mdadm, chrony, rsyslog, iproute2.
+| Package              | Purpose                                              |
+|----------------------|------------------------------------------------------|
+| `nftables`           | Stateful firewall, NAT, port forwarding              |
+| `iproute2`           | Network interface, VLAN, routing, and tc/QoS control |
+| `ppp`, `pppoe`       | PPPoE WAN connection (ISP fiber/DSL dial-up)         |
+| `wireguard-tools`    | WireGuard VPN tunnel management                      |
+| `openvpn`, `easy-rsa`| OpenVPN server/client with PKI certificate management|
+| `unbound`            | Recursive DNS resolver with DNSSEC and blocklists    |
+| `dnsmasq`            | DHCP server (DNS disabled, port=0)                   |
+| `samba`              | SMB/CIFS NAS file sharing for LAN clients            |
+| `smartmontools`      | Disk health monitoring via S.M.A.R.T.                |
+| `mdadm`              | Software RAID-1 array management                     |
+| `chrony`             | NTP time synchronization (server + client)           |
+| `rsyslog`            | Centralized syslog server and client                 |
+| `curl`, `jq`         | GitHub Releases API for OTA update checks            |
+| `qrencode`           | QR code generation for WireGuard mobile configs      |
+| `wide-dhcpv6-client` | DHCPv6 prefix delegation for IPv6 WAN                |
+| `hdparm`             | Disk power management and standby control            |
 
 ## License
 
