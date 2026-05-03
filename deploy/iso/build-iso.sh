@@ -99,6 +99,15 @@ if [[ -f "$BUILD_DIR/iso/boot/grub/grub.cfg" ]]; then
 fi
 cp "$SCRIPT_DIR/grub.cfg" "$BUILD_DIR/iso/boot/grub/grub.cfg"
 
+# Fix EFI boot chain -- replace disk UUID search with cdrom search
+if [[ -f "$BUILD_DIR/iso/EFI/debian/grub.cfg" ]]; then
+    cat > "$BUILD_DIR/iso/EFI/debian/grub.cfg" <<'EFICFG'
+search --set=root --file /home-router
+set prefix=($root)/boot/grub
+source $prefix/${grub_cpu}-efi/grub.cfg
+EFICFG
+fi
+
 echo "[6/7] Updating isolinux config..."
 if [[ -f "$BUILD_DIR/iso/isolinux/txt.cfg" ]]; then
     sed -i 's|append |append auto=true preseed/file=/cdrom/preseed.cfg |' "$BUILD_DIR/iso/isolinux/txt.cfg"
