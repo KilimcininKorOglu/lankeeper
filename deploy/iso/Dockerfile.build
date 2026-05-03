@@ -1,0 +1,10 @@
+FROM debian:bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    xorriso isolinux dpkg-dev gzip ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update
+
+WORKDIR /build
+ENTRYPOINT ["/build/deploy/iso/build-iso.sh"]

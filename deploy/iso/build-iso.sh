@@ -56,17 +56,24 @@ echo "[1/7] Extracting Debian ISO..."
 xorriso -osirrox on -indev "$DEBIAN_ISO" -extract / "$BUILD_DIR/iso" 2>/dev/null
 chmod -R +w "$BUILD_DIR/iso"
 
-echo "[2/7] Downloading required packages..."
+echo "[2/7] Downloading required packages with dependencies..."
 mkdir -p "$BUILD_DIR/iso/pool/extra"
 pushd "$BUILD_DIR/iso/pool/extra" >/dev/null
 
-apt-get download "${PACKAGES[@]}" 2>/dev/null || {
-    echo "NOTE: apt-get download failed (cross-platform?). Trying with apt-rdepends..."
-    for pkg in "${PACKAGES[@]}"; do
-        apt-get download "$pkg" 2>/dev/null || echo "WARN: could not download $pkg"
+ALL_DEPS=$(apt-cache depends --recurse --no-recommends --no-suggests \
+    --no-conflicts --no-breaks --no-replaces --no-enhances \
+    "${PACKAGES[@]}" 2>/dev/null \
+    | grep "^\w" | sort -u | grep -v "^<")
+
+echo "  Resolving dependencies: $(echo "$ALL_DEPS" | wc -w) packages"
+apt-get download $ALL_DEPS 2>/dev/null || {
+    echo "NOTE: bulk download had errors, retrying individually..."
+    for pkg in $ALL_DEPS; do
+        apt-get download "$pkg" 2>/dev/null || true
     done
 }
 
+echo "  Downloaded $(ls -1 *.deb 2>/dev/null | wc -l) .deb files"
 popd >/dev/null
 
 echo "[3/7] Creating local package repository..."
