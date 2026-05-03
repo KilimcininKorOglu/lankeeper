@@ -214,17 +214,23 @@ func (h *SystemHandler) HandleFactoryReset(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *SystemHandler) HandleExport(w http.ResponseWriter, r *http.Request) {
-	outputPath := filepath.Join(os.TempDir(), fmt.Sprintf("home-router-backup-%s.tar.gz", time.Now().Format("20060102-150405")))
-
-	if err := h.backup.Export(r.Context(), outputPath); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	passphrase := r.FormValue("passphrase")
+	if passphrase == "" {
+		http.Error(w, "passphrase required for encrypted backup", http.StatusBadRequest)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/gzip")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filepath.Base(outputPath)))
+	outputPath := filepath.Join(os.TempDir(), fmt.Sprintf("home-router-backup-%s.tar.gz.enc", time.Now().Format("20060102-150405")))
+
+	if err := h.backup.Export(r.Context(), outputPath, passphrase); err != nil {
+		http.Error(w, "export failed", http.StatusInternalServerError)
+		return
+	}
+	defer os.Remove(outputPath)
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filepath.Base(outputPath)))
 	http.ServeFile(w, r, outputPath)
-	os.Remove(outputPath)
 }
 
 func (h *SystemHandler) HandleImport(w http.ResponseWriter, r *http.Request) {
@@ -249,8 +255,9 @@ func (h *SystemHandler) HandleImport(w http.ResponseWriter, r *http.Request) {
 	}
 	tmpFile.Close()
 
-	if err := h.backup.Import(r.Context(), tmpFile.Name()); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	passphrase := r.FormValue("passphrase")
+	if err := h.backup.Import(r.Context(), tmpFile.Name(), passphrase); err != nil {
+		http.Error(w, "import failed", http.StatusInternalServerError)
 		return
 	}
 

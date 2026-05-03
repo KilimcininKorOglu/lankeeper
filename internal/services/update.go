@@ -157,7 +157,7 @@ func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error
 	if s.backup != nil {
 		backupPath := fmt.Sprintf("/var/lib/home-router/backups/pre-update-%s.tar.gz", info.LatestVersion)
 		os.MkdirAll(filepath.Dir(backupPath), 0o755)
-		if err := s.backup.Export(ctx, backupPath); err != nil {
+		if err := s.backup.Export(ctx, backupPath, ""); err != nil {
 			log.Printf("pre-update backup failed (continuing): %v", err)
 		}
 	}
