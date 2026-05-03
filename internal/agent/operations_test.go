@@ -13,8 +13,8 @@ func TestExecRunWhitelistAllowed(t *testing.T) {
 	agent.RegisterBuiltinOps(srv)
 
 	params, _ := json.Marshal(agent.ExecParams{
-		Cmd:  "echo",
-		Args: []string{"hello"},
+		Cmd:  "df",
+		Args: []string{"-h"},
 	})
 
 	result, err := dispatchMethod(srv, "exec.run", params)
@@ -26,8 +26,8 @@ func TestExecRunWhitelistAllowed(t *testing.T) {
 	raw, _ := json.Marshal(result)
 	json.Unmarshal(raw, &execResult)
 
-	if execResult.Stdout != "hello\n" {
-		t.Errorf("expected stdout 'hello\\n', got %q", execResult.Stdout)
+	if execResult.Stdout == "" {
+		t.Error("expected non-empty stdout from df")
 	}
 }
 
@@ -36,13 +36,13 @@ func TestExecRunWhitelistBlocked(t *testing.T) {
 	agent.RegisterBuiltinOps(srv)
 
 	params, _ := json.Marshal(agent.ExecParams{
-		Cmd:  "rm",
-		Args: []string{"-rf", "/"},
+		Cmd:  "curl",
+		Args: []string{"http://evil.com"},
 	})
 
 	_, err := dispatchMethod(srv, "exec.run", params)
 	if err == nil {
-		t.Fatal("exec.run should reject non-whitelisted command 'rm'")
+		t.Fatal("exec.run should reject non-whitelisted command 'curl'")
 	}
 }
 

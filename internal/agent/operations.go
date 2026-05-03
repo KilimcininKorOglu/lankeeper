@@ -26,20 +26,55 @@ var allowedCommands = map[string]bool{
 	"easyrsa": true,
 }
 
-var allowedWritePaths = []string{
-	"/etc/ppp/",
-	"/etc/openvpn/",
-	"/etc/nftables",
-	"/etc/unbound/",
-	"/etc/dnsmasq",
-	"/etc/wireguard/",
-	"/etc/samba/",
-	"/etc/chrony/",
-	"/etc/rsyslog",
-	"/etc/home-router/",
-	"/var/log/",
-	"/tmp/nftables-",
-	"/tmp/home-router-",
+type pathRuleKind int
+
+const (
+	dirPrefix      pathRuleKind = iota
+	exactFile
+	filenamePrefix
+)
+
+type pathRule struct {
+	pattern string
+	kind    pathRuleKind
+}
+
+var allowedWriteRules = []pathRule{
+	{"/etc/ppp/", dirPrefix},
+	{"/etc/openvpn/", dirPrefix},
+	{"/etc/nftables.conf", exactFile},
+	{"/etc/unbound/", dirPrefix},
+	{"/etc/dnsmasq.conf", exactFile},
+	{"/etc/dnsmasq.d/", dirPrefix},
+	{"/etc/wireguard/", dirPrefix},
+	{"/etc/samba/", dirPrefix},
+	{"/etc/chrony/", dirPrefix},
+	{"/etc/rsyslog.d/", dirPrefix},
+	{"/etc/home-router/", dirPrefix},
+	{"/etc/fstab", exactFile},
+	{"/etc/pppoe-server-options", exactFile},
+	{"/var/log/", dirPrefix},
+	{"/tmp/nftables-", filenamePrefix},
+	{"/tmp/home-router-", filenamePrefix},
+}
+
+var allowedReadRules = []pathRule{
+	{"/etc/ppp/", dirPrefix},
+	{"/etc/openvpn/", dirPrefix},
+	{"/etc/wireguard/", dirPrefix},
+	{"/etc/home-router/", dirPrefix},
+	{"/etc/unbound/", dirPrefix},
+	{"/etc/dnsmasq.conf", exactFile},
+	{"/etc/dnsmasq.d/", dirPrefix},
+	{"/etc/samba/", dirPrefix},
+	{"/etc/chrony/", dirPrefix},
+	{"/etc/rsyslog.d/", dirPrefix},
+	{"/etc/fstab", exactFile},
+	{"/var/log/", dirPrefix},
+	{"/var/run/", dirPrefix},
+	{"/proc/mdstat", exactFile},
+	{"/tmp/nftables-", filenamePrefix},
+	{"/tmp/home-router-", filenamePrefix},
 }
 
 type ExecParams struct {
@@ -129,7 +164,7 @@ func opFileWrite(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
 
-	if !isPathAllowed(params.Path) {
+	if !checkPathRules(params.Path, allowedWriteRules) {
 		return nil, fmt.Errorf("write not allowed to path: %s", params.Path)
 	}
 
@@ -155,6 +190,10 @@ func opFileRead(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
 
+	if !checkPathRules(params.Path, allowedReadRules) {
+		return nil, fmt.Errorf("read not allowed for path: %s", params.Path)
+	}
+
 	data, err := os.ReadFile(params.Path)
 	if err != nil {
 		return nil, fmt.Errorf("read file: %w", err)
@@ -172,7 +211,7 @@ func opFileMkdir(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
 
-	if !isPathAllowed(params.Path) {
+	if !checkPathRules(params.Path, allowedWriteRules) {
 		return nil, fmt.Errorf("mkdir not allowed for path: %s", params.Path)
 	}
 
@@ -188,14 +227,22 @@ func opFileMkdir(_ context.Context, raw json.RawMessage) (any, error) {
 	return map[string]string{"status": "ok"}, nil
 }
 
-func isPathAllowed(path string) bool {
+func checkPathRules(path string, rules []pathRule) bool {
 	clean := filepath.Clean(path)
-	if strings.Contains(clean, "..") {
-		return false
-	}
-	for _, prefix := range allowedWritePaths {
-		if strings.HasPrefix(clean, prefix) {
-			return true
+	for _, r := range rules {
+		switch r.kind {
+		case dirPrefix:
+			if strings.HasPrefix(clean, r.pattern) {
+				return true
+			}
+		case exactFile:
+			if clean == r.pattern {
+				return true
+			}
+		case filenamePrefix:
+			if strings.HasPrefix(clean, r.pattern) {
+				return true
+			}
 		}
 	}
 	return false
