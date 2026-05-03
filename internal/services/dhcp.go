@@ -50,10 +50,12 @@ type vlanDHCPRange struct {
 	DNSServer  string
 }
 
-func (s *DHCPService) RenderConfig() error {
+// RenderConfig returns the rendered dnsmasq.conf as a string. Pure
+// computation — no I/O. Use RenderToDisk to write the result to /etc.
+func (s *DHCPService) RenderConfig() (string, error) {
 	tmpl, err := template.ParseFiles("configs/sysconf/dnsmasq.conf.tmpl")
 	if err != nil {
-		return fmt.Errorf("parse dnsmasq template: %w", err)
+		return "", fmt.Errorf("parse dnsmasq template: %w", err)
 	}
 
 	var lanDevice string
@@ -119,10 +121,10 @@ func (s *DHCPService) RenderConfig() error {
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
-		return fmt.Errorf("render dnsmasq.conf: %w", err)
+		return "", fmt.Errorf("render dnsmasq.conf: %w", err)
 	}
 
-	return netutil.WriteFile("/etc/dnsmasq.conf", buf.Bytes(), 0o644)
+	return buf.String(), nil
 }
 
 type Lease struct {
@@ -223,7 +225,11 @@ func (s *DHCPService) Reload(ctx context.Context) error {
 // RenderToDisk renders /etc/dnsmasq.conf without reloading. Suitable for
 // install-time invocation.
 func (s *DHCPService) RenderToDisk(ctx context.Context) error {
-	return s.RenderConfig()
+	rendered, err := s.RenderConfig()
+	if err != nil {
+		return err
+	}
+	return netutil.WriteFile("/etc/dnsmasq.conf", []byte(rendered), 0o644)
 }
 
 // ApplyConfig renders to disk and reloads dnsmasq. Use at runtime.

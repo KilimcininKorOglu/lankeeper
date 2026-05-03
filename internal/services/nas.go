@@ -70,7 +70,12 @@ func (s *NASService) GetShares() []config.ShareConfig {
 }
 
 func (s *NASService) RenderConfig() (string, error) {
-	tmpl, err := template.New("smb").Funcs(template.FuncMap{
+	// ParseFiles names the template after the file basename. Use that
+	// same name on New() so the FuncMap binds to the parsed template
+	// instead of an empty placeholder. Previously `New("smb")` produced
+	// an empty root template and Execute hit "incomplete or empty
+	// template".
+	tmpl, err := template.New("smb.conf.tmpl").Funcs(template.FuncMap{
 		"join": strings.Join,
 	}).ParseFiles("configs/sysconf/smb.conf.tmpl")
 	if err != nil {

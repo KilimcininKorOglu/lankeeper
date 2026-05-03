@@ -77,14 +77,16 @@ type unboundTemplateData struct {
 	DoTUpstream    string
 }
 
-func (s *DNSService) RenderConfig() error {
+// RenderConfig returns the rendered unbound.conf as a string. Pure
+// computation — no I/O. Use RenderToDisk to write the result to /etc.
+func (s *DNSService) RenderConfig() (string, error) {
 	funcMap := template.FuncMap{
 		"mul": func(a, b int) int { return a * b },
 	}
 
 	tmpl, err := template.New("unbound.conf.tmpl").Funcs(funcMap).ParseFiles("configs/sysconf/unbound.conf.tmpl")
 	if err != nil {
-		return fmt.Errorf("parse unbound template: %w", err)
+		return "", fmt.Errorf("parse unbound template: %w", err)
 	}
 
 	data := unboundTemplateData{
@@ -115,17 +117,20 @@ func (s *DNSService) RenderConfig() error {
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
-		return fmt.Errorf("render unbound.conf: %w", err)
+		return "", fmt.Errorf("render unbound.conf: %w", err)
 	}
 
-	return netutil.WriteFile("/etc/unbound/unbound.conf", buf.Bytes(), 0o644)
+	return buf.String(), nil
 }
 
 // RenderToDisk renders the unbound configuration to /etc/unbound/unbound.conf
-// without reloading the service. Suitable for install-time invocation by the
-// `home-router render-configs` subcommand.
+// without reloading the service. Suitable for install-time invocation.
 func (s *DNSService) RenderToDisk(ctx context.Context) error {
-	return s.RenderConfig()
+	rendered, err := s.RenderConfig()
+	if err != nil {
+		return err
+	}
+	return netutil.WriteFile("/etc/unbound/unbound.conf", []byte(rendered), 0o644)
 }
 
 // ApplyConfig renders to disk and reloads unbound. Use at runtime when the
