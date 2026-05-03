@@ -5,6 +5,7 @@ import (
 	"html"
 	"log"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -115,13 +116,18 @@ func (h *NASHandler) HandleSyncM3U(w http.ResponseWriter, r *http.Request) {
 
 func (h *NASHandler) HandleDiscoverGroups(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
-	url := r.FormValue("url")
-	if url == "" {
+	rawURL := r.FormValue("url")
+	if rawURL == "" {
 		http.Error(w, "url required", http.StatusBadRequest)
 		return
 	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		http.Error(w, "url must use http or https scheme", http.StatusBadRequest)
+		return
+	}
 
-	groups, err := h.nas.DiscoverM3UGroups(r.Context(), url)
+	groups, err := h.nas.DiscoverM3UGroups(r.Context(), rawURL)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
