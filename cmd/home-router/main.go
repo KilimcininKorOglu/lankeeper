@@ -46,6 +46,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "gen-cert error: %v\n", err)
 			os.Exit(1)
 		}
+	case "render-configs":
+		if err := runRenderConfigs(); err != nil {
+			fmt.Fprintf(os.Stderr, "render-configs error: %v\n", err)
+			os.Exit(1)
+		}
 	case "version":
 		fmt.Printf("home-router %s (commit: %s, built: %s)\n", version, commit, date)
 	case "help", "-h", "--help":
@@ -68,6 +73,7 @@ Commands:
   agent          Start privileged agent (root, UDS listener)
   hash-password  Print a bcrypt hash for the given password
   gen-cert       Generate the self-signed TLS cert/key and exit
+  render-configs Render all service templates to /etc/* and exit (no reload)
   version        Show version info
   help           Show this help message
 `)
