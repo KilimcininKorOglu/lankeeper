@@ -1,6 +1,6 @@
 {{ define "content" }}
 <div class="auth-card">
-    <div class="auth-logo">Home Router</div>
+    <div class="auth-logo">{{ t .Lang "app.title" }}</div>
 
     {{ if .Error }}
     <div class="alert alert-error">{{ .Error }}</div>

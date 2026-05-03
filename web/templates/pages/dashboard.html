@@ -80,7 +80,7 @@
 {{ with .Data }}
 {{ if .PPPoE }}
 <div class="card" style="margin-bottom:var(--space-lg);">
-    <div class="card-title">PPPoE</div>
+    <div class="card-title">{{ t $.Lang "pppoe.title" }}</div>
     <div style="margin-top:var(--space-sm);">
         {{ if .PPPoE.Connected }}
             <span class="badge badge-success">{{ t $.Lang "pppoe.status.connected" }}</span>

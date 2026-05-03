@@ -1,4 +1,6 @@
 {
+    "app.title": "Home Router",
+
     "nav.dashboard": "Dashboard",
     "nav.network": "Network",
     "nav.firewall": "Firewall",
@@ -62,6 +64,12 @@
     "firewall.accept": "Accept",
     "firewall.drop": "Drop",
     "firewall.reject": "Reject",
+    "firewall.tcp": "TCP",
+    "firewall.udp": "UDP",
+    "firewall.icmp": "ICMP",
+    "firewall.exampleName": "e.g. SSH",
+    "firewall.exampleIntIP": "e.g. 10.10.10.x",
+    "firewall.exampleIface": "e.g. ppp0",
 
     "vpn.title": "VPN Management",
     "vpn.addTunnel": "Add Tunnel",
@@ -114,6 +122,15 @@
     "routing.schedule": "Schedule",
     "routing.enabled": "Enabled",
     "routing.disabled": "Disabled",
+    "routing.tunnelExample": "e.g. nl-amsterdam",
+    "routing.sourceMac": "Source (MAC)",
+    "routing.sourceIp": "Source (IP)",
+    "routing.macExample": "e.g. aa:bb:cc:dd:ee:ff",
+    "routing.destinationCidr": "Destination (IP/CIDR)",
+    "routing.cidrExample": "e.g. 1.2.3.0/24",
+    "routing.ipExample": "e.g. 10.10.10.50",
+    "routing.domains": "Domains",
+    "routing.domainsExample": "e.g. netflix.com",
 
     "dns.title": "DNS Management",
     "dns.upstream": "Upstream DNS",
@@ -129,6 +146,9 @@
     "dhcp.mac": "MAC Address",
     "dhcp.ip": "IP Address",
     "dhcp.hostname": "Hostname",
+    "dhcp.macExample": "e.g. aa:bb:cc:dd:ee:ff",
+    "dhcp.ipExample": "e.g. 10.10.10.x",
+    "dhcp.hostnameExample": "e.g. device-name",
 
     "qos.title": "QoS / Traffic Shaping",
     "qos.profile": "Profile",
@@ -136,6 +156,12 @@
     "qos.download": "Download Speed",
     "qos.congestion": "Congestion Control",
     "qos.perDevice": "Per-Device Limit",
+    "qos.cake": "CAKE",
+    "qos.fqCodel": "fq_codel",
+    "qos.none": "None",
+    "qos.kbps": "(kbps)",
+    "qos.bbr": "BBR",
+    "qos.cubic": "CUBIC",
 
     "nas.title": "NAS File Sharing",
     "nas.addShare": "Add Share",
@@ -150,6 +176,8 @@
     "nas.path": "Path",
     "nas.guestAccess": "Guest Access",
     "nas.readOnly": "Read Only",
+    "nas.pathExample": "e.g. /mnt/raid/share",
+    "nas.m3u.urlExample": "e.g. http://example.com/playlist.m3u",
 
     "storage.title": "Storage Management",
     "storage.raid": "RAID Status",
@@ -235,6 +263,9 @@
     "vlan.static": "Static",
     "vlan.dhcpClient": "DHCP Client",
     "vlan.vid": "VLAN ID",
+    "vlan.nameExample": "e.g. guest",
+    "vlan.parentExample": "e.g. lan",
+    "vlan.addressExample": "e.g. 10.10.13.1/24",
 
     "usb.title": "USB Tethering",
     "usb.status": "Status",
@@ -242,6 +273,7 @@
     "usb.disconnected": "Disconnected",
     "usb.failover": "Failover Connection",
 
+    "common.toggleTheme": "Toggle Theme",
     "common.save": "Save",
     "common.cancel": "Cancel",
     "common.delete": "Delete",
@@ -279,6 +311,8 @@
     "network.macClone.desc": "Override WAN interface MAC address to match your previous device",
     "network.macClone.current": "Current MAC",
     "network.macClone.clone": "Clone MAC",
+    "network.ipv4": "IPv4",
+    "network.ipv6": "IPv6",
 
     "dns.blocked": "Blocked",
     "dns.totalQueries": "Total Queries",

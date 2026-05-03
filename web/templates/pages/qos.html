@@ -39,26 +39,26 @@
                 <div style="display:flex; gap:var(--space-md);">
                     <label style="display:flex; align-items:center; gap:var(--space-xs); cursor:pointer;">
                         <input type="radio" name="profile" value="cake"{{ if eq .Config.Profile "cake" }} checked{{ end }}>
-                        CAKE
+                        {{ t $.Lang "qos.cake" }}
                     </label>
                     <label style="display:flex; align-items:center; gap:var(--space-xs); cursor:pointer;">
                         <input type="radio" name="profile" value="fq_codel"{{ if eq .Config.Profile "fq_codel" }} checked{{ end }}>
-                        fq_codel
+                        {{ t $.Lang "qos.fqCodel" }}
                     </label>
                     <label style="display:flex; align-items:center; gap:var(--space-xs); cursor:pointer;">
                         <input type="radio" name="profile" value="none"{{ if eq .Config.Profile "none" }} checked{{ end }}>
-                        None
+                        {{ t $.Lang "qos.none" }}
                     </label>
                 </div>
             </div>
 
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-lg); margin-bottom:var(--space-lg);">
                 <div class="input-group">
-                    <label class="input-label">{{ t $.Lang "qos.upload" }} (kbps)</label>
+                    <label class="input-label">{{ t $.Lang "qos.upload" }} {{ t $.Lang "qos.kbps" }}</label>
                     <input class="input" type="number" name="uploadKbps" value="{{ .Config.UploadKbps }}" min="100">
                 </div>
                 <div class="input-group">
-                    <label class="input-label">{{ t $.Lang "qos.download" }} (kbps)</label>
+                    <label class="input-label">{{ t $.Lang "qos.download" }} {{ t $.Lang "qos.kbps" }}</label>
                     <input class="input" type="number" name="downloadKbps" value="{{ .Config.DownloadKbps }}" min="100">
                 </div>
             </div>
@@ -68,11 +68,11 @@
                 <div style="display:flex; gap:var(--space-md);">
                     <label style="display:flex; align-items:center; gap:var(--space-xs); cursor:pointer;">
                         <input type="radio" name="congestionControl" value="bbr"{{ if eq .Config.CongestionControl "bbr" }} checked{{ end }}>
-                        BBR
+                        {{ t $.Lang "qos.bbr" }}
                     </label>
                     <label style="display:flex; align-items:center; gap:var(--space-xs); cursor:pointer;">
                         <input type="radio" name="congestionControl" value="cubic"{{ if eq .Config.CongestionControl "cubic" }} checked{{ end }}>
-                        CUBIC
+                        {{ t $.Lang "qos.cubic" }}
                     </label>
                 </div>
             </div>

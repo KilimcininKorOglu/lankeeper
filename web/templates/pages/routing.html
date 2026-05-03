@@ -48,16 +48,16 @@
                 </div>
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "routing.tunnel" }}</label>
-                    <input class="input" name="tunnel" placeholder="nl-amsterdam" required>
+                    <input class="input" name="tunnel" placeholder="{{ t $.Lang "routing.tunnelExample" }}" required>
                 </div>
             </div>
             <div class="input-group" style="margin-bottom:var(--space-md);">
-                <label class="input-label">{{ t $.Lang "routing.source" }} (MAC)</label>
-                <input class="input" name="srcMacs" placeholder="aa:bb:cc:dd:ee:ff">
+                <label class="input-label">{{ t $.Lang "routing.sourceMac" }}</label>
+                <input class="input" name="srcMacs" placeholder="{{ t $.Lang "routing.macExample" }}">
             </div>
             <div class="input-group" style="margin-bottom:var(--space-md);">
-                <label class="input-label">{{ t $.Lang "routing.destination" }} (IP/CIDR)</label>
-                <input class="input" name="dstIps" placeholder="1.2.3.0/24">
+                <label class="input-label">{{ t $.Lang "routing.destinationCidr" }}</label>
+                <input class="input" name="dstIps" placeholder="{{ t $.Lang "routing.cidrExample" }}">
             </div>
             <div style="display:flex; gap:var(--space-sm);">
                 <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>

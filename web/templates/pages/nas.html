@@ -23,7 +23,7 @@
                 </div>
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "nas.path" }}</label>
-                    <input class="input" name="path" placeholder="/mnt/raid/share" required>
+                    <input class="input" name="path" placeholder="{{ t $.Lang "nas.pathExample" }}" required>
                 </div>
             </div>
             <div style="display:flex; gap:var(--space-lg); margin-bottom:var(--space-md);">
@@ -59,7 +59,7 @@
         <div style="margin-top:var(--space-lg); padding-top:var(--space-md); border-top:1px solid var(--border-color);">
             <div class="card-title" style="margin-bottom:var(--space-md);">{{ t $.Lang "nas.m3u.includeGroups" }}</div>
             <form style="display:flex; gap:var(--space-sm); margin-bottom:var(--space-md);">
-                <input class="input" name="url" placeholder="http://example.com/playlist.m3u" style="flex:1;" id="m3u-discover-url">
+                <input class="input" name="url" placeholder="{{ t $.Lang "nas.m3u.urlExample" }}" style="flex:1;" id="m3u-discover-url">
                 <button type="button" class="btn btn-secondary btn-sm"
                         hx-post="/nas/m3u/discover-groups"
                         hx-include="#m3u-discover-url"

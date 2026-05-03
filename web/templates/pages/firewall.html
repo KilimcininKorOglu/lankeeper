@@ -53,13 +53,13 @@
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:var(--space-md);">
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "common.name" }}</label>
-                    <input class="input" name="name" placeholder="SSH" required>
+                    <input class="input" name="name" placeholder="{{ t $.Lang "firewall.exampleName" }}" required>
                 </div>
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "firewall.protocol" }}</label>
                     <select class="input" name="protocol">
-                        <option value="tcp">TCP</option>
-                        <option value="udp">UDP</option>
+                        <option value="tcp">{{ t $.Lang "firewall.tcp" }}</option>
+                        <option value="udp">{{ t $.Lang "firewall.udp" }}</option>
                     </select>
                 </div>
                 <div class="input-group">
@@ -119,10 +119,10 @@
                     <input class="input" name="name" required>
                 </div>
                 <div class="input-group">
-                    <label class="input-label">Protocol</label>
+                    <label class="input-label">{{ t $.Lang "firewall.protocol" }}</label>
                     <select class="input" name="protocol">
-                        <option value="tcp">TCP</option>
-                        <option value="udp">UDP</option>
+                        <option value="tcp">{{ t $.Lang "firewall.tcp" }}</option>
+                        <option value="udp">{{ t $.Lang "firewall.udp" }}</option>
                     </select>
                 </div>
                 <div class="input-group">
@@ -131,7 +131,7 @@
                 </div>
                 <div class="input-group">
                     <label class="input-label">Int IP</label>
-                    <input class="input" name="intIP" placeholder="10.10.10.x" required>
+                    <input class="input" name="intIP" placeholder="{{ t $.Lang "firewall.exampleIntIP" }}" required>
                 </div>
                 <div class="input-group">
                     <label class="input-label">Int Port</label>
@@ -208,9 +208,9 @@
                     <label class="input-label">{{ t $.Lang "firewall.protocol" }}</label>
                     <select class="input" name="protocol">
                         <option value="">{{ t $.Lang "common.status" }}</option>
-                        <option value="tcp">TCP</option>
-                        <option value="udp">UDP</option>
-                        <option value="icmp">ICMP</option>
+                        <option value="tcp">{{ t $.Lang "firewall.tcp" }}</option>
+                        <option value="udp">{{ t $.Lang "firewall.udp" }}</option>
+                        <option value="icmp">{{ t $.Lang "firewall.icmp" }}</option>
                     </select>
                 </div>
                 <div class="input-group">
@@ -219,7 +219,7 @@
                 </div>
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "firewall.interface" }}</label>
-                    <input class="input" name="interface" placeholder="ppp0">
+                    <input class="input" name="interface" placeholder="{{ t $.Lang "firewall.exampleIface" }}">
                 </div>
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "firewall.direction" }}</label>

@@ -14,15 +14,15 @@
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:var(--space-md);">
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "dhcp.mac" }}</label>
-                    <input class="input" name="mac" placeholder="aa:bb:cc:dd:ee:ff" required>
+                    <input class="input" name="mac" placeholder="{{ t $.Lang "dhcp.macExample" }}" required>
                 </div>
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "dhcp.ip" }}</label>
-                    <input class="input" name="ip" placeholder="10.10.10.x" required>
+                    <input class="input" name="ip" placeholder="{{ t $.Lang "dhcp.ipExample" }}" required>
                 </div>
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "dhcp.hostname" }}</label>
-                    <input class="input" name="hostname" placeholder="device-name" required>
+                    <input class="input" name="hostname" placeholder="{{ t $.Lang "dhcp.hostnameExample" }}" required>
                 </div>
             </div>
             <button type="submit" class="btn btn-primary btn-sm" style="margin-top:var(--space-md);">{{ t $.Lang "common.add" }}</button>

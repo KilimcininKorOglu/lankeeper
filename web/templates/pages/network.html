@@ -21,13 +21,13 @@
         <div style="display:flex; gap:var(--space-2xl); flex-wrap:wrap; margin-bottom:var(--space-md);">
             {{ if .PPPoE.LocalIP }}
             <div>
-                <div class="input-label">IPv4</div>
+                <div class="input-label">{{ t $.Lang "network.ipv4" }}</div>
                 <div style="font-weight:700;">{{ .PPPoE.LocalIP }}</div>
             </div>
             {{ end }}
             {{ if .PPPoE.LocalIPv6 }}
             <div>
-                <div class="input-label">IPv6</div>
+                <div class="input-label">{{ t $.Lang "network.ipv6" }}</div>
                 <div style="font-weight:700;">{{ .PPPoE.LocalIPv6 }}</div>
             </div>
             {{ end }}
@@ -128,11 +128,11 @@
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:var(--space-md);">
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "common.name" }}</label>
-                    <input class="input" name="id" placeholder="guest" required>
+                    <input class="input" name="id" placeholder="{{ t $.Lang "vlan.nameExample" }}" required>
                 </div>
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "vlan.parent" }}</label>
-                    <input class="input" name="parent" placeholder="lan" required>
+                    <input class="input" name="parent" placeholder="{{ t $.Lang "vlan.parentExample" }}" required>
                 </div>
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "vlan.vid" }}</label>
@@ -158,7 +158,7 @@
                 </div>
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "dhcp.ip" }}</label>
-                    <input class="input" name="address" placeholder="10.10.13.1/24">
+                    <input class="input" name="address" placeholder="{{ t $.Lang "vlan.addressExample" }}">
                 </div>
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "network.mtu" }}</label>

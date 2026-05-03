@@ -1,4 +1,6 @@
 {
+    "app.title": "Home Router",
+
     "nav.dashboard": "Gösterge Paneli",
     "nav.network": "Ağ",
     "nav.firewall": "Güvenlik Duvarı",
@@ -62,6 +64,12 @@
     "firewall.accept": "İzin Ver",
     "firewall.drop": "Engelle",
     "firewall.reject": "Reddet",
+    "firewall.tcp": "TCP",
+    "firewall.udp": "UDP",
+    "firewall.icmp": "ICMP",
+    "firewall.exampleName": "ör: SSH",
+    "firewall.exampleIntIP": "ör: 10.10.10.x",
+    "firewall.exampleIface": "ör: ppp0",
 
     "vpn.title": "VPN Yönetimi",
     "vpn.addTunnel": "Tünel Ekle",
@@ -114,6 +122,15 @@
     "routing.schedule": "Zamanlama",
     "routing.enabled": "Etkin",
     "routing.disabled": "Devre Dışı",
+    "routing.tunnelExample": "ör: nl-amsterdam",
+    "routing.sourceMac": "Kaynak (MAC)",
+    "routing.sourceIp": "Kaynak (IP)",
+    "routing.macExample": "ör: aa:bb:cc:dd:ee:ff",
+    "routing.destinationCidr": "Hedef (IP/CIDR)",
+    "routing.cidrExample": "ör: 1.2.3.0/24",
+    "routing.ipExample": "ör: 10.10.10.50",
+    "routing.domains": "Alan Adları",
+    "routing.domainsExample": "ör: netflix.com",
 
     "dns.title": "DNS Yönetimi",
     "dns.upstream": "Upstream DNS",
@@ -129,6 +146,9 @@
     "dhcp.mac": "MAC Adresi",
     "dhcp.ip": "IP Adresi",
     "dhcp.hostname": "Bilgisayar Adı",
+    "dhcp.macExample": "ör: aa:bb:cc:dd:ee:ff",
+    "dhcp.ipExample": "ör: 10.10.10.x",
+    "dhcp.hostnameExample": "ör: cihaz-adı",
 
     "qos.title": "QoS / Trafik Şekillendirme",
     "qos.profile": "Profil",
@@ -136,6 +156,12 @@
     "qos.download": "İndirme Hızı",
     "qos.congestion": "Tıkanıklık Kontrolü",
     "qos.perDevice": "Cihaz Başı Limit",
+    "qos.cake": "CAKE",
+    "qos.fqCodel": "fq_codel",
+    "qos.none": "Yok",
+    "qos.kbps": "(kbps)",
+    "qos.bbr": "BBR",
+    "qos.cubic": "CUBIC",
 
     "nas.title": "NAS Dosya Paylaşımı",
     "nas.addShare": "Paylaşım Ekle",
@@ -150,6 +176,8 @@
     "nas.path": "Yol",
     "nas.guestAccess": "Misafir Erişimi",
     "nas.readOnly": "Salt Okunur",
+    "nas.pathExample": "ör: /mnt/raid/share",
+    "nas.m3u.urlExample": "ör: http://example.com/playlist.m3u",
 
     "storage.title": "Depolama Yönetimi",
     "storage.raid": "RAID Durumu",
@@ -235,6 +263,9 @@
     "vlan.static": "Statik",
     "vlan.dhcpClient": "DHCP İstemci",
     "vlan.vid": "VLAN ID",
+    "vlan.nameExample": "ör: guest",
+    "vlan.parentExample": "ör: lan",
+    "vlan.addressExample": "ör: 10.10.13.1/24",
 
     "usb.title": "USB Tethering",
     "usb.status": "Durum",
@@ -242,6 +273,7 @@
     "usb.disconnected": "Bağlı Değil",
     "usb.failover": "Yedek Bağlantı",
 
+    "common.toggleTheme": "Tema Değiştir",
     "common.save": "Kaydet",
     "common.cancel": "İptal",
     "common.delete": "Sil",
@@ -279,6 +311,8 @@
     "network.macClone.desc": "WAN arayüzünün MAC adresini önceki cihazınızla eşleştirin",
     "network.macClone.current": "Mevcut MAC",
     "network.macClone.clone": "Klonlanacak MAC",
+    "network.ipv4": "IPv4",
+    "network.ipv6": "IPv6",
 
     "dns.blocked": "Engellenen",
     "dns.totalQueries": "Toplam Sorgu",
