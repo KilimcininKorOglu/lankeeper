@@ -21,6 +21,8 @@ var allowedCommands = map[string]bool{
 	"smartctl": true, "hdparm": true, "tar": true,
 	"dig": true, "ping": true, "pgrep": true, "pkill": true, "killall": true,
 	"dhclient": true, "chpasswd": true, "bash": true, "df": true, "echo": true,
+	"cp": true, "chmod": true, "mv": true, "rm": true, "kill": true,
+	"openssl": true, "usermod": true, "localectl": true, "loadkeys": true,
 }
 
 var allowedWritePaths = []string{
