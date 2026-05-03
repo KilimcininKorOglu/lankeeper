@@ -194,24 +194,27 @@ home-router.target
 
 ### System Dependencies (installed by install.sh)
 
-| Package              | Purpose                                              |
-|----------------------|------------------------------------------------------|
-| `nftables`           | Stateful firewall, NAT, port forwarding              |
-| `iproute2`           | Network interface, VLAN, routing, and tc/QoS control |
-| `ppp`, `pppoe`       | PPPoE WAN connection (ISP fiber/DSL dial-up)         |
-| `wireguard-tools`    | WireGuard VPN tunnel management                      |
-| `openvpn`, `easy-rsa`| OpenVPN server/client with PKI certificate management|
-| `unbound`            | Recursive DNS resolver with DNSSEC and blocklists    |
-| `dnsmasq`            | DHCP server (DNS disabled, port=0)                   |
-| `samba`              | SMB/CIFS NAS file sharing for LAN clients            |
-| `smartmontools`      | Disk health monitoring via S.M.A.R.T.                |
-| `mdadm`              | Software RAID-1 array management                     |
-| `chrony`             | NTP time synchronization (server + client)           |
-| `rsyslog`            | Centralized syslog server and client                 |
-| `curl`, `jq`         | GitHub Releases API for OTA update checks            |
-| `qrencode`           | QR code generation for WireGuard mobile configs      |
-| `wide-dhcpv6-client` | DHCPv6 prefix delegation for IPv6 WAN                |
-| `hdparm`             | Disk power management and standby control            |
+| Package              | Version (Bookworm) | Purpose                                              |
+|----------------------|--------------------|------------------------------------------------------|
+| `nftables`           | 1.0.6              | Stateful firewall, NAT, port forwarding              |
+| `iproute2`           | 6.1.0              | Network interface, VLAN, routing, and tc/QoS control |
+| `ppp`                | 2.4.9              | PPPoE WAN connection (ISP fiber/DSL dial-up)         |
+| `pppoe`              | 3.15               | PPPoE discovery and session daemon                   |
+| `wireguard-tools`    | 1.0.20210914       | WireGuard VPN tunnel management                      |
+| `openvpn`            | 2.6.3              | OpenVPN server/client tunnels                        |
+| `easy-rsa`           | 3.1.0              | PKI certificate management for OpenVPN               |
+| `unbound`            | 1.17.1             | Recursive DNS resolver with DNSSEC and blocklists    |
+| `dnsmasq`            | 2.90               | DHCP server (DNS disabled, port=0)                   |
+| `samba`              | 4.17.12            | SMB/CIFS NAS file sharing for LAN clients            |
+| `smartmontools`      | 7.3                | Disk health monitoring via S.M.A.R.T.                |
+| `mdadm`              | 4.2                | Software RAID-1 array management                     |
+| `chrony`             | 4.3                | NTP time synchronization (server + client)           |
+| `rsyslog`            | 8.2302.0           | Centralized syslog server and client                 |
+| `curl`               | 7.88.1             | HTTP client for OTA update checks                    |
+| `jq`                 | 1.6                | JSON parsing for GitHub Releases API                 |
+| `qrencode`           | 4.1.1              | QR code generation for WireGuard mobile configs      |
+| `wide-dhcpv6-client` | 20080615           | DHCPv6 prefix delegation for IPv6 WAN                |
+| `hdparm`             | 9.65               | Disk power management and standby control            |
 
 ## License
 
