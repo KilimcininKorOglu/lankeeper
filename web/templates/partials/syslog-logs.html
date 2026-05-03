@@ -1,5 +1,13 @@
 {{ define "syslog-logs" }}
+{{ if .RecentLogs }}
+<pre style="font-family:var(--font-mono); font-size:var(--font-xs); max-height:400px; overflow:auto; background:var(--bg-secondary); padding:var(--space-sm); border-radius:var(--radius-sm);">
+{{- range .RecentLogs }}
+{{ . }}
+{{- end }}
+</pre>
+{{ else }}
 <div style="color:var(--text-secondary); padding:var(--space-md); text-align:center; font-size:var(--font-sm);">
-    {{ t $.Lang "syslog.remoteHost" }}: {{ t $.Lang "common.status" }}
+    {{ t $.Lang "syslog.noLogs" }}
 </div>
+{{ end }}
 {{ end }}

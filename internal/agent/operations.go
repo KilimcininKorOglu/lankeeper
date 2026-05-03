@@ -23,7 +23,7 @@ var allowedCommands = map[string]bool{
 	"dhclient": true, "chpasswd": true, "df": true,
 	"cp": true, "chmod": true, "mv": true, "rm": true, "kill": true,
 	"openssl": true, "usermod": true, "localectl": true, "loadkeys": true,
-	"easyrsa": true, "mkdir": true,
+	"easyrsa": true, "mkdir": true, "tail": true,
 }
 
 type pathRuleKind int

@@ -3,11 +3,24 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 
+	"github.com/KilimcininKorOglu/home-router/internal/config"
 	"github.com/KilimcininKorOglu/home-router/internal/i18n"
 	"github.com/KilimcininKorOglu/home-router/internal/services"
 	"github.com/KilimcininKorOglu/home-router/internal/tmpl"
 )
+
+// allowedFacilities is the set of standard syslog facility names accepted
+// by the AddFacility handler. RFC 5424 + Linux locals.
+var allowedFacilities = map[string]bool{
+	"auth": true, "authpriv": true, "cron": true, "daemon": true,
+	"kern": true, "lpr": true, "mail": true, "news": true,
+	"syslog": true, "user": true,
+	"local0": true, "local1": true, "local2": true, "local3": true,
+	"local4": true, "local5": true, "local6": true, "local7": true,
+}
 
 type SyslogHandler struct {
 	renderer *tmpl.Renderer
@@ -22,12 +35,15 @@ func (h *SyslogHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 	lang := i18n.LangFromContext(r.Context())
 
 	hosts, _ := h.syslog.GetRemoteHosts(r.Context())
+	logs, _ := h.syslog.GetRecentLogs(r.Context(), 100)
 
 	data := &tmpl.PageData{
 		Lang: lang,
 		Page: "syslog",
 		Data: map[string]any{
-			"Hosts": hosts,
+			"Hosts":      hosts,
+			"Config":     h.syslog.GetConfig(),
+			"RecentLogs": logs,
 		},
 	}
 
@@ -35,4 +51,86 @@ func (h *SyslogHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 		log.Printf("render syslog: %v", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
+}
+
+func (h *SyslogHandler) HandleSaveServerConfig(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	cfg := config.SyslogServerConfig{
+		Enabled:      r.FormValue("enabled") == "on",
+		ListenUDP:    strings.TrimSpace(r.FormValue("listen_udp")),
+		ListenTCP:    strings.TrimSpace(r.FormValue("listen_tcp")),
+		LogPath:      strings.TrimSpace(r.FormValue("log_path")),
+		PerHostDirs:  r.FormValue("per_host_dirs") == "on",
+		MaxRetention: strings.TrimSpace(r.FormValue("max_retention")),
+	}
+	if err := h.syslog.SaveServerConfig(cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := h.syslog.ApplyConfig(r.Context()); err != nil {
+		log.Printf("syslog apply after save server: %v", err)
+	}
+	syslogResponse(w, r)
+}
+
+func (h *SyslogHandler) HandleSaveClientConfig(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	current := h.syslog.GetConfig().Client
+	current.Enabled = r.FormValue("enabled") == "on"
+	current.RemoteHost = strings.TrimSpace(r.FormValue("remote_host"))
+	proto := strings.TrimSpace(r.FormValue("protocol"))
+	if proto != "tcp" {
+		proto = "udp"
+	}
+	current.Protocol = proto
+	if err := h.syslog.SaveClientConfig(current); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := h.syslog.ApplyConfig(r.Context()); err != nil {
+		log.Printf("syslog apply after save client: %v", err)
+	}
+	syslogResponse(w, r)
+}
+
+func (h *SyslogHandler) HandleAddFacility(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	name := strings.ToLower(strings.TrimSpace(r.FormValue("name")))
+	if !allowedFacilities[name] {
+		http.Error(w, "invalid facility", http.StatusBadRequest)
+		return
+	}
+	if err := h.syslog.AddFacility(name); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.syslog.ApplyConfig(r.Context()); err != nil {
+		log.Printf("syslog apply after add facility: %v", err)
+	}
+	syslogResponse(w, r)
+}
+
+func (h *SyslogHandler) HandleRemoveFacility(w http.ResponseWriter, r *http.Request) {
+	idx, err := strconv.Atoi(r.PathValue("index"))
+	if err != nil {
+		http.Error(w, "invalid index", http.StatusBadRequest)
+		return
+	}
+	if err := h.syslog.RemoveFacility(idx); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.syslog.ApplyConfig(r.Context()); err != nil {
+		log.Printf("syslog apply after remove facility: %v", err)
+	}
+	syslogResponse(w, r)
+}
+
+func syslogResponse(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Refresh", "true")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Redirect(w, r, "/syslog", http.StatusSeeOther)
 }

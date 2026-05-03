@@ -7,14 +7,28 @@
 
     <div class="card" style="margin-bottom:var(--space-lg);">
         <div class="card-header">
-            <span class="card-title">{{ t $.Lang "syslog.server" }}</span>
+            <span class="card-title">{{ t $.Lang "syslog.serverConfig" }}</span>
+        </div>
+        {{ template "syslog-server-config" . }}
+    </div>
+
+    <div class="card" style="margin-bottom:var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "syslog.clientConfig" }}</span>
+        </div>
+        {{ template "syslog-client-config" . }}
+    </div>
+
+    <div class="card" style="margin-bottom:var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "syslog.remoteHosts" }}</span>
         </div>
         {{ template "syslog-sources" . }}
     </div>
 
     <div class="card">
         <div class="card-header">
-            <span class="card-title">{{ t $.Lang "syslog.client" }}</span>
+            <span class="card-title">{{ t $.Lang "syslog.recentLogs" }}</span>
         </div>
         {{ template "syslog-logs" . }}
     </div>

@@ -1,0 +1,29 @@
+{{ define "syslog-server-config" }}
+<form hx-post="/syslog/server" hx-swap="none" style="display:flex; flex-direction:column; gap:var(--space-md);">
+    <label style="display:flex; gap:var(--space-xs);">
+        <input type="checkbox" name="enabled" {{ if .Config.Server.Enabled }}checked{{ end }}>
+        <span>{{ t $.Lang "syslog.enabled" }}</span>
+    </label>
+    <label>
+        <div class="input-label">{{ t $.Lang "syslog.listenUDP" }}</div>
+        <input class="input" name="listen_udp" value="{{ .Config.Server.ListenUDP }}" placeholder="514">
+    </label>
+    <label>
+        <div class="input-label">{{ t $.Lang "syslog.listenTCP" }}</div>
+        <input class="input" name="listen_tcp" value="{{ .Config.Server.ListenTCP }}" placeholder="514">
+    </label>
+    <label>
+        <div class="input-label">{{ t $.Lang "syslog.logPath" }}</div>
+        <input class="input" name="log_path" value="{{ .Config.Server.LogPath }}" placeholder="/var/log/remote">
+    </label>
+    <label>
+        <div class="input-label">{{ t $.Lang "syslog.maxRetention" }}</div>
+        <input class="input" name="max_retention" value="{{ .Config.Server.MaxRetention }}" placeholder="14d">
+    </label>
+    <label style="display:flex; gap:var(--space-xs);">
+        <input type="checkbox" name="per_host_dirs" {{ if .Config.Server.PerHostDirs }}checked{{ end }}>
+        <span>{{ t $.Lang "syslog.perHostDirs" }}</span>
+    </label>
+    <button class="btn btn-primary btn-sm" type="submit">{{ t $.Lang "common.save" }}</button>
+</form>
+{{ end }}

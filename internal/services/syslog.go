@@ -59,6 +59,67 @@ func (s *SyslogService) Reload(ctx context.Context) error {
 	return err
 }
 
+// GetConfig returns the live syslog configuration.
+func (s *SyslogService) GetConfig() config.SyslogConfig {
+	return s.cfg.Syslog
+}
+
+// SaveServerConfig replaces the server-side syslog config (listening as a
+// remote sink for other devices) and persists.
+func (s *SyslogService) SaveServerConfig(cfg config.SyslogServerConfig) error {
+	s.cfg.Syslog.Server = cfg
+	return s.cfg.SaveToFile()
+}
+
+// SaveClientConfig replaces the client-side syslog config (forwarding our
+// logs to a remote collector) and persists.
+func (s *SyslogService) SaveClientConfig(cfg config.SyslogClientConfig) error {
+	s.cfg.Syslog.Client = cfg
+	return s.cfg.SaveToFile()
+}
+
+// AddFacility appends a syslog facility name to the client forwarding list.
+// Validation against the allowed RFC 5424 facility names is the caller's
+// responsibility.
+func (s *SyslogService) AddFacility(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("empty facility")
+	}
+	for _, f := range s.cfg.Syslog.Client.Facilities {
+		if strings.EqualFold(f, name) {
+			return fmt.Errorf("facility %s already configured", name)
+		}
+	}
+	s.cfg.Syslog.Client.Facilities = append(s.cfg.Syslog.Client.Facilities, name)
+	return s.cfg.SaveToFile()
+}
+
+// RemoveFacility deletes the facility at the given index.
+func (s *SyslogService) RemoveFacility(index int) error {
+	if index < 0 || index >= len(s.cfg.Syslog.Client.Facilities) {
+		return fmt.Errorf("invalid facility index: %d", index)
+	}
+	s.cfg.Syslog.Client.Facilities = append(
+		s.cfg.Syslog.Client.Facilities[:index],
+		s.cfg.Syslog.Client.Facilities[index+1:]...,
+	)
+	return s.cfg.SaveToFile()
+}
+
+// GetRecentLogs tails the local /var/log/syslog (best-effort).
+func (s *SyslogService) GetRecentLogs(ctx context.Context, limit int) ([]string, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	out, err := netutil.RunSimple(ctx, "tail", "-n", fmt.Sprintf("%d", limit), "/var/log/syslog")
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	return lines, nil
+}
+
 func (s *SyslogService) GetRemoteHosts(ctx context.Context) ([]string, error) {
 	logPath := s.cfg.Syslog.Server.LogPath
 	if logPath == "" {

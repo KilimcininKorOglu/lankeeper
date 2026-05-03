@@ -1,0 +1,46 @@
+{{ define "syslog-client-config" }}
+<form hx-post="/syslog/client" hx-swap="none" style="display:flex; flex-direction:column; gap:var(--space-md);">
+    <label style="display:flex; gap:var(--space-xs);">
+        <input type="checkbox" name="enabled" {{ if .Config.Client.Enabled }}checked{{ end }}>
+        <span>{{ t $.Lang "syslog.enabled" }}</span>
+    </label>
+    <label>
+        <div class="input-label">{{ t $.Lang "syslog.remoteHost" }}</div>
+        <input class="input" name="remote_host" value="{{ .Config.Client.RemoteHost }}" placeholder="logs.example.com">
+    </label>
+    <label>
+        <div class="input-label">{{ t $.Lang "syslog.protocol" }}</div>
+        <select class="input" name="protocol">
+            <option value="udp" {{ if eq .Config.Client.Protocol "udp" }}selected{{ end }}>UDP</option>
+            <option value="tcp" {{ if eq .Config.Client.Protocol "tcp" }}selected{{ end }}>TCP</option>
+        </select>
+    </label>
+    <button class="btn btn-primary btn-sm" type="submit">{{ t $.Lang "common.save" }}</button>
+</form>
+
+<div style="margin-top:var(--space-lg);">
+    <div class="input-label" style="margin-bottom:var(--space-xs);">{{ t $.Lang "syslog.facilities" }}</div>
+    <form hx-post="/syslog/client/facilities" hx-swap="none"
+          hx-on::after-request="this.reset();"
+          style="display:grid; grid-template-columns:1fr auto; gap:var(--space-sm); margin-bottom:var(--space-sm);">
+        <input class="input" name="name" placeholder="{{ t $.Lang "syslog.facilityExample" }}" required>
+        <button class="btn btn-primary btn-sm" type="submit">{{ t $.Lang "syslog.addFacility" }}</button>
+    </form>
+    {{ if .Config.Client.Facilities }}
+    <table style="width:100%; font-size:var(--font-sm);">
+        {{ range $idx, $fac := .Config.Client.Facilities }}
+        <tr style="border-bottom:1px solid var(--border-color);">
+            <td style="padding:var(--space-xs); font-family:var(--font-mono);">{{ $fac }}</td>
+            <td style="padding:var(--space-xs); text-align:right; width:80px;">
+                <button class="btn btn-danger btn-sm"
+                        hx-delete="/syslog/client/facilities/{{ $idx }}" hx-swap="none"
+                        hx-confirm="{{ t $.Lang "common.confirm" }}">
+                    {{ t $.Lang "common.delete" }}
+                </button>
+            </td>
+        </tr>
+        {{ end }}
+    </table>
+    {{ end }}
+</div>
+{{ end }}
