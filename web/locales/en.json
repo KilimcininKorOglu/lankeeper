@@ -239,6 +239,9 @@
     "ntp.subnetExample": "10.10.10.0/24",
     "ntp.noSources": "No sources configured",
     "ntp.noSubnets": "Allow list is empty",
+    "ntp.listenAddress": "Listen Address",
+    "ntp.listenAddressHint": "Leave empty to listen on all interfaces",
+    "ntp.listenPort": "Listen Port (0 = default 123)",
 
     "settings.title": "System Settings",
     "settings.hostname": "Hostname",

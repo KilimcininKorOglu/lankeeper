@@ -239,6 +239,9 @@
     "ntp.subnetExample": "10.10.10.0/24",
     "ntp.noSources": "Yapılandırılmış kaynak yok",
     "ntp.noSubnets": "İzin listesi boş",
+    "ntp.listenAddress": "Dinleme Adresi",
+    "ntp.listenAddressHint": "Boş bırakılırsa tüm interface'lerde dinler",
+    "ntp.listenPort": "Dinleme Portu (0 = default 123)",
 
     "settings.title": "Sistem Ayarları",
     "settings.hostname": "Ana Makine Adı",

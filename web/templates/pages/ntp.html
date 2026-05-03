@@ -128,6 +128,15 @@
                 <input type="checkbox" name="server_enabled" {{ if .Config.Server.Enabled }}checked{{ end }}>
                 <span>{{ t $.Lang "ntp.serverEnabled" }}</span>
             </label>
+            <label>
+                <div class="input-label">{{ t $.Lang "ntp.listenAddress" }}</div>
+                <input class="input" name="listen_address" value="{{ .Config.Server.ListenAddress }}" placeholder="10.10.10.1">
+                <div style="font-size:var(--font-xs); color:var(--text-secondary); margin-top:var(--space-xs);">{{ t $.Lang "ntp.listenAddressHint" }}</div>
+            </label>
+            <label>
+                <div class="input-label">{{ t $.Lang "ntp.listenPort" }}</div>
+                <input class="input" name="listen_port" type="number" min="0" max="65535" value="{{ .Config.Server.ListenPort }}" placeholder="123">
+            </label>
             <label style="display:flex; gap:var(--space-xs);">
                 <input type="checkbox" name="rtc_sync" {{ if .Config.RTCSync }}checked{{ end }}>
                 <span>{{ t $.Lang "ntp.rtcSync" }}</span>

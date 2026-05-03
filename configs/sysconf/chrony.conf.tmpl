@@ -13,6 +13,12 @@ rtcsync
 logdir /var/log/chrony
 
 {{- if .Server.Enabled }}
+{{- if .Server.ListenAddress }}
+bindaddress {{ .Server.ListenAddress }}
+{{- end }}
+{{- if .Server.ListenPort }}
+port {{ .Server.ListenPort }}
+{{- end }}
 {{- range .AllowSubnets }}
 allow {{ . }}
 {{- end }}

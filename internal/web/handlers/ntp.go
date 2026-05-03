@@ -143,9 +143,11 @@ func (h *NTPHandler) HandleRemoveAllowSubnet(w http.ResponseWriter, r *http.Requ
 func (h *NTPHandler) HandleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	fallback := r.FormValue("fallback")
+	listenAddress := r.FormValue("listen_address")
+	listenPort, _ := strconv.Atoi(r.FormValue("listen_port"))
 	serverEnabled := r.FormValue("server_enabled") == "on"
 	rtcSync := r.FormValue("rtc_sync") == "on"
-	if err := h.ntp.SaveSettings(fallback, serverEnabled, rtcSync); err != nil {
+	if err := h.ntp.SaveSettings(fallback, listenAddress, listenPort, serverEnabled, rtcSync); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

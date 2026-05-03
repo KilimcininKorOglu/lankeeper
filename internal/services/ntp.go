@@ -208,9 +208,11 @@ func (s *NTPService) RemoveAllowSubnet(index int) error {
 }
 
 // SaveSettings updates scalar NTP fields.
-func (s *NTPService) SaveSettings(fallback string, serverEnabled, rtcSync bool) error {
+func (s *NTPService) SaveSettings(fallback, listenAddress string, listenPort int, serverEnabled, rtcSync bool) error {
 	s.cfg.NTP.Client.Fallback = strings.TrimSpace(fallback)
 	s.cfg.NTP.Server.Enabled = serverEnabled
+	s.cfg.NTP.Server.ListenAddress = strings.TrimSpace(listenAddress)
+	s.cfg.NTP.Server.ListenPort = listenPort
 	s.cfg.NTP.RTCSync = rtcSync
 	return s.cfg.SaveToFile()
 }
