@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# nullglob: unmatched globs expand to empty (not literal). Matches the
+# pattern used in deploy/iso/post-install.sh for consistency.
+shopt -s nullglob
+
 BINARY_NAME="home-router"
 INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="/etc/home-router"
@@ -157,7 +161,12 @@ setup_default_config() {
         exit 1
     fi
 
-    cp "$defaults_dir"/*.yaml "$CONFIG_DIR/" 2>/dev/null || true
+    local default_yamls=( "$defaults_dir"/*.yaml )
+    if [[ ${#default_yamls[@]} -eq 0 ]]; then
+        log_error "No default YAML files found in $defaults_dir"
+        exit 1
+    fi
+    cp "${default_yamls[@]}" "$CONFIG_DIR/"
     if [[ ! -f "$CONFIG_DIR/router.yaml" ]]; then
         log_error "router.yaml could not be installed from $defaults_dir"
         exit 1
@@ -376,11 +385,18 @@ setup_sysconf_templates() {
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     local sysconf_dir="$script_dir/../configs/sysconf"
 
-    if [[ -d "$sysconf_dir" ]]; then
-        mkdir -p "$DATA_DIR/sysconf"
-        cp "$sysconf_dir"/*.tmpl "$DATA_DIR/sysconf/" 2>/dev/null || true
-        log_info "Installed sysconf templates"
+    if [[ ! -d "$sysconf_dir" ]]; then
+        log_warn "sysconf directory not found: $sysconf_dir"
+        return
     fi
+    local tmpls=( "$sysconf_dir"/*.tmpl )
+    if [[ ${#tmpls[@]} -eq 0 ]]; then
+        log_warn "No sysconf templates in $sysconf_dir"
+        return
+    fi
+    mkdir -p "$DATA_DIR/sysconf"
+    cp "${tmpls[@]}" "$DATA_DIR/sysconf/"
+    log_info "Installed sysconf templates"
 }
 
 setup_initial_tls() {

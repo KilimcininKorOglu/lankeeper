@@ -87,17 +87,48 @@ cp "$BINARY_PATH" "$BUILD_DIR/iso/home-router"
 cp "$SCRIPT_DIR/preseed.cfg" "$BUILD_DIR/iso/"
 cp "$SCRIPT_DIR/post-install.sh" "$BUILD_DIR/iso/"
 
+# Validate critical assets exist before copying. A silent miss here used
+# to produce a "successful" ISO that broke at install time.
+required_yaml="$PROJECT_ROOT/configs/defaults/router.yaml"
+if [[ ! -f "$required_yaml" ]]; then
+    echo "ERROR: missing required default config: $required_yaml" >&2
+    exit 1
+fi
+
+sysconf_tmpls=( "$PROJECT_ROOT/configs/sysconf"/*.tmpl )
+if [[ ! -e "${sysconf_tmpls[0]}" ]]; then
+    echo "ERROR: no sysconf templates found in $PROJECT_ROOT/configs/sysconf/" >&2
+    exit 1
+fi
+
+required_units=(
+    "$PROJECT_ROOT/deploy/systemd/home-router-agent.service"
+    "$PROJECT_ROOT/deploy/systemd/home-router-web.service"
+    "$PROJECT_ROOT/deploy/systemd/home-router.target"
+)
+for unit in "${required_units[@]}"; do
+    if [[ ! -f "$unit" ]]; then
+        echo "ERROR: missing required systemd unit: $unit" >&2
+        exit 1
+    fi
+done
+
+required_helper="$PROJECT_ROOT/deploy/dhcp-dns-update.sh"
+if [[ ! -f "$required_helper" ]]; then
+    echo "ERROR: missing required helper script: $required_helper" >&2
+    exit 1
+fi
+
 mkdir -p "$BUILD_DIR/iso/configs/defaults"
-cp "$PROJECT_ROOT/configs/defaults"/*.yaml "$BUILD_DIR/iso/configs/defaults/" 2>/dev/null || true
+cp "$PROJECT_ROOT/configs/defaults"/*.yaml "$BUILD_DIR/iso/configs/defaults/"
 
 mkdir -p "$BUILD_DIR/iso/configs/sysconf"
-cp "$PROJECT_ROOT/configs/sysconf"/*.tmpl "$BUILD_DIR/iso/configs/sysconf/" 2>/dev/null || true
+cp "$PROJECT_ROOT/configs/sysconf"/*.tmpl "$BUILD_DIR/iso/configs/sysconf/"
 
 mkdir -p "$BUILD_DIR/iso/systemd"
-cp "$PROJECT_ROOT/deploy/systemd"/*.service "$BUILD_DIR/iso/systemd/" 2>/dev/null || true
-cp "$PROJECT_ROOT/deploy/systemd"/*.target "$BUILD_DIR/iso/systemd/" 2>/dev/null || true
+cp "${required_units[@]}" "$BUILD_DIR/iso/systemd/"
 
-cp "$PROJECT_ROOT/deploy/dhcp-dns-update.sh" "$BUILD_DIR/iso/dhcp-dns-update.sh" 2>/dev/null || true
+cp "$required_helper" "$BUILD_DIR/iso/dhcp-dns-update.sh"
 
 echo "[5/7] Updating GRUB config..."
 if [[ -f "$BUILD_DIR/iso/boot/grub/grub.cfg" ]]; then

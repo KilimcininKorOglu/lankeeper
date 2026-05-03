@@ -28,11 +28,12 @@ if [[ -d /cdrom/pool/extra ]] && [[ -f /cdrom/pool/extra/Packages ]]; then
     rm -f /etc/apt/sources.list.d/home-router-local.list
 fi
 
-# Ensure homerouter system user exists (d-i creates an interactive user; if
-# missing for any reason, fall back to a system account).
+# d-i creates the homerouter user via passwd/make-user=true. If for some
+# reason the user is missing here, abort — installing the service with no
+# owner is worse than failing loudly.
 if ! id "$SERVICE_USER" &>/dev/null; then
-    useradd --system --no-create-home --home-dir /opt/home-router \
-        --shell /usr/sbin/nologin "$SERVICE_USER"
+    echo "HATA / ERROR: $SERVICE_USER kullanıcısı yok / user $SERVICE_USER missing" >&2
+    exit 1
 fi
 
 # Install binary
@@ -101,67 +102,17 @@ if [[ -d /tmp/configs/sysconf ]]; then
     fi
 fi
 
-# systemd units (copied from ISO or embedded inline as fallback)
+# systemd units — copied from /tmp/systemd which late_command populated
+# from /cdrom/systemd. Fail loudly if missing rather than silently using
+# divergent inline fallbacks.
 unit_services=( /tmp/systemd/*.service )
 unit_targets=( /tmp/systemd/*.target )
-if [[ -d /tmp/systemd ]] && [[ ${#unit_services[@]} -gt 0 ]]; then
-    cp "${unit_services[@]}" "$SYSTEMD_DIR/"
-    [[ ${#unit_targets[@]} -gt 0 ]] && cp "${unit_targets[@]}" "$SYSTEMD_DIR/"
-else
-    cat > "$SYSTEMD_DIR/home-router-agent.service" <<'UNIT'
-[Unit]
-Description=Home Router Privileged Agent
-PartOf=home-router.target
-After=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/home-router agent
-Restart=always
-RestartSec=3
-User=root
-RuntimeDirectory=home-router
-ProtectHome=true
-PrivateTmp=true
-
-[Install]
-WantedBy=home-router.target
-UNIT
-
-    cat > "$SYSTEMD_DIR/home-router-web.service" <<'UNIT'
-[Unit]
-Description=Home Router Web Server
-PartOf=home-router.target
-After=home-router-agent.service
-Requires=home-router-agent.service
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/home-router serve
-Restart=always
-RestartSec=3
-User=homerouter
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-ProtectHome=true
-PrivateTmp=true
-NoNewPrivileges=true
-ProtectSystem=strict
-ReadWritePaths=/etc/home-router /var/lib/home-router /var/log/home-router
-
-[Install]
-WantedBy=home-router.target
-UNIT
-
-    cat > "$SYSTEMD_DIR/home-router.target" <<'UNIT'
-[Unit]
-Description=Home Router Services
-After=network-online.target
-Wants=home-router-agent.service home-router-web.service
-
-[Install]
-WantedBy=multi-user.target
-UNIT
+if [[ ! -d /tmp/systemd ]] || [[ ${#unit_services[@]} -eq 0 ]]; then
+    echo "HATA / ERROR: systemd unit dosyaları bulunamadı (/tmp/systemd) / systemd unit files missing" >&2
+    exit 1
 fi
+cp "${unit_services[@]}" "$SYSTEMD_DIR/"
+[[ ${#unit_targets[@]} -gt 0 ]] && cp "${unit_targets[@]}" "$SYSTEMD_DIR/"
 
 # Enable services. systemctl in d-i chroot can fail in unusual setups; tolerate.
 systemctl daemon-reload 2>/dev/null || true
@@ -272,4 +223,4 @@ fi
 
 echo "=== Kurulum tamamlandı / Post-install complete ==="
 echo "Sistem Home Router olarak yeniden başlatılacak. / System will reboot into Home Router."
-echo "Web arayüzü: https://<LAN_IP>:8443 / Web UI: https://<LAN_IP>:8443"
+echo "Web arayüzü / Web UI: https://<LAN_IP>:8443"
