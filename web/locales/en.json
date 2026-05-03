@@ -383,6 +383,8 @@
     "dns.dotEnable": "Enable DoT (TLS for upstream queries)",
     "dns.dotUpstream": "Upstream",
     "dns.dotHint": "Example: 1.1.1.1@853#cloudflare-dns.com",
+    "dns.disableAutoPTR": "Disable auto PTR",
+    "dns.disableAutoPTRHint": "Skip the reverse-DNS (in-addr.arpa) entry for this record; let upstream answer",
 
     "openvpn.pkiNotReady": "PKI not initialized",
     "openvpn.initPki": "Initialize PKI",

@@ -125,10 +125,11 @@ func (h *DNSHandler) HandleAddRecord(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rec := config.StaticDNSRecord{
-		Name:      name,
-		IP:        ip,
-		LocalZone: localZone,
-		Source:    config.DNSSourceUser,
+		Name:           name,
+		IP:             ip,
+		LocalZone:      localZone,
+		DisableAutoPTR: r.FormValue("disable_auto_ptr") == "on",
+		Source:         config.DNSSourceUser,
 	}
 	if err := h.dns.AddStaticRecord(rec); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

@@ -383,6 +383,8 @@
     "dns.dotEnable": "DoT'u etkinleştir (yukarı akış sorgular için TLS)",
     "dns.dotUpstream": "Upstream",
     "dns.dotHint": "Örnek: 1.1.1.1@853#cloudflare-dns.com",
+    "dns.disableAutoPTR": "Otomatik PTR'ı kapat",
+    "dns.disableAutoPTRHint": "Bu kayıt için ters DNS (in-addr.arpa) üretilmesin; upstream'e düşsün",
 
     "openvpn.pkiNotReady": "PKI başlatılmamış",
     "openvpn.initPki": "PKI Oluştur",

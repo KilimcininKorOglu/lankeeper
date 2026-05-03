@@ -103,6 +103,10 @@
                 <input type="checkbox" name="local_zone">
                 <span>{{ t $.Lang "dns.localZone" }} — {{ t $.Lang "dns.localZoneHint" }}</span>
             </label>
+            <label style="display:flex; gap:var(--space-xs); font-size:var(--font-sm); color:var(--text-secondary); margin-top:var(--space-xs);">
+                <input type="checkbox" name="disable_auto_ptr">
+                <span>{{ t $.Lang "dns.disableAutoPTR" }} — {{ t $.Lang "dns.disableAutoPTRHint" }}</span>
+            </label>
         </form>
 
         {{ if .StaticRecords }}

@@ -356,15 +356,20 @@ func (s *DNSService) FindStaticRecordIndexBySource(source, name string) int {
 }
 
 // buildRenderStaticRecords expands persisted records with a pre-computed
-// IPv4 PTR (empty when the IP is IPv6 or invalid).
+// IPv4 PTR (empty when the IP is IPv6 or invalid, or when the record
+// explicitly disables auto PTR).
 func buildRenderStaticRecords(records []config.StaticDNSRecord) []renderStaticRecord {
 	out := make([]renderStaticRecord, 0, len(records))
 	for _, r := range records {
+		ptr := ""
+		if !r.DisableAutoPTR {
+			ptr = ipv4PTR(r.IP)
+		}
 		out = append(out, renderStaticRecord{
 			Name:      r.Name,
 			IP:        r.IP,
 			LocalZone: r.LocalZone,
-			PTR:       ipv4PTR(r.IP),
+			PTR:       ptr,
 		})
 	}
 	return out

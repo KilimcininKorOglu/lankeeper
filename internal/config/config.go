@@ -241,6 +241,11 @@ type StaticDNSRecord struct {
 	// Source tags the origin of the record. See DNSSource* constants.
 	// "" loaded from legacy YAML is normalized to DNSSourceUser at Load.
 	Source string `yaml:"source,omitempty"`
+	// DisableAutoPTR suppresses the automatic IPv4 reverse PTR record
+	// for this entry. Default false → PTR is emitted alongside the A
+	// record. Set true for split-DNS overrides where reverse should
+	// fall through to upstream.
+	DisableAutoPTR bool `yaml:"disableAutoPTR,omitempty"`
 }
 
 // DNS record source identifiers. Used by services to scope cleanup so
