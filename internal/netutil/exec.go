@@ -175,22 +175,6 @@ func WriteFile(path string, content []byte, mode os.FileMode) error {
 	return os.WriteFile(path, content, mode)
 }
 
-func CreateFile(path string, mode os.FileMode) (*os.File, error) {
-	if agentClient != nil {
-		params := fileWriteParams{
-			Path:   path,
-			Mode:   int(mode),
-			MkdirP: true,
-		}
-		agentClient.Call(context.Background(), "file.mkdir", struct {
-			Path string `json:"path"`
-		}{Path: filepath.Dir(path)})
-		_ = params
-	}
-	os.MkdirAll(filepath.Dir(path), 0o755)
-	return os.Create(path)
-}
-
 func MkdirAll(path string, mode os.FileMode) error {
 	if agentClient != nil {
 		params := struct {

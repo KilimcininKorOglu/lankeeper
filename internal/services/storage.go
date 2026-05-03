@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/KilimcininKorOglu/home-router/internal/config"
@@ -258,12 +257,7 @@ func (s *StorageService) CreateRAID(ctx context.Context, level int, devices []st
 		return fmt.Errorf("mount: %w", err)
 	}
 
-	fstabLine := fmt.Sprintf("%s %s ext4 defaults 0 2\n", mdDevice, mountPoint)
-	f, err := os.OpenFile("/etc/fstab", os.O_APPEND|os.O_WRONLY, 0o644)
-	if err == nil {
-		f.WriteString(fstabLine)
-		f.Close()
-	}
+	appendFstabEntry(mdDevice, mountPoint, "ext4")
 
 	netutil.Run(ctx, "mdadm", "--detail", "--scan", "--verbose")
 
@@ -286,12 +280,17 @@ func (s *StorageService) FormatAndMount(ctx context.Context, device, mountPoint 
 		return fmt.Errorf("mount %s: %w", device, err)
 	}
 
-	fstabLine := fmt.Sprintf("%s %s ext4 defaults 0 2\n", device, mountPoint)
-	f, err := os.OpenFile("/etc/fstab", os.O_APPEND|os.O_WRONLY, 0o644)
-	if err == nil {
-		f.WriteString(fstabLine)
-		f.Close()
-	}
+	appendFstabEntry(device, mountPoint, "ext4")
 
 	return nil
+}
+
+func appendFstabEntry(device, mountPoint, fsType string) {
+	entry := fmt.Sprintf("%s %s %s defaults 0 2", device, mountPoint, fsType)
+	existing, _ := netutil.ReadFile("/etc/fstab")
+	if strings.Contains(string(existing), entry) {
+		return
+	}
+	newContent := strings.TrimRight(string(existing), "\n") + "\n" + entry + "\n"
+	netutil.WriteFile("/etc/fstab", []byte(newContent), 0o644)
 }
