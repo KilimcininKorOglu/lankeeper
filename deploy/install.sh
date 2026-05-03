@@ -91,8 +91,8 @@ setup_directories() {
     mkdir -p "$LOG_DIR"
     mkdir -p /var/log/unbound
 
-    chmod 700 "$CONFIG_DIR"
-    chown root:root "$CONFIG_DIR"
+    chmod 750 "$CONFIG_DIR"
+    chown root:"$SERVICE_USER" "$CONFIG_DIR"
     chown "$SERVICE_USER:$SERVICE_USER" "$LOG_DIR"
     chown unbound:unbound /var/log/unbound 2>/dev/null || true
 
@@ -146,7 +146,8 @@ setup_default_config() {
 
     if [[ -d "$defaults_dir" ]]; then
         cp "$defaults_dir"/*.yaml "$CONFIG_DIR/" 2>/dev/null || true
-        chmod 600 "$CONFIG_DIR"/*.yaml
+        chmod 640 "$CONFIG_DIR"/*.yaml
+        chown root:"$SERVICE_USER" "$CONFIG_DIR"/*.yaml
         log_info "Copied default config files"
     fi
 }

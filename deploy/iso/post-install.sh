@@ -29,7 +29,8 @@ chmod +x "$INSTALL_DIR/$BINARY_NAME"
 
 # Create directories
 mkdir -p "$CONFIG_DIR"
-chmod 700 "$CONFIG_DIR"
+chmod 750 "$CONFIG_DIR"
+chown root:homerouter "$CONFIG_DIR" 2>/dev/null || true
 mkdir -p "$DATA_DIR/tls"
 mkdir -p "$DATA_DIR/credentials"
 mkdir -p "$DATA_DIR/backups"
@@ -127,7 +128,8 @@ systemctl enable home-router.target
 if [[ ! -f "$CONFIG_DIR/router.yaml" ]]; then
     if [[ -d /tmp/configs/defaults ]]; then
         cp /tmp/configs/defaults/*.yaml "$CONFIG_DIR/"
-        chmod 600 "$CONFIG_DIR"/*.yaml
+        chmod 640 "$CONFIG_DIR"/*.yaml
+        chown root:homerouter "$CONFIG_DIR"/*.yaml 2>/dev/null || true
     fi
 fi
 
