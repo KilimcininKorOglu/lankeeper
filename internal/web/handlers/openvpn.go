@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"regexp"
@@ -124,14 +125,19 @@ func (h *OpenVPNHandler) HandleAddClient(w http.ResponseWriter, r *http.Request)
 
 func (h *OpenVPNHandler) HandleDownloadOVPN(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	if len(name) > 64 || !ovpnNamePattern.MatchString(name) {
+		http.Error(w, "invalid client name", http.StatusBadRequest)
+		return
+	}
+
 	ovpnContent, err := h.ovpn.GenerateClientOVPN(name)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "generate failed", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/x-openvpn-profile")
-	w.Header().Set("Content-Disposition", "attachment; filename="+name+".ovpn")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.ovpn"`, name))
 	w.Write([]byte(ovpnContent))
 }
 
