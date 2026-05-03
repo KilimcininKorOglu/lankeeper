@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -21,12 +22,14 @@ import (
 type SystemHandler struct {
 	renderer *tmpl.Renderer
 	cfg      *config.Config
+	loc      *i18n.I18n
 	dhcp     *services.DHCPService
 	backup   *services.BackupService
+	update   *services.UpdateService
 }
 
-func NewSystemHandler(renderer *tmpl.Renderer, cfg *config.Config, dhcp *services.DHCPService, backup *services.BackupService) *SystemHandler {
-	return &SystemHandler{renderer: renderer, cfg: cfg, dhcp: dhcp, backup: backup}
+func NewSystemHandler(renderer *tmpl.Renderer, cfg *config.Config, loc *i18n.I18n, dhcp *services.DHCPService, backup *services.BackupService, update *services.UpdateService) *SystemHandler {
+	return &SystemHandler{renderer: renderer, cfg: cfg, loc: loc, dhcp: dhcp, backup: backup, update: update}
 }
 
 func (h *SystemHandler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
@@ -36,12 +39,15 @@ func (h *SystemHandler) HandleSettingsPage(w http.ResponseWriter, r *http.Reques
 		Lang: lang,
 		Page: "settings",
 		Data: map[string]any{
-			"Hostname": h.cfg.System.Hostname,
-			"Domain":   h.cfg.System.Domain,
-			"FQDN":     h.cfg.System.Hostname + "." + h.cfg.System.Domain,
-			"Timezone": h.cfg.System.Timezone,
-			"Language": h.cfg.System.Language,
-			"TLSMode":  h.cfg.System.TLS.Mode,
+			"Hostname":       h.cfg.System.Hostname,
+			"Domain":         h.cfg.System.Domain,
+			"FQDN":           h.cfg.System.Hostname + "." + h.cfg.System.Domain,
+			"Timezone":       h.cfg.System.Timezone,
+			"Language":       h.cfg.System.Language,
+			"TLSMode":        h.cfg.System.TLS.Mode,
+			"Version":        h.update.GetVersionInfo(),
+			"PendingUpdate":  h.update.HasPendingUpdate(),
+			"PendingVersion": h.update.PendingVersion(),
 		},
 	}
 
@@ -239,4 +245,81 @@ func (h *SystemHandler) HandleImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+}
+
+func (h *SystemHandler) HandleCheckUpdate(w http.ResponseWriter, r *http.Request) {
+	lang := i18n.LangFromContext(r.Context())
+	info, err := h.update.CheckForUpdate(r.Context())
+	if err != nil {
+		fmt.Fprintf(w, `<div class="alert alert-error">%s: %s</div>`, h.loc.T(lang, "update.error"), err.Error())
+		return
+	}
+
+	if !info.Available {
+		fmt.Fprintf(w, `<div class="alert alert-success" style="margin-top:var(--space-md);">%s (%s)</div>`,
+			h.loc.T(lang, "update.upToDate"), info.CurrentVersion)
+		return
+	}
+
+	fmt.Fprintf(w, `<div style="margin-top:var(--space-md); padding:var(--space-md); border:1px solid var(--border-color); border-radius:var(--radius-md);">
+		<div style="font-weight:700; margin-bottom:var(--space-sm);">%s: %s</div>
+		<div style="color:var(--text-secondary); font-size:var(--font-sm); margin-bottom:var(--space-sm);">%s: %s</div>`,
+		h.loc.T(lang, "update.available"), info.LatestVersion,
+		h.loc.T(lang, "update.currentVersion"), info.CurrentVersion)
+
+	if info.AssetSize > 0 {
+		fmt.Fprintf(w, `<div style="color:var(--text-secondary); font-size:var(--font-sm); margin-bottom:var(--space-sm);">%s: %.1f MB</div>`,
+			h.loc.T(lang, "update.size"), float64(info.AssetSize)/1024/1024)
+	}
+
+	if info.ReleaseNotes != "" {
+		fmt.Fprintf(w, `<details style="margin-bottom:var(--space-md);"><summary style="cursor:pointer;">%s</summary><pre style="font-size:var(--font-xs); white-space:pre-wrap; margin-top:var(--space-sm);">%s</pre></details>`,
+			h.loc.T(lang, "update.releaseNotes"), info.ReleaseNotes)
+	}
+
+	fmt.Fprintf(w, `<button class="btn btn-primary btn-sm" hx-post="/system/update/apply" hx-swap="none" hx-confirm="%s">%s</button></div>`,
+		h.loc.T(lang, "update.confirmApply"), h.loc.T(lang, "update.downloadAndInstall"))
+}
+
+func (h *SystemHandler) HandleApplyUpdate(w http.ResponseWriter, r *http.Request) {
+	info, err := h.update.CheckForUpdate(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !info.Available {
+		http.Error(w, "no update available", http.StatusBadRequest)
+		return
+	}
+	if err := h.update.ApplyUpdate(r.Context(), info); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *SystemHandler) HandleConfirmUpdate(w http.ResponseWriter, r *http.Request) {
+	if err := h.update.ConfirmUpdate(r.Context()); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Refresh", "true")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+}
+
+func (h *SystemHandler) HandleRollbackUpdate(w http.ResponseWriter, r *http.Request) {
+	if err := h.update.Rollback(r.Context()); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *SystemHandler) HandleVersion(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(h.update.GetVersionInfo())
 }

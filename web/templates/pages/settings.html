@@ -118,6 +118,34 @@
         </div>
     </div>
 
+    <!-- Software Update -->
+    <div class="card settings-section">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "update.title" }}</span>
+            {{ if .Version }}
+            <span class="badge badge-info">{{ .Version.Version }}</span>
+            {{ end }}
+        </div>
+
+        {{ if .PendingUpdate }}
+        <div class="alert alert-success" style="margin-bottom:var(--space-md);">
+            {{ t $.Lang "update.confirmPrompt" }}
+        </div>
+        <div style="display:flex; gap:var(--space-sm);">
+            <button class="btn btn-primary btn-sm" hx-post="/system/update/confirm" hx-swap="none">{{ t $.Lang "update.confirm" }}</button>
+            <button class="btn btn-danger btn-sm" hx-post="/system/update/rollback" hx-swap="none">{{ t $.Lang "update.rollback" }}</button>
+        </div>
+        {{ else }}
+        <div id="update-result"></div>
+        <div style="display:flex; gap:var(--space-sm); padding-top:var(--space-md);">
+            <button class="btn btn-secondary btn-sm" hx-get="/system/update/check" hx-target="#update-result"
+                    hx-indicator=".htmx-indicator">
+                {{ t $.Lang "update.checkForUpdates" }}
+            </button>
+        </div>
+        {{ end }}
+    </div>
+
     <!-- Danger Zone -->
     <div style="display:flex; gap:var(--space-sm); margin-top:var(--space-2xl);">
         <button class="btn btn-danger btn-sm" hx-post="/system/reboot" hx-confirm="{{ t $.Lang "settings.confirmReboot" }}">

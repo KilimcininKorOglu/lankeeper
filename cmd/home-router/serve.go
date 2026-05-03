@@ -13,6 +13,7 @@ import (
 	"github.com/KilimcininKorOglu/home-router/internal/config"
 	"github.com/KilimcininKorOglu/home-router/internal/i18n"
 	"github.com/KilimcininKorOglu/home-router/internal/netutil"
+	"github.com/KilimcininKorOglu/home-router/internal/services"
 	"github.com/KilimcininKorOglu/home-router/internal/web"
 	webFS "github.com/KilimcininKorOglu/home-router/web"
 )
@@ -42,10 +43,13 @@ func runServe() error {
 	agentClient := agent.NewClient(*socketPath)
 	netutil.SetAgentClient(agentClient)
 
+	backupSvc := services.NewBackupService("/etc/home-router")
+	updateSvc := services.NewUpdateService(version, commit, date, backupSvc)
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	srv, err := web.NewServer(cfg, loc, webFS.EmbeddedFS)
+	srv, err := web.NewServer(cfg, loc, webFS.EmbeddedFS, updateSvc)
 	if err != nil {
 		return fmt.Errorf("failed to create web server: %w", err)
 	}

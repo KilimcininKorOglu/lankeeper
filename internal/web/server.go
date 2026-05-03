@@ -44,7 +44,7 @@ type Server struct {
 	monitor   *services.MonitorService
 }
 
-func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS) (*Server, error) {
+func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *services.UpdateService) (*Server, error) {
 	auth := NewAuth(cfg.System.SessionSecret, cfg.System.AdminPasswordHash)
 
 	renderer, err := tmpl.NewRenderer(webFS, loc)
@@ -105,7 +105,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS) (*Server, error)
 	backupSvc := services.NewBackupService("/etc/home-router")
 	monitorSvc := services.NewMonitorService()
 	dashboardHandler := handlers.NewDashboardHandler(renderer, monitorSvc, pppoeSvc, dhcpSvc)
-	settingsHandler := handlers.NewSystemHandler(renderer, cfg, dhcpSvc, backupSvc)
+	settingsHandler := handlers.NewSystemHandler(renderer, cfg, loc, dhcpSvc, backupSvc, updateSvc)
 	sseBroker := NewSSEBroker()
 
 	s := &Server{
@@ -230,6 +230,11 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	mux.Handle("POST /system/factory-reset", authed(http.HandlerFunc(s.settings.HandleFactoryReset)))
 	mux.Handle("GET /system/backup/export", authed(http.HandlerFunc(s.settings.HandleExport)))
 	mux.Handle("POST /system/backup/import", authed(http.HandlerFunc(s.settings.HandleImport)))
+	mux.Handle("GET /system/update/check", authed(http.HandlerFunc(s.settings.HandleCheckUpdate)))
+	mux.Handle("POST /system/update/apply", authed(http.HandlerFunc(s.settings.HandleApplyUpdate)))
+	mux.Handle("POST /system/update/confirm", authed(http.HandlerFunc(s.settings.HandleConfirmUpdate)))
+	mux.Handle("POST /system/update/rollback", authed(http.HandlerFunc(s.settings.HandleRollbackUpdate)))
+	mux.Handle("GET /api/version", http.HandlerFunc(s.settings.HandleVersion))
 	mux.Handle("GET /network", authed(http.HandlerFunc(s.network.HandlePage)))
 	mux.Handle("POST /network/pppoe/connect", authed(http.HandlerFunc(s.pppoe.HandleConnect)))
 	mux.Handle("POST /network/pppoe/disconnect", authed(http.HandlerFunc(s.pppoe.HandleDisconnect)))
