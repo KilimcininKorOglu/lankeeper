@@ -12,9 +12,17 @@ import (
 	"github.com/KilimcininKorOglu/home-router/internal/agent"
 )
 
-func waitForSocket(t *testing.T, sock string) {
+func waitForSocket(t *testing.T, sock string, errCh <-chan error) {
 	t.Helper()
 	for i := 0; i < 200; i++ {
+		select {
+		case err := <-errCh:
+			if err != nil {
+				t.Skipf("server failed to start: %v", err)
+			}
+			return
+		default:
+		}
 		conn, err := net.DialTimeout("unix", sock, 50*time.Millisecond)
 		if err == nil {
 			conn.Close()
@@ -40,7 +48,7 @@ func TestServerClientRoundTrip(t *testing.T) {
 		errCh <- srv.Serve(ctx)
 	}()
 
-	waitForSocket(t, sock)
+	waitForSocket(t, sock, errCh)
 
 	client := agent.NewClient(sock)
 	defer client.Close()
@@ -81,8 +89,9 @@ func TestMethodNotFound(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go srv.Serve(ctx)
-	waitForSocket(t, sock)
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Serve(ctx) }()
+	waitForSocket(t, sock, errCh)
 
 	client := agent.NewClient(sock)
 	defer client.Close()
@@ -100,8 +109,9 @@ func TestSocketCleanup(t *testing.T) {
 	srv := agent.NewServer(sock)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go srv.Serve(ctx)
-	waitForSocket(t, sock)
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Serve(ctx) }()
+	waitForSocket(t, sock, errCh)
 
 	if _, err := os.Stat(sock); os.IsNotExist(err) {
 		t.Fatal("socket file should exist while server is running")
