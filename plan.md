@@ -12,16 +12,16 @@ Turkcell Superonline'ın ISP modemleri bufferbloat sorununa neden oluyor ve 1 Gb
 
 ## Neden Go + HTMX?
 
-| Kriter             | Python + FastAPI + Vanilla JS       | Go + HTMX                              |
-|--------------------|-------------------------------------|-----------------------------------------|
-| Deployment         | venv + pip + uvicorn + systemd      | Tek statik binary, `scp` ile deploy     |
-| Bellek             | ~80-120 MB (Python runtime + deps)  | ~10-20 MB (compiled binary)             |
-| Startup            | 2-5 saniye (import + uvicorn)       | <100ms                                  |
-| Concurrency        | asyncio (single-threaded event loop)| goroutine (lightweight threads, multi-core) |
-| Frontend           | Client-side SPA, JS state yönetimi  | Server-side HTML, HTMX partial swap     |
-| Type safety        | Runtime (Pydantic)                  | Compile-time (structs)                  |
-| Bağımlılık         | ~12 pip paketi                      | stdlib + 4-5 Go modülü                  |
-| Router için uyum   | Orta (GC pauses, memory overhead)   | Yüksek (düşük latency, düşük bellek)   |
+| Kriter           | Python + FastAPI + Vanilla JS        | Go + HTMX                                   |
+|------------------|--------------------------------------|---------------------------------------------|
+| Deployment       | venv + pip + uvicorn + systemd       | Tek statik binary, `scp` ile deploy         |
+| Bellek           | ~80-120 MB (Python runtime + deps)   | ~10-20 MB (compiled binary)                 |
+| Startup          | 2-5 saniye (import + uvicorn)        | <100ms                                      |
+| Concurrency      | asyncio (single-threaded event loop) | goroutine (lightweight threads, multi-core) |
+| Frontend         | Client-side SPA, JS state yönetimi   | Server-side HTML, HTMX partial swap         |
+| Type safety      | Runtime (Pydantic)                   | Compile-time (structs)                      |
+| Bağımlılık       | ~12 pip paketi                       | stdlib + 4-5 Go modülü                      |
+| Router için uyum | Orta (GC pauses, memory overhead)    | Yüksek (düşük latency, düşük bellek)        |
 
 ## Current State
 
@@ -157,13 +157,13 @@ body {
 ```
 
 | Öğe           | Boyut | Ağırlık | Satır Yüksekliği |
-|---------------|-------|---------|-------------------|
-| Sayfa başlığı | 23px  | 700     | 28px              |
-| Bölüm başlığı | 20px | 700     | 24px              |
-| Gövde metin   | 15px  | 400     | 20px              |
-| Gövde kalın   | 15px  | 700     | 20px              |
-| Alt metin      | 13px | 400     | 16px              |
-| Küçük          | 12px | 400     | 16px              |
+|---------------|-------|---------|------------------|
+| Sayfa başlığı | 23px  | 700     | 28px             |
+| Bölüm başlığı | 20px  | 700     | 24px             |
+| Gövde metin   | 15px  | 400     | 20px             |
+| Gövde kalın   | 15px  | 700     | 20px             |
+| Alt metin     | 13px  | 400     | 16px             |
+| Küçük         | 12px  | 400     | 16px             |
 
 **Bileşen stilleri:**
 
@@ -1172,203 +1172,203 @@ storage:
 Go'da HTMX ile iki tür endpoint var: **sayfa** (tam HTML) ve **partial** (HTML fragment).
 
 ### Auth + i18n
-| Method | Path               | Tür     | Açıklama                              |
-|--------|--------------------|---------|---------------------------------------|
-| GET    | /login             | Sayfa   | Login formu render                    |
-| POST   | /login             | Partial | Oturum aç → cookie set → redirect    |
-| POST   | /logout            | Partial | Oturum kapat → cookie clear → redirect|
-| POST   | /settings/lang     | Partial | Dil değiştir → lang cookie → HX-Refresh |
+| Method | Path           | Tür     | Açıklama                                |
+|--------|----------------|---------|-----------------------------------------|
+| GET    | /login         | Sayfa   | Login formu render                      |
+| POST   | /login         | Partial | Oturum aç → cookie set → redirect       |
+| POST   | /logout        | Partial | Oturum kapat → cookie clear → redirect  |
+| POST   | /settings/lang | Partial | Dil değiştir → lang cookie → HX-Refresh |
 
 ### Dashboard
-| Method | Path                    | Tür     | Açıklama                          |
-|--------|-------------------------|---------|------------------------------------|
-| GET    | /                       | Sayfa   | Dashboard tam sayfa                |
-| GET    | /partials/stats         | Partial | Stat kartları (HTMX poll/SSE)     |
-| GET    | /events/stats           | SSE     | Real-time sistem metrikleri stream |
+| Method | Path            | Tür     | Açıklama                           |
+|--------|-----------------|---------|------------------------------------|
+| GET    | /               | Sayfa   | Dashboard tam sayfa                |
+| GET    | /partials/stats | Partial | Stat kartları (HTMX poll/SSE)      |
+| GET    | /events/stats   | SSE     | Real-time sistem metrikleri stream |
 
 ### Network / PPPoE
-| Method | Path                       | Tür     | Açıklama                               |
-|--------|----------------------------|---------|-----------------------------------------|
-| GET    | /network                   | Sayfa   | Ağ ayarları + interface yönetimi        |
-| GET    | /partials/interfaces       | Partial | Algılanan tüm NIC'ler + durumları       |
-| PUT    | /network/interface/{id}    | Partial | Interface label, role, MTU düzenle      |
-| GET    | /partials/vlans            | Partial | VLAN listesi + durumları                |
-| POST   | /network/vlan              | Partial | Yeni VLAN ekle                          |
-| PUT    | /network/vlan/{id}         | Partial | VLAN düzenle                            |
-| DELETE | /network/vlan/{id}         | Partial | VLAN sil                                |
-| GET    | /partials/wan-status       | Partial | WAN durum kartı                        |
-| POST   | /pppoe/connect             | Partial | PPPoE bağlantısını başlat               |
-| POST   | /pppoe/disconnect          | Partial | PPPoE bağlantısını kes                  |
-| PUT    | /pppoe/config              | Partial | PPPoE ayarlarını güncelle               |
-| POST   | /pppoe/sniff               | Partial | PPPoE credential yakalama başlat        |
-| GET    | /partials/pppoe-sniff      | Partial | Yakalama durumu + bulunan credentials   |
-| POST   | /pppoe/sniff/stop          | Partial | Yakalama işlemini durdur                |
-| GET    | /partials/usb-tethering    | Partial | USB tethering durumu (bağlı/bağlı değil)|
-| POST   | /network/usb-tethering/enable  | Partial | USB tethering failover'ı etkinleştir|
-| POST   | /network/usb-tethering/disable | Partial | USB tethering failover'ı kapat     |
-| POST   | /network/usb-tethering/activate | Partial | Manuel olarak USB'ye geç          |
-| POST   | /network/usb-tethering/deactivate | Partial | Manuel olarak PPPoE'ye dön      |
+| Method | Path                              | Tür     | Açıklama                                 |
+|--------|-----------------------------------|---------|------------------------------------------|
+| GET    | /network                          | Sayfa   | Ağ ayarları + interface yönetimi         |
+| GET    | /partials/interfaces              | Partial | Algılanan tüm NIC'ler + durumları        |
+| PUT    | /network/interface/{id}           | Partial | Interface label, role, MTU düzenle       |
+| GET    | /partials/vlans                   | Partial | VLAN listesi + durumları                 |
+| POST   | /network/vlan                     | Partial | Yeni VLAN ekle                           |
+| PUT    | /network/vlan/{id}                | Partial | VLAN düzenle                             |
+| DELETE | /network/vlan/{id}                | Partial | VLAN sil                                 |
+| GET    | /partials/wan-status              | Partial | WAN durum kartı                          |
+| POST   | /pppoe/connect                    | Partial | PPPoE bağlantısını başlat                |
+| POST   | /pppoe/disconnect                 | Partial | PPPoE bağlantısını kes                   |
+| PUT    | /pppoe/config                     | Partial | PPPoE ayarlarını güncelle                |
+| POST   | /pppoe/sniff                      | Partial | PPPoE credential yakalama başlat         |
+| GET    | /partials/pppoe-sniff             | Partial | Yakalama durumu + bulunan credentials    |
+| POST   | /pppoe/sniff/stop                 | Partial | Yakalama işlemini durdur                 |
+| GET    | /partials/usb-tethering           | Partial | USB tethering durumu (bağlı/bağlı değil) |
+| POST   | /network/usb-tethering/enable     | Partial | USB tethering failover'ı etkinleştir     |
+| POST   | /network/usb-tethering/disable    | Partial | USB tethering failover'ı kapat           |
+| POST   | /network/usb-tethering/activate   | Partial | Manuel olarak USB'ye geç                 |
+| POST   | /network/usb-tethering/deactivate | Partial | Manuel olarak PPPoE'ye dön               |
 
 ### Health Check
-| Method | Path                            | Tür     | Açıklama                                    |
-|--------|---------------------------------|---------|----------------------------------------------|
-| GET    | /partials/healthcheck-status    | Partial | Tüm check'lerin güncel durumu (HTMX poll)    |
-| PUT    | /network/healthcheck/config     | Partial | Health check ayarlarını güncelle              |
-| POST   | /network/healthcheck/{name}/run | Partial | Tek bir check'i manuel çalıştır              |
-| POST   | /network/healthcheck/{name}/reset | Partial | Failure counter'ı sıfırla                  |
-| GET    | /events/healthcheck             | SSE     | Health check olay stream'i (durum değişikliği) |
+| Method | Path                              | Tür     | Açıklama                                       |
+|--------|-----------------------------------|---------|------------------------------------------------|
+| GET    | /partials/healthcheck-status      | Partial | Tüm check'lerin güncel durumu (HTMX poll)      |
+| PUT    | /network/healthcheck/config       | Partial | Health check ayarlarını güncelle               |
+| POST   | /network/healthcheck/{name}/run   | Partial | Tek bir check'i manuel çalıştır                |
+| POST   | /network/healthcheck/{name}/reset | Partial | Failure counter'ı sıfırla                      |
+| GET    | /events/healthcheck               | SSE     | Health check olay stream'i (durum değişikliği) |
 
 ### Firewall
-| Method | Path                        | Tür     | Açıklama                      |
-|--------|-----------------------------|---------|--------------------------------|
-| GET    | /firewall                   | Sayfa   | Firewall kuralları sayfası     |
-| GET    | /partials/fw-rules          | Partial | Kural listesi (HTMX swap)     |
-| POST   | /firewall/port-forward      | Partial | Port yönlendirme ekle          |
-| DELETE | /firewall/port-forward/{id} | Partial | Port yönlendirme sil           |
-| POST   | /firewall/confirm           | Partial | Watchdog onay (30s timeout)    |
-| PUT    | /firewall/ttl-fix           | Partial | TTL Fix aç/kapat + değer ayarla|
+| Method | Path                        | Tür     | Açıklama                        |
+|--------|-----------------------------|---------|---------------------------------|
+| GET    | /firewall                   | Sayfa   | Firewall kuralları sayfası      |
+| GET    | /partials/fw-rules          | Partial | Kural listesi (HTMX swap)       |
+| POST   | /firewall/port-forward      | Partial | Port yönlendirme ekle           |
+| DELETE | /firewall/port-forward/{id} | Partial | Port yönlendirme sil            |
+| POST   | /firewall/confirm           | Partial | Watchdog onay (30s timeout)     |
+| PUT    | /firewall/ttl-fix           | Partial | TTL Fix aç/kapat + değer ayarla |
 
 ### DNS (Unbound)
-| Method | Path                       | Tür     | Açıklama                          |
-|--------|----------------------------|---------|------------------------------------|
-| GET    | /dns                       | Sayfa   | DNS ayarları + istatistikler       |
-| GET    | /partials/dns-stats        | Partial | DNS cache/query istatistikleri     |
-| PUT    | /dns/config                | Partial | DNS ayarlarını güncelle            |
-| POST   | /dns/blocklist/update      | Partial | Blocklist'i şimdi güncelle         |
-| GET    | /partials/dns-blocklist    | Partial | Blocklist durumu + kaynak listesi  |
-| GET    | /partials/dns-querylog     | Partial | Son DNS sorguları (filtreli, paginated) |
-| GET    | /partials/dns-top-clients  | Partial | En çok sorgu yapan cihazlar        |
-| GET    | /partials/dns-top-domains  | Partial | En çok sorgulanan domainler        |
-| GET    | /partials/dns-top-blocked  | Partial | En çok engellenen domainler        |
-| PUT    | /dns/querylog/toggle       | Partial | Query logging aç/kapat             |
-| DELETE | /dns/querylog/clear        | Partial | Query log geçmişini temizle        |
+| Method | Path                      | Tür     | Açıklama                                |
+|--------|---------------------------|---------|-----------------------------------------|
+| GET    | /dns                      | Sayfa   | DNS ayarları + istatistikler            |
+| GET    | /partials/dns-stats       | Partial | DNS cache/query istatistikleri          |
+| PUT    | /dns/config               | Partial | DNS ayarlarını güncelle                 |
+| POST   | /dns/blocklist/update     | Partial | Blocklist'i şimdi güncelle              |
+| GET    | /partials/dns-blocklist   | Partial | Blocklist durumu + kaynak listesi       |
+| GET    | /partials/dns-querylog    | Partial | Son DNS sorguları (filtreli, paginated) |
+| GET    | /partials/dns-top-clients | Partial | En çok sorgu yapan cihazlar             |
+| GET    | /partials/dns-top-domains | Partial | En çok sorgulanan domainler             |
+| GET    | /partials/dns-top-blocked | Partial | En çok engellenen domainler             |
+| PUT    | /dns/querylog/toggle      | Partial | Query logging aç/kapat                  |
+| DELETE | /dns/querylog/clear       | Partial | Query log geçmişini temizle             |
 
 ### DHCP (dnsmasq)
-| Method | Path                       | Tür     | Açıklama                          |
-|--------|----------------------------|---------|------------------------------------|
-| GET    | /dhcp                      | Sayfa   | DHCP lease listesi + ayarlar       |
-| GET    | /partials/leases           | Partial | Aktif lease tablosu                |
-| POST   | /dhcp/lease                | Partial | Statik lease ekle                  |
-| DELETE | /dhcp/lease/{mac}          | Partial | Statik lease sil                   |
-| PUT    | /dhcp/config               | Partial | DHCP aralık/süre ayarları          |
+| Method | Path              | Tür     | Açıklama                     |
+|--------|-------------------|---------|------------------------------|
+| GET    | /dhcp             | Sayfa   | DHCP lease listesi + ayarlar |
+| GET    | /partials/leases  | Partial | Aktif lease tablosu          |
+| POST   | /dhcp/lease       | Partial | Statik lease ekle            |
+| DELETE | /dhcp/lease/{mac} | Partial | Statik lease sil             |
+| PUT    | /dhcp/config      | Partial | DHCP aralık/süre ayarları    |
 
 ### QoS
-| Method | Path                    | Tür     | Açıklama                          |
-|--------|-------------------------|---------|------------------------------------|
-| GET    | /qos                    | Sayfa   | QoS ayarları sayfası               |
-| GET    | /partials/qos-status    | Partial | Aktif QoS profili + istatistik     |
-| PUT    | /qos/profile            | Partial | Profil değiştir                    |
-| PUT    | /qos/limits             | Partial | Bant genişliği limitleri           |
-| PUT    | /qos/congestion         | Partial | Congestion control (BBR/CUBIC)     |
+| Method | Path                 | Tür     | Açıklama                       |
+|--------|----------------------|---------|--------------------------------|
+| GET    | /qos                 | Sayfa   | QoS ayarları sayfası           |
+| GET    | /partials/qos-status | Partial | Aktif QoS profili + istatistik |
+| PUT    | /qos/profile         | Partial | Profil değiştir                |
+| PUT    | /qos/limits          | Partial | Bant genişliği limitleri       |
+| PUT    | /qos/congestion      | Partial | Congestion control (BBR/CUBIC) |
 
 ### VPN Client (Outbound Tüneller)
-| Method | Path                        | Tür     | Açıklama                              |
-|--------|-----------------------------|---------|----------------------------------------|
-| GET    | /vpn                        | Sayfa   | VPN yönetimi (client + server) sayfası |
-| GET    | /partials/vpn-clients       | Partial | Client tünel listesi + durum           |
-| POST   | /vpn/client                 | Partial | Yeni client tünel ekle                 |
-| PUT    | /vpn/client/{name}          | Partial | Client tünel düzenle                   |
-| DELETE | /vpn/client/{name}          | Partial | Client tünel sil                       |
+| Method | Path                  | Tür     | Açıklama                               |
+|--------|-----------------------|---------|----------------------------------------|
+| GET    | /vpn                  | Sayfa   | VPN yönetimi (client + server) sayfası |
+| GET    | /partials/vpn-clients | Partial | Client tünel listesi + durum           |
+| POST   | /vpn/client           | Partial | Yeni client tünel ekle                 |
+| PUT    | /vpn/client/{name}    | Partial | Client tünel düzenle                   |
+| DELETE | /vpn/client/{name}    | Partial | Client tünel sil                       |
 
 ### VPN Server (Inbound)
-| Method | Path                            | Tür     | Açıklama                                    |
-|--------|---------------------------------|---------|----------------------------------------------|
-| GET    | /partials/vpn-server            | Partial | Server durumu + peer listesi                 |
-| PUT    | /vpn/server/config              | Partial | Server ayarları (port, subnet, DNS)          |
-| POST   | /vpn/server/toggle              | Partial | Server'ı aç/kapat                            |
-| POST   | /vpn/server/peer                | Partial | Yeni peer ekle (keypair otomatik üret)       |
-| PUT    | /vpn/server/peer/{name}         | Partial | Peer düzenle                                 |
-| DELETE | /vpn/server/peer/{name}         | Partial | Peer sil                                     |
-| GET    | /vpn/server/peer/{name}/config  | Download| Peer client config dosyası indir (.conf)     |
-| GET    | /vpn/server/peer/{name}/qr      | Partial | Peer QR kodu (mobil WireGuard app için)      |
+| Method | Path                           | Tür      | Açıklama                                 |
+|--------|--------------------------------|----------|------------------------------------------|
+| GET    | /partials/vpn-server           | Partial  | Server durumu + peer listesi             |
+| PUT    | /vpn/server/config             | Partial  | Server ayarları (port, subnet, DNS)      |
+| POST   | /vpn/server/toggle             | Partial  | Server'ı aç/kapat                        |
+| POST   | /vpn/server/peer               | Partial  | Yeni peer ekle (keypair otomatik üret)   |
+| PUT    | /vpn/server/peer/{name}        | Partial  | Peer düzenle                             |
+| DELETE | /vpn/server/peer/{name}        | Partial  | Peer sil                                 |
+| GET    | /vpn/server/peer/{name}/config | Download | Peer client config dosyası indir (.conf) |
+| GET    | /vpn/server/peer/{name}/qr     | Partial  | Peer QR kodu (mobil WireGuard app için)  |
 
 ### OpenVPN Client (Outbound)
-| Method | Path                              | Tür      | Açıklama                                     |
-|--------|-----------------------------------|----------|-----------------------------------------------|
-| GET    | /openvpn                          | Sayfa    | OpenVPN yönetimi (client + server) sayfası    |
-| GET    | /partials/ovpn-clients            | Partial  | Client bağlantı listesi + durum               |
-| POST   | /openvpn/client                   | Partial  | Yeni client ekle (.ovpn dosya import)         |
-| DELETE | /openvpn/client/{name}            | Partial  | Client bağlantı sil                           |
-| POST   | /openvpn/client/{name}/connect    | Partial  | Client bağlantısını başlat                    |
-| POST   | /openvpn/client/{name}/disconnect | Partial  | Client bağlantısını kes                       |
+| Method | Path                              | Tür     | Açıklama                                   |
+|--------|-----------------------------------|---------|--------------------------------------------|
+| GET    | /openvpn                          | Sayfa   | OpenVPN yönetimi (client + server) sayfası |
+| GET    | /partials/ovpn-clients            | Partial | Client bağlantı listesi + durum            |
+| POST   | /openvpn/client                   | Partial | Yeni client ekle (.ovpn dosya import)      |
+| DELETE | /openvpn/client/{name}            | Partial | Client bağlantı sil                        |
+| POST   | /openvpn/client/{name}/connect    | Partial | Client bağlantısını başlat                 |
+| POST   | /openvpn/client/{name}/disconnect | Partial | Client bağlantısını kes                    |
 
 ### OpenVPN Server (Inbound)
-| Method | Path                                   | Tür      | Açıklama                                  |
-|--------|----------------------------------------|----------|---------------------------------------------|
-| GET    | /partials/ovpn-server                  | Partial  | Server durumu + client listesi              |
-| PUT    | /openvpn/server/config                 | Partial  | Server ayarları (port, protocol, cipher)    |
-| POST   | /openvpn/server/toggle                 | Partial  | Server'ı aç/kapat                           |
-| POST   | /openvpn/server/init-pki               | Partial  | PKI altyapısı oluştur (CA + server cert)    |
-| POST   | /openvpn/server/client                 | Partial  | Yeni client sertifikası oluştur             |
-| DELETE | /openvpn/server/client/{name}          | Partial  | Client sertifikasını revoke et              |
-| POST   | /openvpn/server/client/{name}/toggle   | Partial  | Client'ı etkinleştir/devre dışı bırak       |
-| GET    | /openvpn/server/client/{name}/config   | Download | Client .ovpn config dosyası indir           |
-| GET    | /openvpn/server/client/{name}/qr       | Partial  | Client config QR kodu (mobil app için)      |
+| Method | Path                                 | Tür      | Açıklama                                 |
+|--------|--------------------------------------|----------|------------------------------------------|
+| GET    | /partials/ovpn-server                | Partial  | Server durumu + client listesi           |
+| PUT    | /openvpn/server/config               | Partial  | Server ayarları (port, protocol, cipher) |
+| POST   | /openvpn/server/toggle               | Partial  | Server'ı aç/kapat                        |
+| POST   | /openvpn/server/init-pki             | Partial  | PKI altyapısı oluştur (CA + server cert) |
+| POST   | /openvpn/server/client               | Partial  | Yeni client sertifikası oluştur          |
+| DELETE | /openvpn/server/client/{name}        | Partial  | Client sertifikasını revoke et           |
+| POST   | /openvpn/server/client/{name}/toggle | Partial  | Client'ı etkinleştir/devre dışı bırak    |
+| GET    | /openvpn/server/client/{name}/config | Download | Client .ovpn config dosyası indir        |
+| GET    | /openvpn/server/client/{name}/qr     | Partial  | Client config QR kodu (mobil app için)   |
 
 ### Policy-Based Routing (PBR)
-| Method | Path                          | Tür     | Açıklama                              |
-|--------|-------------------------------|---------|----------------------------------------|
-| GET    | /routing                      | Sayfa   | PBR politika yönetimi sayfası          |
-| GET    | /partials/policies            | Partial | Politika listesi (sürükle-bırak sıralama) |
-| POST   | /routing/policy               | Partial | Yeni politika ekle                     |
-| PUT    | /routing/policy/{name}        | Partial | Politika düzenle                       |
-| DELETE | /routing/policy/{name}        | Partial | Politika sil                           |
-| PUT    | /routing/policy/{name}/toggle | Partial | Politikayı etkinleştir/devre dışı bırak|
-| PUT    | /routing/reorder              | Partial | Politika sıralamasını güncelle (drag-drop) |
+| Method | Path                          | Tür     | Açıklama                                            |
+|--------|-------------------------------|---------|-----------------------------------------------------|
+| GET    | /routing                      | Sayfa   | PBR politika yönetimi sayfası                       |
+| GET    | /partials/policies            | Partial | Politika listesi (sürükle-bırak sıralama)           |
+| POST   | /routing/policy               | Partial | Yeni politika ekle                                  |
+| PUT    | /routing/policy/{name}        | Partial | Politika düzenle                                    |
+| DELETE | /routing/policy/{name}        | Partial | Politika sil                                        |
+| PUT    | /routing/policy/{name}/toggle | Partial | Politikayı etkinleştir/devre dışı bırak             |
+| PUT    | /routing/reorder              | Partial | Politika sıralamasını güncelle (drag-drop)          |
 | GET    | /partials/policy-status       | Partial | Canlı eşleşme durumu (hangi cihaz hangi politikada) |
-| GET    | /events/routing               | SSE     | PBR durum değişiklikleri (real-time)   |
+| GET    | /events/routing               | SSE     | PBR durum değişiklikleri (real-time)                |
 
 ### NAS
-| Method | Path                    | Tür     | Açıklama                          |
-|--------|-------------------------|---------|------------------------------------|
-| GET    | /nas                    | Sayfa   | NAS yönetimi sayfası               |
-| GET    | /partials/shares        | Partial | Paylaşım listesi                  |
-| POST   | /nas/share              | Partial | Yeni paylaşım ekle                |
-| PUT    | /nas/share/{name}       | Partial | Paylaşım güncelle                 |
-| DELETE | /nas/share/{name}       | Partial | Paylaşım sil                      |
-| POST   | /nas/m3u/sync           | Partial | M3U senkronizasyonu başlat         |
-| GET    | /partials/m3u-status    | Partial | M3U senkronizasyon durumu          |
+| Method | Path                 | Tür     | Açıklama                   |
+|--------|----------------------|---------|----------------------------|
+| GET    | /nas                 | Sayfa   | NAS yönetimi sayfası       |
+| GET    | /partials/shares     | Partial | Paylaşım listesi           |
+| POST   | /nas/share           | Partial | Yeni paylaşım ekle         |
+| PUT    | /nas/share/{name}    | Partial | Paylaşım güncelle          |
+| DELETE | /nas/share/{name}    | Partial | Paylaşım sil               |
+| POST   | /nas/m3u/sync        | Partial | M3U senkronizasyonu başlat |
+| GET    | /partials/m3u-status | Partial | M3U senkronizasyon durumu  |
 
 ### Storage
-| Method | Path                    | Tür     | Açıklama                          |
-|--------|-------------------------|---------|------------------------------------|
-| GET    | /storage                | Sayfa   | Depolama sayfası                   |
-| GET    | /partials/raid          | Partial | RAID durumu                        |
-| GET    | /partials/smart         | Partial | Disk sağlık bilgileri              |
-| GET    | /partials/disk-usage    | Partial | Disk kullanımı                     |
+| Method | Path                 | Tür     | Açıklama              |
+|--------|----------------------|---------|-----------------------|
+| GET    | /storage             | Sayfa   | Depolama sayfası      |
+| GET    | /partials/raid       | Partial | RAID durumu           |
+| GET    | /partials/smart      | Partial | Disk sağlık bilgileri |
+| GET    | /partials/disk-usage | Partial | Disk kullanımı        |
 
 ### Syslog
-| Method | Path                       | Tür     | Açıklama                           |
-|--------|----------------------------|---------|------------------------------------|
-| GET    | /syslog                    | Sayfa   | Syslog yapılandırma + log görüntüle|
-| GET    | /partials/syslog-logs      | Partial | Uzak cihaz logları (filtreli, paginated) |
-| PUT    | /syslog/server             | Partial | Sunucu ayarları (enable/disable, port, TLS) |
-| PUT    | /syslog/client             | Partial | Client ayarları (remote host, protocol) |
-| GET    | /partials/syslog-sources   | Partial | Log gönderen cihaz listesi         |
+| Method | Path                     | Tür     | Açıklama                                    |
+|--------|--------------------------|---------|---------------------------------------------|
+| GET    | /syslog                  | Sayfa   | Syslog yapılandırma + log görüntüle         |
+| GET    | /partials/syslog-logs    | Partial | Uzak cihaz logları (filtreli, paginated)    |
+| PUT    | /syslog/server           | Partial | Sunucu ayarları (enable/disable, port, TLS) |
+| PUT    | /syslog/client           | Partial | Client ayarları (remote host, protocol)     |
+| GET    | /partials/syslog-sources | Partial | Log gönderen cihaz listesi                  |
 
 ### NTP
-| Method | Path                    | Tür     | Açıklama                               |
-|--------|-------------------------|---------|-----------------------------------------|
-| GET    | /ntp                    | Sayfa   | NTP yapılandırma + senkronizasyon durumu|
-| GET    | /partials/ntp-status    | Partial | chrony sources + tracking durumu        |
-| PUT    | /ntp/server             | Partial | NTP sunucu ayarları (enable/disable)    |
-| PUT    | /ntp/client             | Partial | NTP client ayarları (upstream sunucular)|
-| POST   | /ntp/force-sync         | Partial | Manuel zaman senkronizasyonu başlat     |
+| Method | Path                 | Tür     | Açıklama                                 |
+|--------|----------------------|---------|------------------------------------------|
+| GET    | /ntp                 | Sayfa   | NTP yapılandırma + senkronizasyon durumu |
+| GET    | /partials/ntp-status | Partial | chrony sources + tracking durumu         |
+| PUT    | /ntp/server          | Partial | NTP sunucu ayarları (enable/disable)     |
+| PUT    | /ntp/client          | Partial | NTP client ayarları (upstream sunucular) |
+| POST   | /ntp/force-sync      | Partial | Manuel zaman senkronizasyonu başlat      |
 
 ### System
-| Method | Path                    | Tür     | Açıklama                          |
-|--------|-------------------------|---------|------------------------------------|
-| GET    | /settings               | Sayfa   | Sistem ayarları                    |
-| PUT    | /settings/system        | Partial | Hostname, timezone güncelle        |
-| PUT    | /settings/password      | Partial | Şifre değiştir                     |
-| GET    | /partials/tls-status    | Partial | TLS sertifika durumu (mod, expire) |
-| PUT    | /settings/tls           | Partial | TLS modu değiştir + ayarlar        |
-| POST   | /settings/tls/generate  | Partial | Sertifika yeniden oluştur          |
-| GET    | /settings/tls/ca        | Dosya   | mkcert CA sertifikası indir (.crt) |
-| POST   | /system/reboot          | Partial | Sistemi yeniden başlat             |
-| GET    | /partials/logs          | Partial | journalctl çıktısı (paginated)    |
-| POST   | /backup/export          | Dosya   | Config dışa aktar (.tar.gz)       |
-| POST   | /backup/import          | Partial | Config içe aktar                   |
+| Method | Path                   | Tür     | Açıklama                           |
+|--------|------------------------|---------|------------------------------------|
+| GET    | /settings              | Sayfa   | Sistem ayarları                    |
+| PUT    | /settings/system       | Partial | Hostname, timezone güncelle        |
+| PUT    | /settings/password     | Partial | Şifre değiştir                     |
+| GET    | /partials/tls-status   | Partial | TLS sertifika durumu (mod, expire) |
+| PUT    | /settings/tls          | Partial | TLS modu değiştir + ayarlar        |
+| POST   | /settings/tls/generate | Partial | Sertifika yeniden oluştur          |
+| GET    | /settings/tls/ca       | Dosya   | mkcert CA sertifikası indir (.crt) |
+| POST   | /system/reboot         | Partial | Sistemi yeniden başlat             |
+| GET    | /partials/logs         | Partial | journalctl çıktısı (paginated)     |
+| POST   | /backup/export         | Dosya   | Config dışa aktar (.tar.gz)        |
+| POST   | /backup/import         | Partial | Config içe aktar                   |
 
 ---
 
@@ -2488,54 +2488,54 @@ firewallSvc.Apply(rules)
 
 ## Risks and Trade-offs
 
-| Risk                                    | Mitigation                                                              |
-|-----------------------------------------|-------------------------------------------------------------------------|
-| PMTU black-holing (PPPoE MTU 1492)      | Phase 4'te MSS clamping zorunlu                                        |
-| NIC isimlendirme değişimi (reboot)      | udev rules by MAC address (`setup-interfaces.sh`)                      |
-| VPN policy route'lar reboot'ta kaybolur | Agent startup'ta `vpn.yaml`'dan restore                                |
-| Firewall kuralı hatalı → ağ kilitlenir | AtomicChange + 30s watchdog rollback                                   |
-| PicoPSU 180W, 6 disk ile surge riski   | HDD spin-up stagger (`hdparm -S`)                                      |
-| Web UI XSS                              | `html/template` auto-escaping + CSP header + agent op whitelist        |
-| PPPoE credential sızıntısı             | AES-256-GCM encryption at rest, memory-only decrypt                    |
-| Unbound/dnsmasq crash → DNS/DHCP çalışmaz | systemd restart policy + Go health check + degraded mode UI uyarısı  |
-| Single point of failure (tek cihaz)    | Config backup + factory reset + RAID-1 depolama                        |
-| Go binary update sırasında downtime    | systemd: `ExecStartPre` ile binary swap, graceful shutdown             |
-| HTMX: full page refresh gerekebilir   | `hx-boost` ile link'leri HTMX'e çevir, minimal JS fallback            |
-| Health check reboot döngüsü           | Cooldown süresi + max reboot count/24h limiti + reboot sonrası grace period |
-| VPN server private key sızması        | AES-256-GCM at rest, peer config indirmede one-time token, QR timeout       |
-| VPN server WAN IP değişimi (PPPoE)    | DDNS desteği (configurable hostname), ip-up script ile DDNS güncelleme      |
-| DNS query log disk dolması            | logrotate (maxSize + retention), ring buffer in-memory, toggle ile kapatılabilir |
-| OpenVPN PKI private key sızması      | CA/server key /etc/openvpn/pki/ (700 perms), backup'ta AES-256-GCM encrypt      |
-| OpenVPN DH parametresi üretimi yavaş | `easyrsa gen-dh` arka planda, UI'da ilerleme göstergesi, ~2-5dk (i5 3470)        |
-| ISP IPv6 desteği yok/kısıtlı        | `ipv6.enabled: auto` → IPv6CP başarısızsa IPv4-only, ULA ile LAN içi IPv6 korunur |
-| DHCPv6-PD prefix değişimi (PPPoE)    | PPPoE reconnect sonrası yeni prefix → LAN'a RA ile dağıtım, geçiş süresi ~30s    |
-| ICMPv6 engellenmesi → IPv6 çalışmaz | RFC 4890 zorunlu allowlist (NDP, MLD, error messages) — asla drop edilmez          |
-| IPv6 privacy extension tracking      | RA'da privacy extension önerisi (RFC 4941), temporary addresses                    |
-| Self-signed cert tarayıcı uyarısı   | mkcert modu ile LAN'da güvenilir CA, ACME ile public domain desteği                |
-| ACME DNS challenge API key sızması   | Token `.credentials.enc`'de AES-256-GCM, agent op whitelist                        |
-| Let's Encrypt rate limit (5/hafta)  | Staging ortamı ile test, production'da dikkatli kullanım                            |
-| USB tethering telefon bağlı değil   | failoverUsb aksiyonu telefon yoksa atlanır, sonraki aksiyona geçilir                |
-| Mobil operatör tethering algılama    | USB üzerinden TTL Fix (ayrı toggle), hotspot tespiti bypass                        |
-| USB tethering bant genişliği düşük  | Yedek amaçlı — sadece temel bağlantı, QoS/VPN devre dışı bırakılabilir            |
-| USB interface ismi değişkenliği     | udev rule RNDIS class match (vendor-agnostic), Samsung/Xiaomi/Google test          |
-| Preseed RAID-1 disk sırası değişir | Preseed'de disk serial/ID ile eşleştirme, `/dev/disk/by-id/` kullanımı             |
-| ISO build reproducibility           | Makefile + pinned Debian ISO checksum + Go binary hash                             |
-| UEFI Secure Boot + RAID-1          | Preseed'de EFI partition her iki diskte, `grub-install` her iki diske              |
+| Risk                                      | Mitigation                                                                        |
+|-------------------------------------------|-----------------------------------------------------------------------------------|
+| PMTU black-holing (PPPoE MTU 1492)        | Phase 4'te MSS clamping zorunlu                                                   |
+| NIC isimlendirme değişimi (reboot)        | udev rules by MAC address (`setup-interfaces.sh`)                                 |
+| VPN policy route'lar reboot'ta kaybolur   | Agent startup'ta `vpn.yaml`'dan restore                                           |
+| Firewall kuralı hatalı → ağ kilitlenir    | AtomicChange + 30s watchdog rollback                                              |
+| PicoPSU 180W, 6 disk ile surge riski      | HDD spin-up stagger (`hdparm -S`)                                                 |
+| Web UI XSS                                | `html/template` auto-escaping + CSP header + agent op whitelist                   |
+| PPPoE credential sızıntısı                | AES-256-GCM encryption at rest, memory-only decrypt                               |
+| Unbound/dnsmasq crash → DNS/DHCP çalışmaz | systemd restart policy + Go health check + degraded mode UI uyarısı               |
+| Single point of failure (tek cihaz)       | Config backup + factory reset + RAID-1 depolama                                   |
+| Go binary update sırasında downtime       | systemd: `ExecStartPre` ile binary swap, graceful shutdown                        |
+| HTMX: full page refresh gerekebilir       | `hx-boost` ile link'leri HTMX'e çevir, minimal JS fallback                        |
+| Health check reboot döngüsü               | Cooldown süresi + max reboot count/24h limiti + reboot sonrası grace period       |
+| VPN server private key sızması            | AES-256-GCM at rest, peer config indirmede one-time token, QR timeout             |
+| VPN server WAN IP değişimi (PPPoE)        | DDNS desteği (configurable hostname), ip-up script ile DDNS güncelleme            |
+| DNS query log disk dolması                | logrotate (maxSize + retention), ring buffer in-memory, toggle ile kapatılabilir  |
+| OpenVPN PKI private key sızması           | CA/server key /etc/openvpn/pki/ (700 perms), backup'ta AES-256-GCM encrypt        |
+| OpenVPN DH parametresi üretimi yavaş      | `easyrsa gen-dh` arka planda, UI'da ilerleme göstergesi, ~2-5dk (i5 3470)         |
+| ISP IPv6 desteği yok/kısıtlı              | `ipv6.enabled: auto` → IPv6CP başarısızsa IPv4-only, ULA ile LAN içi IPv6 korunur |
+| DHCPv6-PD prefix değişimi (PPPoE)         | PPPoE reconnect sonrası yeni prefix → LAN'a RA ile dağıtım, geçiş süresi ~30s     |
+| ICMPv6 engellenmesi → IPv6 çalışmaz       | RFC 4890 zorunlu allowlist (NDP, MLD, error messages) — asla drop edilmez         |
+| IPv6 privacy extension tracking           | RA'da privacy extension önerisi (RFC 4941), temporary addresses                   |
+| Self-signed cert tarayıcı uyarısı         | mkcert modu ile LAN'da güvenilir CA, ACME ile public domain desteği               |
+| ACME DNS challenge API key sızması        | Token `.credentials.enc`'de AES-256-GCM, agent op whitelist                       |
+| Let's Encrypt rate limit (5/hafta)        | Staging ortamı ile test, production'da dikkatli kullanım                          |
+| USB tethering telefon bağlı değil         | failoverUsb aksiyonu telefon yoksa atlanır, sonraki aksiyona geçilir              |
+| Mobil operatör tethering algılama         | USB üzerinden TTL Fix (ayrı toggle), hotspot tespiti bypass                       |
+| USB tethering bant genişliği düşük        | Yedek amaçlı — sadece temel bağlantı, QoS/VPN devre dışı bırakılabilir            |
+| USB interface ismi değişkenliği           | udev rule RNDIS class match (vendor-agnostic), Samsung/Xiaomi/Google test         |
+| Preseed RAID-1 disk sırası değişir        | Preseed'de disk serial/ID ile eşleştirme, `/dev/disk/by-id/` kullanımı            |
+| ISO build reproducibility                 | Makefile + pinned Debian ISO checksum + Go binary hash                            |
+| UEFI Secure Boot + RAID-1                 | Preseed'de EFI partition her iki diskte, `grub-install` her iki diske             |
 
 ## Tahmini Toplam Süre
 
-| Phase | Konu                                                    | Gün | Kümülatif |
-|-------|---------------------------------------------------------|-----|-----------|
-| 1     | İskelet + Agent IPC                                     | 3   | 3         |
-| 2     | Web + Auth + HTMX Layout                                | 3   | 6         |
-| 3     | Network + VLAN + PPPoE + USB Tethering + IPv6 + Health  | 8   | 14        |
-| 4     | nftables Firewall + NAT + IPv6                          | 5   | 19        |
-| 5     | Unbound DNS + DHCP + Query Logging + IPv6 RA            | 5   | 24        |
-| 6     | Dashboard + SSE                                         | 3   | 27        |
-| 7     | SQM/QoS                                                 | 3   | 30        |
-| 8     | WireGuard + OpenVPN + PBR                               | 11  | 41        |
-| 9     | Samba NAS + M3U                                         | 3   | 44        |
-| 10    | Storage + Syslog + NTP + Backup                         | 5   | 49        |
-| 11    | Deployment — install.sh + Preseed ISO                   | 3   | 52        |
+| Phase | Konu                                                   | Gün | Kümülatif |
+|-------|--------------------------------------------------------|-----|-----------|
+| 1     | İskelet + Agent IPC                                    | 3   | 3         |
+| 2     | Web + Auth + HTMX Layout                               | 3   | 6         |
+| 3     | Network + VLAN + PPPoE + USB Tethering + IPv6 + Health | 8   | 14        |
+| 4     | nftables Firewall + NAT + IPv6                         | 5   | 19        |
+| 5     | Unbound DNS + DHCP + Query Logging + IPv6 RA           | 5   | 24        |
+| 6     | Dashboard + SSE                                        | 3   | 27        |
+| 7     | SQM/QoS                                                | 3   | 30        |
+| 8     | WireGuard + OpenVPN + PBR                              | 11  | 41        |
+| 9     | Samba NAS + M3U                                        | 3   | 44        |
+| 10    | Storage + Syslog + NTP + Backup                        | 5   | 49        |
+| 11    | Deployment — install.sh + Preseed ISO                  | 3   | 52        |
 
 **Toplam: ~52 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
