@@ -11,6 +11,7 @@ import (
 )
 
 type Config struct {
+	filePath    string            `yaml:"-"`
 	System      SystemConfig      `yaml:"system"`
 	Interfaces  []InterfaceConfig `yaml:"interfaces"`
 	VLANs       []VLANConfig      `yaml:"vlans"`
@@ -483,7 +484,15 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
+	cfg.filePath = path
 	return cfg, nil
+}
+
+func (c *Config) SaveToFile() error {
+	if c.filePath == "" {
+		return fmt.Errorf("config file path not set")
+	}
+	return Save(c.filePath, c)
 }
 
 func Save(path string, cfg *Config) error {

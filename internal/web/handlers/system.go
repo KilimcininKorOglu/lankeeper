@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/KilimcininKorOglu/home-router/internal/config"
@@ -75,6 +77,7 @@ func (h *SystemHandler) HandleChangeWebPassword(w http.ResponseWriter, r *http.R
 	}
 
 	h.cfg.System.AdminPasswordHash = string(hashBytes)
+	h.cfg.SaveToFile()
 	log.Println("web UI admin password changed")
 
 	if r.Header.Get("HX-Request") == "true" {
@@ -96,16 +99,18 @@ func (h *SystemHandler) HandleChangeRootPassword(w http.ResponseWriter, r *http.
 		return
 	}
 
-	_, err := netutil.Run(context.Background(), "chpasswd")
+	hashOut, err := netutil.RunSimple(context.Background(), "openssl", "passwd", "-6", newPassword)
 	if err != nil {
-		input := fmt.Sprintf("root:%s", newPassword)
-		_, err = netutil.Run(context.Background(), "bash", "-c",
-			fmt.Sprintf("echo '%s' | chpasswd", input))
-		if err != nil {
-			log.Printf("change root password: %v", err)
-			http.Error(w, "Failed to change root password", http.StatusInternalServerError)
-			return
-		}
+		log.Printf("generate password hash: %v", err)
+		http.Error(w, "Failed to hash password", http.StatusInternalServerError)
+		return
+	}
+	cryptHash := strings.TrimSpace(hashOut)
+
+	if _, err := netutil.Run(context.Background(), "usermod", "-p", cryptHash, "root"); err != nil {
+		log.Printf("change root password: %v", err)
+		http.Error(w, "Failed to change root password", http.StatusInternalServerError)
+		return
 	}
 
 	log.Println("root password changed via web UI")
@@ -142,6 +147,7 @@ func (h *SystemHandler) HandleUpdateHostname(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
+	h.cfg.SaveToFile()
 	log.Printf("hostname changed to %s.%s", hostname, h.cfg.System.Domain)
 
 	if r.Header.Get("HX-Request") == "true" {
@@ -162,6 +168,7 @@ func (h *SystemHandler) HandleUpdateTimezone(w http.ResponseWriter, r *http.Requ
 	}
 
 	h.cfg.System.Timezone = tz
+	h.cfg.SaveToFile()
 
 	netutil.Run(context.Background(), "timedatectl", "set-timezone", tz)
 
@@ -274,7 +281,7 @@ func (h *SystemHandler) HandleCheckUpdate(w http.ResponseWriter, r *http.Request
 
 	if info.ReleaseNotes != "" {
 		fmt.Fprintf(w, `<details style="margin-bottom:var(--space-md);"><summary style="cursor:pointer;">%s</summary><pre style="font-size:var(--font-xs); white-space:pre-wrap; margin-top:var(--space-sm);">%s</pre></details>`,
-			h.loc.T(lang, "update.releaseNotes"), info.ReleaseNotes)
+			h.loc.T(lang, "update.releaseNotes"), html.EscapeString(info.ReleaseNotes))
 	}
 
 	fmt.Fprintf(w, `<button class="btn btn-primary btn-sm" hx-post="/system/update/apply" hx-swap="none" hx-confirm="%s">%s</button></div>`,
