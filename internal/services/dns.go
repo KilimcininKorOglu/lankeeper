@@ -322,6 +322,24 @@ func (s *DNSService) GetStaticRecords() []config.StaticDNSRecord {
 	return s.cfg.DNS.StaticRecords
 }
 
+// GetDNSConfig exposes the live DNS config block for read-only handler use.
+func (s *DNSService) GetDNSConfig() config.DNSConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cfg.DNS
+}
+
+// SaveDNSSettings persists the DoT toggle and upstream string to
+// router.yaml. Caller is expected to follow up with ApplyConfig so
+// unbound reloads.
+func (s *DNSService) SaveDNSSettings(enableDoT bool, dotUpstream string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg.DNS.EnableDoT = enableDoT
+	s.cfg.DNS.DoTUpstream = strings.TrimSpace(dotUpstream)
+	return s.cfg.SaveToFile()
+}
+
 // FindStaticRecordIndexBySource returns the slice index of the first
 // record whose Source and Name match (case-insensitive on Name), or -1
 // if no match. Used by automated callers (DHCP mirror) to remove

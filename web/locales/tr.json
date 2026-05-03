@@ -379,6 +379,10 @@
     "dns.localZone": "Yerel Zone",
     "dns.localZoneHint": "Split-DNS: bu ad altında eşleşmeyen sorgular upstream'e gider",
     "dns.noRecords": "Yerel DNS kaydı yok",
+    "dns.dot": "DNS-over-TLS Upstream",
+    "dns.dotEnable": "DoT'u etkinleştir (yukarı akış sorgular için TLS)",
+    "dns.dotUpstream": "Upstream",
+    "dns.dotHint": "Örnek: 1.1.1.1@853#cloudflare-dns.com",
 
     "openvpn.pkiNotReady": "PKI başlatılmamış",
     "openvpn.initPki": "PKI Oluştur",

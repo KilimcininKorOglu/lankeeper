@@ -379,6 +379,10 @@
     "dns.localZone": "Local Zone",
     "dns.localZoneHint": "Split-DNS: queries under this name fall through to upstream when no record matches",
     "dns.noRecords": "No local DNS records",
+    "dns.dot": "DNS-over-TLS Upstream",
+    "dns.dotEnable": "Enable DoT (TLS for upstream queries)",
+    "dns.dotUpstream": "Upstream",
+    "dns.dotHint": "Example: 1.1.1.1@853#cloudflare-dns.com",
 
     "openvpn.pkiNotReady": "PKI not initialized",
     "openvpn.initPki": "Initialize PKI",

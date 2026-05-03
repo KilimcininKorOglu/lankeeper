@@ -48,6 +48,8 @@ func (h *DNSHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 			"Stats":         stats,
 			"Queries":       queries,
 			"StaticRecords": h.dns.GetStaticRecords(),
+			"DoTEnabled":    h.dns.GetDNSConfig().EnableDoT,
+			"DoTUpstream":   h.dns.GetDNSConfig().DoTUpstream,
 		},
 	}
 
@@ -75,6 +77,29 @@ func (h *DNSHandler) HandleUpdateBlocklist(w http.ResponseWriter, r *http.Reques
 		log.Printf("update blocklist: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Refresh", "true")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Redirect(w, r, "/dns", http.StatusSeeOther)
+}
+
+func (h *DNSHandler) HandleSaveDoT(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	enable := r.FormValue("enable_dot") == "on"
+	upstream := strings.TrimSpace(r.FormValue("dot_upstream"))
+	if enable && upstream == "" {
+		http.Error(w, "DoT upstream required when enabled", http.StatusBadRequest)
+		return
+	}
+	if err := h.dns.SaveDNSSettings(enable, upstream); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := h.dns.ApplyConfig(r.Context()); err != nil {
+		log.Printf("dns apply after dot save: %v", err)
 	}
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Refresh", "true")

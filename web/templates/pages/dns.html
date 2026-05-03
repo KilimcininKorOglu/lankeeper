@@ -62,6 +62,25 @@
         {{ end }}
     </div>
 
+    <!-- DoT Upstream -->
+    <div class="card" style="margin-top:var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "dns.dot" }}</span>
+        </div>
+        <form hx-post="/dns/dot" hx-swap="none" style="display:flex; flex-direction:column; gap:var(--space-md);">
+            <label style="display:flex; gap:var(--space-xs);">
+                <input type="checkbox" name="enable_dot" {{ if .DoTEnabled }}checked{{ end }}>
+                <span>{{ t $.Lang "dns.dotEnable" }}</span>
+            </label>
+            <label>
+                <div class="input-label">{{ t $.Lang "dns.dotUpstream" }}</div>
+                <input class="input" name="dot_upstream" value="{{ .DoTUpstream }}" placeholder="1.1.1.1@853#cloudflare-dns.com">
+                <div style="font-size:var(--font-xs); color:var(--text-secondary); margin-top:var(--space-xs);">{{ t $.Lang "dns.dotHint" }}</div>
+            </label>
+            <button class="btn btn-primary btn-sm" type="submit">{{ t $.Lang "common.save" }}</button>
+        </form>
+    </div>
+
     <!-- Local DNS Records -->
     <div class="card" style="margin-top:var(--space-lg);">
         <div class="card-header">
