@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/KilimcininKorOglu/home-router/internal/agent"
 	"github.com/KilimcininKorOglu/home-router/internal/config"
 	"github.com/KilimcininKorOglu/home-router/internal/i18n"
 	"github.com/KilimcininKorOglu/home-router/internal/services"
@@ -23,7 +22,6 @@ type Server struct {
 	auth     *Auth
 	renderer *tmpl.Renderer
 	loc      *i18n.I18n
-	agent    *agent.Client
 	http     *http.Server
 	network  *handlers.NetworkHandler
 	firewall *handlers.FirewallHandler
@@ -46,7 +44,7 @@ type Server struct {
 	monitor   *services.MonitorService
 }
 
-func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, webFS fs.FS) (*Server, error) {
+func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS) (*Server, error) {
 	auth := NewAuth(cfg.System.SessionSecret, cfg.System.AdminPasswordHash)
 
 	renderer, err := tmpl.NewRenderer(webFS, loc)
@@ -134,7 +132,6 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, agentClient *agent.Client, we
 		ntph:      ntpHandler,
 		sse:       sseBroker,
 		monitor:   monitorSvc,
-		agent:     agentClient,
 	}
 
 	mux := http.NewServeMux()

@@ -45,7 +45,7 @@ func runServe() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	srv, err := web.NewServer(cfg, loc, agentClient, webFS.EmbeddedFS)
+	srv, err := web.NewServer(cfg, loc, webFS.EmbeddedFS)
 	if err != nil {
 		return fmt.Errorf("failed to create web server: %w", err)
 	}
