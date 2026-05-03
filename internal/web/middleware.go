@@ -119,10 +119,27 @@ type tokenBucket struct {
 }
 
 func NewRateLimiter(rate, burst int) *RateLimiter {
-	return &RateLimiter{
+	rl := &RateLimiter{
 		clients: make(map[string]*tokenBucket),
 		rate:    rate,
 		burst:   burst,
+	}
+	go rl.cleanup()
+	return rl
+}
+
+func (rl *RateLimiter) cleanup() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		rl.mu.Lock()
+		now := time.Now()
+		for ip, b := range rl.clients {
+			if now.Sub(b.lastCheck) > 5*time.Minute {
+				delete(rl.clients, ip)
+			}
+		}
+		rl.mu.Unlock()
 	}
 }
 
