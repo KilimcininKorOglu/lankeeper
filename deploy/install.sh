@@ -214,8 +214,8 @@ ask_admin_password() {
     done
 
     local hash
-    hash=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'$password', bcrypt.gensalt()).decode())" 2>/dev/null) || \
     hash=$("$INSTALL_DIR/$BINARY_NAME" hash-password "$password" 2>/dev/null) || \
+    hash=$(ADMIN_PASS="$password" python3 -c "import bcrypt, os; print(bcrypt.hashpw(os.environb[b'ADMIN_PASS'], bcrypt.gensalt()).decode())" 2>/dev/null) || \
     hash=""
 
     if [[ -n "$hash" ]]; then
