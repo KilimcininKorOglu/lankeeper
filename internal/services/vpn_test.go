@@ -1,6 +1,7 @@
 package services_test
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 
 func TestNewVPNService(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewVPNService(cfg)
 	if svc == nil {
 		t.Fatal("service should not be nil")
@@ -18,6 +20,7 @@ func TestNewVPNService(t *testing.T) {
 
 func TestVPNAddRemovePeer(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	cfg.VPN.Server.Enabled = true
 	cfg.VPN.Server.ListenPort = 51820
 	cfg.VPN.Server.Address = "10.10.11.1/24"
@@ -49,6 +52,7 @@ func TestVPNAddRemovePeer(t *testing.T) {
 
 func TestVPNRemovePeerNotFound(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewVPNService(cfg)
 
 	if err := svc.RemovePeer("nonexistent"); err == nil {
@@ -58,6 +62,7 @@ func TestVPNRemovePeerNotFound(t *testing.T) {
 
 func TestVPNGeneratePeerConfigRoadWarrior(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	cfg.VPN.Server.ListenPort = 51820
 	cfg.VPN.Server.PublicKey = "server-pub-key-base64"
 	cfg.VPN.Server.DNS = "10.10.10.1"
@@ -100,6 +105,7 @@ func TestVPNGeneratePeerConfigRoadWarrior(t *testing.T) {
 
 func TestVPNGeneratePeerConfigSiteToSite(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	cfg.Interfaces = []config.InterfaceConfig{
 		{ID: "lan", Device: "enp0s25", Role: "lan", Address: "10.10.10.1/24"},
 	}
@@ -143,6 +149,7 @@ func TestVPNGeneratePeerConfigSiteToSite(t *testing.T) {
 
 func TestVPNSiteToSitePeerAllowedIPs(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	cfg.VPN.Server.Enabled = true
 	cfg.VPN.Server.Address = "10.10.11.1/24"
 

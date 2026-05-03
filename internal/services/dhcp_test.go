@@ -1,6 +1,7 @@
 package services_test
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/KilimcininKorOglu/home-router/internal/config"
@@ -9,6 +10,7 @@ import (
 
 func TestNewDHCPService(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewDHCPService(cfg)
 	if svc == nil {
 		t.Fatal("service should not be nil")
@@ -42,6 +44,7 @@ func TestParseLeaseData(t *testing.T) {
 
 func TestStaticLeaseCRUD(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewDHCPService(cfg)
 
 	svc.AddStaticLease("aa:bb:cc:dd:ee:ff", "10.10.10.10", "desktop")
@@ -60,6 +63,7 @@ func TestStaticLeaseCRUD(t *testing.T) {
 
 func TestRemoveStaticLeaseInvalid(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewDHCPService(cfg)
 
 	if err := svc.RemoveStaticLease(0); err == nil {

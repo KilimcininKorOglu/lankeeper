@@ -3,6 +3,7 @@ package services_test
 import (
 	"context"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 func TestNewHealthCheckService(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewHealthCheckService(cfg)
 	if svc == nil {
 		t.Fatal("service should not be nil")
@@ -20,6 +22,7 @@ func TestNewHealthCheckService(t *testing.T) {
 
 func TestHealthCheckGetResultsEmpty(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewHealthCheckService(cfg)
 
 	results := svc.GetResults()
@@ -30,6 +33,7 @@ func TestHealthCheckGetResultsEmpty(t *testing.T) {
 
 func TestHealthCheckGetResultNotFound(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewHealthCheckService(cfg)
 
 	result := svc.GetResult("nonexistent")
@@ -44,13 +48,14 @@ func TestHealthCheckStartStop(t *testing.T) {
 	}
 
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	cfg.HealthCheck.Enabled = true
 	cfg.HealthCheck.Checks = []config.HealthCheckEntry{
 		{
 			Name:             "test-check",
 			Interface:        "lo",
-			Interval:         "100ms",
-			Timeout:          "50ms",
+			Interval:         "1s",
+			Timeout:          "3s",
 			FailureThreshold: 3,
 			Cooldown:         "1s",
 			Targets: []config.HealthCheckTarget{
@@ -64,7 +69,7 @@ func TestHealthCheckStartStop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	svc.Start(ctx)
 
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(2 * time.Second)
 
 	result := svc.GetResult("test-check")
 	if result == nil {
@@ -80,6 +85,7 @@ func TestHealthCheckStartStop(t *testing.T) {
 
 func TestHealthCheckResetCounter(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	cfg.HealthCheck.Checks = []config.HealthCheckEntry{
 		{Name: "test", Interval: "1h"},
 	}

@@ -488,6 +488,10 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
+func (c *Config) SetFilePath(path string) {
+	c.filePath = path
+}
+
 func (c *Config) SaveToFile() error {
 	if c.filePath == "" {
 		return fmt.Errorf("config file path not set")

@@ -1,6 +1,7 @@
 package services_test
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -34,8 +35,10 @@ table ip nat {
 }
 `
 
-func testFirewallConfig() *config.Config {
+func testFirewallConfig(t *testing.T) *config.Config {
+	t.Helper()
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	cfg.Interfaces = []config.InterfaceConfig{
 		{ID: "wan", Device: "enp3s0", Role: "wan"},
 		{ID: "lan", Device: "enp0s25", Role: "lan"},
@@ -51,7 +54,7 @@ func testFirewallConfig() *config.Config {
 }
 
 func TestFirewallRenderConfig(t *testing.T) {
-	cfg := testFirewallConfig()
+	cfg := testFirewallConfig(t)
 	svc, err := services.NewFirewallServiceFromFS(cfg, testNftTemplate)
 	if err != nil {
 		t.Fatalf("new firewall service: %v", err)
@@ -77,7 +80,7 @@ func TestFirewallRenderConfig(t *testing.T) {
 }
 
 func TestFirewallRenderWithTTLFix(t *testing.T) {
-	cfg := testFirewallConfig()
+	cfg := testFirewallConfig(t)
 	cfg.Firewall.TTLFix.Enabled = true
 	cfg.Firewall.TTLFix.Value = 64
 
@@ -97,7 +100,7 @@ func TestFirewallRenderWithTTLFix(t *testing.T) {
 }
 
 func TestFirewallRenderWithoutIPv6(t *testing.T) {
-	cfg := testFirewallConfig()
+	cfg := testFirewallConfig(t)
 	cfg.IPv6.Enabled = "off"
 
 	svc, err := services.NewFirewallServiceFromFS(cfg, testNftTemplate)
@@ -116,7 +119,7 @@ func TestFirewallRenderWithoutIPv6(t *testing.T) {
 }
 
 func TestFirewallPortForwardCRUD(t *testing.T) {
-	cfg := testFirewallConfig()
+	cfg := testFirewallConfig(t)
 	svc, _ := services.NewFirewallServiceFromFS(cfg, testNftTemplate)
 
 	svc.AddPortForward(config.PortForward{
@@ -142,7 +145,7 @@ func TestFirewallPortForwardCRUD(t *testing.T) {
 }
 
 func TestFirewallRemoveInvalidIndex(t *testing.T) {
-	cfg := testFirewallConfig()
+	cfg := testFirewallConfig(t)
 	svc, _ := services.NewFirewallServiceFromFS(cfg, testNftTemplate)
 
 	if err := svc.RemovePortForward(5); err == nil {
@@ -151,7 +154,7 @@ func TestFirewallRemoveInvalidIndex(t *testing.T) {
 }
 
 func TestFirewallHasPendingChange(t *testing.T) {
-	cfg := testFirewallConfig()
+	cfg := testFirewallConfig(t)
 	svc, _ := services.NewFirewallServiceFromFS(cfg, testNftTemplate)
 
 	if svc.HasPendingChange() {
@@ -185,7 +188,7 @@ table inet filter {
 `
 
 func TestFirewallRenderWithWireGuard(t *testing.T) {
-	cfg := testFirewallConfig()
+	cfg := testFirewallConfig(t)
 	cfg.VPN.Server.Enabled = true
 	cfg.VPN.Clients = []config.WGClientTunnel{
 		{Name: "nl-amsterdam", Table: 100, Fwmark: 100},
@@ -217,7 +220,7 @@ func TestFirewallRenderWithWireGuard(t *testing.T) {
 }
 
 func TestFirewallRenderWithoutWireGuard(t *testing.T) {
-	cfg := testFirewallConfig()
+	cfg := testFirewallConfig(t)
 	cfg.VPN.Server.Enabled = false
 
 	svc, err := services.NewFirewallServiceFromFS(cfg, testNftWGTemplate)
@@ -253,7 +256,7 @@ table inet filter {
 `
 
 func TestFirewallRenderWithOpenVPN(t *testing.T) {
-	cfg := testFirewallConfig()
+	cfg := testFirewallConfig(t)
 	cfg.OpenVPN.Server.Enabled = true
 	cfg.OpenVPN.Server.Device = "tun0"
 

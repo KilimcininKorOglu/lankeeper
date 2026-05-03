@@ -1,6 +1,7 @@
 package services_test
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/KilimcininKorOglu/home-router/internal/config"
@@ -9,6 +10,7 @@ import (
 
 func TestNewNASService(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewNASService(cfg)
 	if svc == nil {
 		t.Fatal("service should not be nil")
@@ -17,6 +19,7 @@ func TestNewNASService(t *testing.T) {
 
 func TestShareCRUD(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewNASService(cfg)
 
 	svc.AddShare(config.ShareConfig{
@@ -45,6 +48,7 @@ func TestShareCRUD(t *testing.T) {
 
 func TestRemoveShareNotFound(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewNASService(cfg)
 
 	if err := svc.RemoveShare("nonexistent"); err == nil {
@@ -104,6 +108,7 @@ http://example.com/news.mp4
 	}
 
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	cfg.NAS.M3USources = []config.M3USourceConfig{
 		{
 			URL:           "http://example.com/test.m3u",
@@ -142,6 +147,7 @@ http://a/3
 
 func TestM3UStatus(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewNASService(cfg)
 	status := svc.GetM3UStatus()
 	if status.Running {

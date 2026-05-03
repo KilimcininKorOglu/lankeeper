@@ -3,6 +3,7 @@ package agent_test
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -27,7 +28,9 @@ func TestServerClientRoundTrip(t *testing.T) {
 	}()
 
 	for i := 0; i < 100; i++ {
-		if _, err := os.Stat(sock); err == nil {
+		conn, err := net.DialTimeout("unix", sock, 50*time.Millisecond)
+		if err == nil {
+			conn.Close()
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -74,7 +77,9 @@ func TestMethodNotFound(t *testing.T) {
 
 	go srv.Serve(ctx)
 	for i := 0; i < 100; i++ {
-		if _, err := os.Stat(sock); err == nil {
+		conn, err := net.DialTimeout("unix", sock, 50*time.Millisecond)
+		if err == nil {
+			conn.Close()
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -98,7 +103,9 @@ func TestSocketCleanup(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go srv.Serve(ctx)
 	for i := 0; i < 100; i++ {
-		if _, err := os.Stat(sock); err == nil {
+		conn, err := net.DialTimeout("unix", sock, 50*time.Millisecond)
+		if err == nil {
+			conn.Close()
 			break
 		}
 		time.Sleep(10 * time.Millisecond)

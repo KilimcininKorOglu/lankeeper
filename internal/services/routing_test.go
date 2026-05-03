@@ -1,6 +1,7 @@
 package services_test
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 
 func TestNewRoutingService(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewRoutingService(cfg)
 	if svc == nil {
 		t.Fatal("service should not be nil")
@@ -18,6 +20,7 @@ func TestNewRoutingService(t *testing.T) {
 
 func TestRoutingAddRemovePolicy(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewRoutingService(cfg)
 
 	svc.AddPolicy(config.RoutingPolicy{
@@ -47,6 +50,7 @@ func TestRoutingAddRemovePolicy(t *testing.T) {
 
 func TestRoutingTogglePolicy(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewRoutingService(cfg)
 
 	svc.AddPolicy(config.RoutingPolicy{Name: "test", Enabled: true})
@@ -63,6 +67,7 @@ func TestRoutingTogglePolicy(t *testing.T) {
 
 func TestRoutingUpdatePriorities(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewRoutingService(cfg)
 
 	svc.AddPolicy(config.RoutingPolicy{Name: "a", Enabled: true})
@@ -79,6 +84,7 @@ func TestRoutingUpdatePriorities(t *testing.T) {
 
 func TestRoutingGenerateNftRules(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	cfg.VPN.Clients = []config.WGClientTunnel{
 		{Name: "nl-amsterdam", Table: 100, Fwmark: 100},
 	}
@@ -105,6 +111,7 @@ func TestRoutingGenerateNftRules(t *testing.T) {
 
 func TestRoutingDstIPRules(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	cfg.VPN.Clients = []config.WGClientTunnel{
 		{Name: "vpn1", Table: 200, Fwmark: 200},
 	}
@@ -125,6 +132,7 @@ func TestRoutingDstIPRules(t *testing.T) {
 
 func TestRoutingPortRules(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	cfg.VPN.Clients = []config.WGClientTunnel{
 		{Name: "vpn1", Table: 200, Fwmark: 200},
 	}
@@ -146,6 +154,7 @@ func TestRoutingPortRules(t *testing.T) {
 
 func TestRoutingScheduleRules(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	cfg.VPN.Clients = []config.WGClientTunnel{
 		{Name: "vpn1", Table: 100, Fwmark: 100},
 	}
@@ -170,6 +179,7 @@ func TestRoutingScheduleRules(t *testing.T) {
 
 func TestRoutingKillSwitch(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	cfg.VPN.Clients = []config.WGClientTunnel{
 		{Name: "vpn1", Table: 100, Fwmark: 100},
 	}
@@ -191,6 +201,7 @@ func TestRoutingKillSwitch(t *testing.T) {
 
 func TestRoutingDomainSet(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	cfg.VPN.Clients = []config.WGClientTunnel{
 		{Name: "vpn1", Table: 100, Fwmark: 100},
 	}
@@ -217,6 +228,7 @@ func TestRoutingDomainSet(t *testing.T) {
 
 func TestRoutingRemovePolicyNotFound(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewRoutingService(cfg)
 
 	if err := svc.RemovePolicy("nonexistent"); err == nil {
