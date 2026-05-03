@@ -135,10 +135,8 @@ func (s *FirewallService) GetRules(ctx context.Context) (string, error) {
 	return netutil.RunSimple(ctx, "nft", "list", "ruleset")
 }
 
-func (s *FirewallService) persist() {
-	if err := s.cfg.SaveToFile(); err != nil {
-		log.Printf("persist firewall config: %v", err)
-	}
+func (s *FirewallService) persist() error {
+	return s.cfg.SaveToFile()
 }
 
 func (s *FirewallService) AddOpenPort(op config.OpenPort) {
@@ -154,8 +152,7 @@ func (s *FirewallService) RemoveOpenPort(index int) error {
 		s.cfg.Firewall.OpenPorts[:index],
 		s.cfg.Firewall.OpenPorts[index+1:]...,
 	)
-	s.persist()
-	return nil
+	return s.persist()
 }
 
 func (s *FirewallService) ToggleOpenPort(index int, enabled bool) error {
@@ -163,8 +160,7 @@ func (s *FirewallService) ToggleOpenPort(index int, enabled bool) error {
 		return fmt.Errorf("invalid open port index: %d", index)
 	}
 	s.cfg.Firewall.OpenPorts[index].Enabled = enabled
-	s.persist()
-	return nil
+	return s.persist()
 }
 
 func (s *FirewallService) GetOpenPorts() []config.OpenPort {
@@ -184,8 +180,7 @@ func (s *FirewallService) RemovePortForward(index int) error {
 		s.cfg.Firewall.PortForwards[:index],
 		s.cfg.Firewall.PortForwards[index+1:]...,
 	)
-	s.persist()
-	return nil
+	return s.persist()
 }
 
 func (s *FirewallService) AddRule(rule config.FirewallRule) {
@@ -210,8 +205,7 @@ func (s *FirewallService) RemoveRule(index int) error {
 		s.cfg.Firewall.Rules[:index],
 		s.cfg.Firewall.Rules[index+1:]...,
 	)
-	s.persist()
-	return nil
+	return s.persist()
 }
 
 func (s *FirewallService) ToggleRule(index int, enabled bool) error {
@@ -219,8 +213,7 @@ func (s *FirewallService) ToggleRule(index int, enabled bool) error {
 		return fmt.Errorf("invalid rule index: %d", index)
 	}
 	s.cfg.Firewall.Rules[index].Enabled = enabled
-	s.persist()
-	return nil
+	return s.persist()
 }
 
 func (s *FirewallService) GetCustomRules() []config.FirewallRule {

@@ -42,10 +42,8 @@ func (s *RoutingService) GetPolicies() []config.RoutingPolicy {
 	return policies
 }
 
-func (s *RoutingService) persist() {
-	if err := s.cfg.SaveToFile(); err != nil {
-		log.Printf("persist routing config: %v", err)
-	}
+func (s *RoutingService) persist() error {
+	return s.cfg.SaveToFile()
 }
 
 func (s *RoutingService) AddPolicy(policy config.RoutingPolicy) {
@@ -73,8 +71,7 @@ func (s *RoutingService) RemovePolicy(name string) error {
 	for i, p := range s.cfg.Routing.Policies {
 		if p.Name == name {
 			s.cfg.Routing.Policies = append(s.cfg.Routing.Policies[:i], s.cfg.Routing.Policies[i+1:]...)
-			s.persist()
-			return nil
+			return s.persist()
 		}
 	}
 	return fmt.Errorf("policy %q not found", name)
@@ -104,8 +101,7 @@ func (s *RoutingService) TogglePolicy(name string, enabled bool) error {
 	for i := range s.cfg.Routing.Policies {
 		if s.cfg.Routing.Policies[i].Name == name {
 			s.cfg.Routing.Policies[i].Enabled = enabled
-			s.persist()
-			return nil
+			return s.persist()
 		}
 	}
 	return fmt.Errorf("policy %q not found", name)

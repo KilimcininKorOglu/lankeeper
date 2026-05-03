@@ -126,10 +126,8 @@ func (s *OpenVPNService) AddClient(ctx context.Context, name string, siteToSite 
 	return nil
 }
 
-func (s *OpenVPNService) persist() {
-	if err := s.cfg.SaveToFile(); err != nil {
-		log.Printf("persist openvpn config: %v", err)
-	}
+func (s *OpenVPNService) persist() error {
+	return s.cfg.SaveToFile()
 }
 
 func (s *OpenVPNService) RevokeClient(ctx context.Context, name string) error {

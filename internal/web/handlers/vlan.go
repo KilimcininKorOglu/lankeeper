@@ -75,7 +75,9 @@ func (h *VLANHandler) HandleAdd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.cfg.VLANs = append(h.cfg.VLANs, vlan)
-	h.cfg.SaveToFile()
+	if err := h.cfg.SaveToFile(); err != nil {
+		log.Printf("save config: %v", err)
+	}
 
 	var parentDev string
 	for _, iface := range h.cfg.Interfaces {
@@ -116,7 +118,9 @@ func (h *VLANHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 			}
 
 			h.cfg.VLANs = append(h.cfg.VLANs[:i], h.cfg.VLANs[i+1:]...)
-			h.cfg.SaveToFile()
+			if err := h.cfg.SaveToFile(); err != nil {
+				log.Printf("save config: %v", err)
+			}
 			break
 		}
 	}

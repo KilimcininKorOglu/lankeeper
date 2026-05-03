@@ -224,10 +224,8 @@ func (s *DHCPService) GetStaticLeases() []config.StaticLease {
 	return s.cfg.DHCP.StaticLeases
 }
 
-func (s *DHCPService) persist() {
-	if err := s.cfg.SaveToFile(); err != nil {
-		log.Printf("persist dhcp config: %v", err)
-	}
+func (s *DHCPService) persist() error {
+	return s.cfg.SaveToFile()
 }
 
 func (s *DHCPService) AddStaticLease(mac, ip, hostname string) {
@@ -247,8 +245,7 @@ func (s *DHCPService) RemoveStaticLease(index int) error {
 		s.cfg.DHCP.StaticLeases[:index],
 		s.cfg.DHCP.StaticLeases[index+1:]...,
 	)
-	s.persist()
-	return nil
+	return s.persist()
 }
 
 func (s *DHCPService) GetDeviceList() []DeviceInfo {

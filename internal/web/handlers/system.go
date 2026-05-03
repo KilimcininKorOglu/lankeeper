@@ -77,7 +77,9 @@ func (h *SystemHandler) HandleChangeWebPassword(w http.ResponseWriter, r *http.R
 	}
 
 	h.cfg.System.AdminPasswordHash = string(hashBytes)
-	h.cfg.SaveToFile()
+	if err := h.cfg.SaveToFile(); err != nil {
+		log.Printf("save config: %v", err)
+	}
 	log.Println("web UI admin password changed")
 
 	if r.Header.Get("HX-Request") == "true" {
@@ -147,7 +149,9 @@ func (h *SystemHandler) HandleUpdateHostname(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	h.cfg.SaveToFile()
+	if err := h.cfg.SaveToFile(); err != nil {
+		log.Printf("save config: %v", err)
+	}
 	log.Printf("hostname changed to %s.%s", hostname, h.cfg.System.Domain)
 
 	if r.Header.Get("HX-Request") == "true" {
@@ -168,7 +172,9 @@ func (h *SystemHandler) HandleUpdateTimezone(w http.ResponseWriter, r *http.Requ
 	}
 
 	h.cfg.System.Timezone = tz
-	h.cfg.SaveToFile()
+	if err := h.cfg.SaveToFile(); err != nil {
+		log.Printf("save config: %v", err)
+	}
 
 	netutil.Run(context.Background(), "timedatectl", "set-timezone", tz)
 
