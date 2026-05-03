@@ -220,8 +220,9 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	staticFS, _ := fs.Sub(webFS, "static")
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
+	loginLimiter := NewRateLimiter(1, 5)
 	mux.HandleFunc("GET /login", s.handleLoginPage)
-	mux.HandleFunc("POST /login", s.handleLogin)
+	mux.Handle("POST /login", loginLimiter.Middleware(http.HandlerFunc(s.handleLogin)))
 	mux.HandleFunc("POST /logout", s.handleLogout)
 	mux.HandleFunc("POST /settings/lang", s.handleLangSwitch)
 
