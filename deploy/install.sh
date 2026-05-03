@@ -145,12 +145,19 @@ setup_default_config() {
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     local defaults_dir="$script_dir/../configs/defaults"
 
-    if [[ -d "$defaults_dir" ]]; then
-        cp "$defaults_dir"/*.yaml "$CONFIG_DIR/" 2>/dev/null || true
-        chmod 640 "$CONFIG_DIR"/*.yaml
-        chown root:"$SERVICE_USER" "$CONFIG_DIR"/*.yaml
-        log_info "Copied default config files"
+    if [[ ! -d "$defaults_dir" ]]; then
+        log_error "Default configs directory not found: $defaults_dir"
+        exit 1
     fi
+
+    cp "$defaults_dir"/*.yaml "$CONFIG_DIR/" 2>/dev/null || true
+    if [[ ! -f "$CONFIG_DIR/router.yaml" ]]; then
+        log_error "router.yaml could not be installed from $defaults_dir"
+        exit 1
+    fi
+    chmod 640 "$CONFIG_DIR"/*.yaml
+    chown root:"$SERVICE_USER" "$CONFIG_DIR"/*.yaml
+    log_info "Copied default config files"
 }
 
 ask_hostname() {
@@ -160,7 +167,7 @@ ask_hostname() {
     read -rp "Ana bilgisayar adı girin / Enter hostname [hermes]: " hostname
     hostname="${hostname:-hermes}"
 
-    sed -i "s/hostname: \".*\"/hostname: \"$hostname\"/" "$CONFIG_DIR/router.yaml"
+    sed -i "s|hostname:.*|hostname: \"$hostname\"|" "$CONFIG_DIR/router.yaml"
     hostnamectl set-hostname "$hostname" 2>/dev/null || true
     log_info "Ana bilgisayar adı ayarlandı / Hostname set to: $hostname"
 }
@@ -215,15 +222,14 @@ ask_admin_password() {
     done
 
     local hash
-    hash=$("$INSTALL_DIR/$BINARY_NAME" hash-password "$password" 2>/dev/null) || \
-    hash=$(ADMIN_PASS="$password" python3 -c "import bcrypt, os; print(bcrypt.hashpw(os.environb[b'ADMIN_PASS'], bcrypt.gensalt()).decode())" 2>/dev/null) || \
-    hash=""
+    hash=$("$INSTALL_DIR/$BINARY_NAME" hash-password "$password" 2>/dev/null) || hash=""
 
     if [[ -n "$hash" ]]; then
-        sed -i "s|adminPasswordHash: \".*\"|adminPasswordHash: \"$hash\"|" "$CONFIG_DIR/router.yaml"
+        sed -i "s|adminPasswordHash:.*|adminPasswordHash: \"$hash\"|" "$CONFIG_DIR/router.yaml"
         log_info "Yönetici şifresi yapılandırmaya yazıldı / Admin password hash written to config"
     else
-        log_warn "Şifre oluşturulamadı, ilk başlatmada ayarlanacak / Could not hash password, will be set on first start"
+        log_error "Şifre hash'lenemedi (home-router hash-password başarısız) / Failed to hash password"
+        exit 1
     fi
 }
 
@@ -253,9 +259,29 @@ ask_timezone() {
         *) tz="Europe/Istanbul" ;;
     esac
 
-    sed -i "s/timezone: \".*\"/timezone: \"$tz\"/" "$CONFIG_DIR/router.yaml"
+    sed -i "s|timezone:.*|timezone: \"$tz\"|" "$CONFIG_DIR/router.yaml"
     timedatectl set-timezone "$tz" 2>/dev/null || true
     log_info "Saat dilimi ayarlandı / Timezone set to: $tz"
+}
+
+ask_language() {
+    echo ""
+    echo "=== Web Arayüzü Dili / Web UI Language ==="
+    echo "  1) English (en) (default)"
+    echo "  2) Türkçe (tr)"
+    local choice
+    read -rp "Dil seçin / Select language [1]: " choice
+    choice="${choice:-1}"
+
+    local lang
+    case "$choice" in
+        1) lang="en" ;;
+        2) lang="tr" ;;
+        *) lang="en" ;;
+    esac
+
+    sed -i "s|^  language:.*|  language: \"$lang\"|" "$CONFIG_DIR/router.yaml"
+    log_info "Web arayüzü dili ayarlandı / Language set to: $lang"
 }
 
 ask_keyboard() {
@@ -423,15 +449,7 @@ main() {
     check_root
     check_debian
 
-    local force=false
-    local binary_path="./home-router"
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --force) force=true; shift ;;
-            *) binary_path="$1"; shift ;;
-        esac
-    done
+    local binary_path="${1:-./home-router}"
 
     install_dependencies
     create_user
@@ -447,6 +465,7 @@ main() {
     ask_root_password
     ask_admin_password
     ask_timezone
+    ask_language
     ask_keyboard
     setup_initial_tls
     print_summary

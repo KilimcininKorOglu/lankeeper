@@ -172,9 +172,7 @@ fi
 # Set admin password from installer
 if [[ -f /tmp/admin-password.txt ]]; then
     ADMIN_PASS=$(cat /tmp/admin-password.txt)
-    ADMIN_HASH=$("$INSTALL_DIR/$BINARY_NAME" hash-password "$ADMIN_PASS" 2>/dev/null || \
-        ADMIN_PASS="$ADMIN_PASS" python3 -c "import bcrypt, os; print(bcrypt.hashpw(os.environb[b'ADMIN_PASS'], bcrypt.gensalt()).decode())" 2>/dev/null || \
-        echo "")
+    ADMIN_HASH=$("$INSTALL_DIR/$BINARY_NAME" hash-password "$ADMIN_PASS" 2>/dev/null || echo "")
     if [[ -n "$ADMIN_HASH" && -f "$CONFIG_DIR/router.yaml" ]]; then
         sed -i "s|adminPasswordHash:.*|adminPasswordHash: \"$ADMIN_HASH\"|" "$CONFIG_DIR/router.yaml"
         echo "Yönetici şifresi ayarlandı. / Admin password set."
@@ -182,10 +180,40 @@ if [[ -f /tmp/admin-password.txt ]]; then
     rm -f /tmp/admin-password.txt
 fi
 
-# Set hostname from installer
-HOSTNAME=$(hostname)
-if [[ -n "$HOSTNAME" && -f "$CONFIG_DIR/router.yaml" ]]; then
-    sed -i "s|hostname:.*|hostname: \"$HOSTNAME\"|" "$CONFIG_DIR/router.yaml"
+# Set hostname — prefer the user-supplied value from the early_command
+# debconf prompt over the system hostname (which is hermes by default).
+if [[ -f /tmp/hostname.txt ]]; then
+    HOSTNAME_VAL=$(cat /tmp/hostname.txt)
+    rm -f /tmp/hostname.txt
+else
+    HOSTNAME_VAL=$(hostname)
+fi
+if [[ -n "$HOSTNAME_VAL" && -f "$CONFIG_DIR/router.yaml" ]]; then
+    sed -i "s|hostname:.*|hostname: \"$HOSTNAME_VAL\"|" "$CONFIG_DIR/router.yaml"
+    hostnamectl set-hostname "$HOSTNAME_VAL" 2>/dev/null || \
+        echo "$HOSTNAME_VAL" > /etc/hostname
+fi
+
+# Propagate timezone selected during d-i to router.yaml.
+if [[ -f /etc/timezone ]] && [[ -f "$CONFIG_DIR/router.yaml" ]]; then
+    TZ_VAL=$(cat /etc/timezone)
+    if [[ -n "$TZ_VAL" ]]; then
+        sed -i "s|timezone:.*|timezone: \"$TZ_VAL\"|" "$CONFIG_DIR/router.yaml"
+    fi
+fi
+
+# Propagate locale to router.yaml language field. The web UI only ships
+# tr and en; pick "tr" for Turkish locales, otherwise default to "en".
+if [[ -f "$CONFIG_DIR/router.yaml" ]]; then
+    LOCALE_VAL=""
+    if [[ -f /etc/default/locale ]]; then
+        LOCALE_VAL=$(. /etc/default/locale 2>/dev/null; echo "${LANG:-}")
+    fi
+    case "$LOCALE_VAL" in
+        tr_*) LANG_CODE="tr" ;;
+        *)    LANG_CODE="en" ;;
+    esac
+    sed -i "s|^  language:.*|  language: \"$LANG_CODE\"|" "$CONFIG_DIR/router.yaml"
 fi
 
 # First boot flag
@@ -200,14 +228,21 @@ sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
 sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
 
 # Generate initial self-signed TLS certificate so the web service can start
-# immediately on first boot. The binary creates the cert under $DATA_DIR/tls
-# during a brief startup; we then stop it.
+# immediately on first boot. Run the binary as root briefly; EnsureTLSCert()
+# fires before ListenAndServeTLS so the cert is written even if the bind
+# fails (target system has no LAN IP yet). Then transfer ownership to the
+# service user.
 if [[ ! -f "$DATA_DIR/tls/server.crt" ]] && [[ -f "$CONFIG_DIR/router.yaml" ]]; then
-    su -s /bin/sh -c "$INSTALL_DIR/$BINARY_NAME serve --config $CONFIG_DIR/router.yaml" "$SERVICE_USER" &
+    "$INSTALL_DIR/$BINARY_NAME" serve --config "$CONFIG_DIR/router.yaml" >/dev/null 2>&1 &
     TLS_PID=$!
     sleep 2
     kill "$TLS_PID" 2>/dev/null || true
     wait "$TLS_PID" 2>/dev/null || true
+    if [[ -f "$DATA_DIR/tls/server.crt" ]]; then
+        chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR/tls" 2>/dev/null || true
+        chmod 600 "$DATA_DIR/tls"/*.key 2>/dev/null || true
+        chmod 644 "$DATA_DIR/tls"/*.crt 2>/dev/null || true
+    fi
 fi
 
 echo "=== Kurulum tamamlandı / Post-install complete ==="
