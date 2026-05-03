@@ -3,8 +3,10 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 
+	"github.com/KilimcininKorOglu/home-router/internal/config"
 	"github.com/KilimcininKorOglu/home-router/internal/i18n"
 	"github.com/KilimcininKorOglu/home-router/internal/services"
 	"github.com/KilimcininKorOglu/home-router/internal/tmpl"
@@ -24,13 +26,15 @@ func (h *OpenVPNHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 
 	status, _ := h.ovpn.ServerStatus(r.Context())
 	clients := h.ovpn.ListServerClients()
+	outbound := h.ovpn.ListOutboundClients()
 
 	data := &tmpl.PageData{
 		Lang: lang,
 		Page: "openvpn",
 		Data: map[string]any{
-			"Server":  status,
-			"Clients": clients,
+			"Server":   status,
+			"Clients":  clients,
+			"Outbound": outbound,
 		},
 	}
 
@@ -130,6 +134,54 @@ func (h *OpenVPNHandler) HandleRevokeClient(w http.ResponseWriter, r *http.Reque
 	name := r.PathValue("name")
 	if err := h.ovpn.RevokeClient(r.Context(), name); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Refresh", "true")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Redirect(w, r, "/openvpn", http.StatusSeeOther)
+}
+
+func (h *OpenVPNHandler) HandleAddOutboundClient(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	name := r.FormValue("name")
+	if name == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+
+	rawConfig := r.FormValue("configFile")
+	port, _ := strconv.Atoi(r.FormValue("remotePort"))
+
+	client := config.OVPNClientConfig{
+		Name:       name,
+		ConfigFile: rawConfig,
+		RemoteHost: r.FormValue("remoteHost"),
+		RemotePort: port,
+		Protocol:   r.FormValue("protocol"),
+		Cipher:     r.FormValue("cipher"),
+		Auth:       r.FormValue("auth"),
+		TLSAuth:    r.FormValue("tlsAuth") == "true",
+		Username:   r.FormValue("username"),
+		Password:   r.FormValue("password"),
+	}
+
+	h.ovpn.AddOutboundClient(client)
+
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Refresh", "true")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Redirect(w, r, "/openvpn", http.StatusSeeOther)
+}
+
+func (h *OpenVPNHandler) HandleConnectOutbound(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if err := h.ovpn.ConnectClient(r.Context(), name); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" {

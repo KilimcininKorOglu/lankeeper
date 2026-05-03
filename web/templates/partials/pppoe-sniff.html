@@ -1,11 +1,34 @@
 {{ define "pppoe-sniff" }}
 <div class="card" style="margin-top:var(--space-lg);">
     <div class="card-header">
-        <span class="card-title">{{ t .Lang "pppoe.title" }}</span>
+        <span class="card-title">{{ t .Lang "pppoe.captureTitle" }}</span>
+        {{ if .Data.Sniff }}
+            {{ if .Data.Sniff.Active }}
+                <span class="badge badge-success">{{ t .Lang "vpn.status.active" }}</span>
+            {{ else }}
+                <span class="badge badge-error">{{ t .Lang "vpn.status.inactive" }}</span>
+            {{ end }}
+        {{ end }}
     </div>
     <p style="color:var(--text-secondary); font-size:var(--font-sm); margin-bottom:var(--space-md);">
         {{ t .Lang "pppoe.captureDesc" }}
     </p>
+    {{ if .Data.Sniff }}
+        {{ if .Data.Sniff.CapturedUser }}
+        <div style="margin-bottom:var(--space-md); padding:var(--space-md); background:var(--surface-bg); border-radius:var(--radius-md);">
+            <div style="margin-bottom:var(--space-xs);">
+                <span class="input-label">{{ t .Lang "pppoe.username" }}:</span>
+                <span style="font-weight:700;">{{ .Data.Sniff.CapturedUser }}</span>
+            </div>
+            {{ if .Data.Sniff.CapturedPass }}
+            <div>
+                <span class="input-label">{{ t .Lang "pppoe.password" }}:</span>
+                <span style="font-weight:700;">{{ .Data.Sniff.CapturedPass }}</span>
+            </div>
+            {{ end }}
+        </div>
+        {{ end }}
+    {{ end }}
     <div style="display:flex; gap:var(--space-sm);">
         <button class="btn btn-primary btn-sm" hx-post="/network/pppoe/sniff/start" hx-swap="none">{{ t .Lang "pppoe.startCapture" }}</button>
         <button class="btn btn-danger btn-sm" hx-post="/network/pppoe/sniff/stop" hx-swap="none">{{ t .Lang "pppoe.stopCapture" }}</button>

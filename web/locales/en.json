@@ -111,6 +111,12 @@
     "openvpn.fixedIPPlaceholder": "e.g. 10.8.0.10",
     "openvpn.publicEndpoint": "Public Endpoint",
     "openvpn.revoked": "Revoked",
+    "openvpn.outbound": "Outbound VPN Connections",
+    "openvpn.addOutbound": "Add Outbound Connection",
+    "openvpn.remoteHost": "Remote Host",
+    "openvpn.remoteHostPlaceholder": "e.g. vpn.example.com",
+    "openvpn.rawConfig": "Raw Configuration (.ovpn)",
+    "openvpn.rawConfigPlaceholder": "Paste .ovpn file contents here (optional)",
 
     "routing.title": "Policy-Based Routing",
     "routing.addPolicy": "Add Policy",
@@ -324,6 +330,7 @@
     "openvpn.pkiNotReady": "PKI not initialized",
     "openvpn.initPki": "Initialize PKI",
 
+    "pppoe.captureTitle": "PPPoE Credential Capture",
     "pppoe.startCapture": "Start Capture",
     "pppoe.stopCapture": "Stop Capture",
     "pppoe.captureDesc": "Start PPPoE server on WAN interface to capture ISP credentials from modem."

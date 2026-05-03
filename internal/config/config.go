@@ -326,12 +326,18 @@ type OpenVPNConfig struct {
 
 type OVPNClientConfig struct {
 	Name        string `yaml:"name"`
-	ConfigFile  string `yaml:"configFile"`
-	Username    string `yaml:"username"`
-	Password    string `yaml:"password"`
-	AutoConnect bool   `yaml:"autoConnect"`
-	Table       int    `yaml:"table"`
-	Fwmark      int    `yaml:"fwmark"`
+	ConfigFile  string `yaml:"configFile,omitempty"`
+	RemoteHost  string `yaml:"remoteHost,omitempty"`
+	RemotePort  int    `yaml:"remotePort,omitempty"`
+	Protocol    string `yaml:"protocol,omitempty"`
+	Cipher      string `yaml:"cipher,omitempty"`
+	Auth        string `yaml:"auth,omitempty"`
+	TLSAuth     bool   `yaml:"tlsAuth,omitempty"`
+	Username    string `yaml:"username,omitempty"`
+	Password    string `yaml:"password,omitempty"`
+	AutoConnect bool   `yaml:"autoConnect,omitempty"`
+	Table       int    `yaml:"table,omitempty"`
+	Fwmark      int    `yaml:"fwmark,omitempty"`
 }
 
 type OVPNServerConfig struct {

@@ -53,14 +53,17 @@ func (h *NetworkHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 
 	healthResults := h.health.GetResults()
 
+	sniffStatus := h.pppoe.SniffStatus()
+
 	data := &tmpl.PageData{
 		Lang: lang,
 		Page: "network",
 		Data: map[string]any{
-			"Interfaces":    ifaces,
-			"PPPoE":         pppoeStatus,
-			"USB":           usbStatus,
-			"HealthChecks":  healthResults,
+			"Interfaces":   ifaces,
+			"PPPoE":        pppoeStatus,
+			"USB":          usbStatus,
+			"HealthChecks": healthResults,
+			"Sniff":        sniffStatus,
 		},
 	}
 

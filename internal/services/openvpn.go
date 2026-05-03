@@ -386,12 +386,73 @@ func (s *OpenVPNService) ImportClientConfig(name, ovpnContent string) {
 	})
 }
 
+func (s *OpenVPNService) AddOutboundClient(client config.OVPNClientConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg.OpenVPN.Clients = append(s.cfg.OpenVPN.Clients, client)
+}
+
+func (s *OpenVPNService) ListOutboundClients() []config.OVPNClientConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]config.OVPNClientConfig, len(s.cfg.OpenVPN.Clients))
+	copy(result, s.cfg.OpenVPN.Clients)
+	return result
+}
+
+func (s *OpenVPNService) renderClientConfig(c config.OVPNClientConfig, confPath string) error {
+	if c.ConfigFile != "" {
+		return os.WriteFile(confPath, []byte(c.ConfigFile), 0o600)
+	}
+
+	tmpl, err := template.ParseFiles("configs/sysconf/openvpn-client.conf.tmpl")
+	if err != nil {
+		return fmt.Errorf("parse openvpn client template: %w", err)
+	}
+
+	os.MkdirAll(filepath.Dir(confPath), 0o700)
+	f, err := os.Create(confPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	os.Chmod(confPath, 0o600)
+
+	if c.RemotePort == 0 {
+		c.RemotePort = 1194
+	}
+	if c.Protocol == "" {
+		c.Protocol = "udp"
+	}
+	if c.Cipher == "" {
+		c.Cipher = "AES-256-GCM"
+	}
+	if c.Auth == "" {
+		c.Auth = "SHA256"
+	}
+
+	if err := tmpl.Execute(f, c); err != nil {
+		return fmt.Errorf("render client config: %w", err)
+	}
+
+	if c.Username != "" && c.Password != "" {
+		authPath := fmt.Sprintf("/etc/openvpn/client/%s-auth.txt", c.Name)
+		authContent := fmt.Sprintf("%s\n%s\n", c.Username, c.Password)
+		os.WriteFile(authPath, []byte(authContent), 0o600)
+	}
+
+	return nil
+}
+
 func (s *OpenVPNService) ConnectClient(ctx context.Context, name string) error {
 	for _, c := range s.cfg.OpenVPN.Clients {
 		if c.Name == name {
 			confPath := fmt.Sprintf("/etc/openvpn/client/%s.conf", name)
 			os.MkdirAll("/etc/openvpn/client", 0o700)
-			os.WriteFile(confPath, []byte(c.ConfigFile), 0o600)
+
+			if err := s.renderClientConfig(c, confPath); err != nil {
+				return fmt.Errorf("render client config: %w", err)
+			}
 
 			_, err := netutil.Run(ctx, "openvpn", "--config", confPath, "--daemon",
 				"--writepid", fmt.Sprintf("/var/run/openvpn-%s.pid", name))

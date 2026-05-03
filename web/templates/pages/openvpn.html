@@ -100,6 +100,73 @@
     </div>
     {{ end }}
 
+    <!-- Outbound VPN Clients -->
+    <div class="card" style="margin-top:var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "openvpn.outbound" }}</span>
+        </div>
+
+        {{ if $.Data.Outbound }}
+        {{ range $.Data.Outbound }}
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:var(--space-sm) 0; border-bottom:1px solid var(--border-color);">
+            <div>
+                <span style="font-weight:700;">{{ .Name }}</span>
+                {{ if .RemoteHost }}
+                <span style="color:var(--text-secondary); font-size:var(--font-xs); margin-left:var(--space-sm);">{{ .RemoteHost }}:{{ .RemotePort }}</span>
+                {{ end }}
+            </div>
+            <button class="btn btn-primary btn-sm" hx-post="/openvpn/client/{{ .Name }}/connect" hx-swap="none">{{ t $.Lang "pppoe.connect" }}</button>
+        </div>
+        {{ end }}
+        {{ end }}
+
+        <div style="margin-top:var(--space-md);">
+            <button class="btn btn-primary btn-sm" onclick="document.getElementById('ovpn-outbound-form').style.display='block'">
+                {{ t $.Lang "openvpn.addOutbound" }}
+            </button>
+        </div>
+        <form id="ovpn-outbound-form" hx-post="/openvpn/client" style="display:none; padding:var(--space-md); border:1px solid var(--border-color); border-radius:var(--radius-md); margin-top:var(--space-md);"
+              hx-on::after-request="this.reset(); this.style.display='none';">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:var(--space-md);">
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "common.name" }}</label>
+                    <input class="input" name="name" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "openvpn.remoteHost" }}</label>
+                    <input class="input" name="remoteHost" placeholder="{{ t $.Lang "openvpn.remoteHostPlaceholder" }}">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "network.port" }}</label>
+                    <input class="input" name="remotePort" type="number" value="1194">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "firewall.protocol" }}</label>
+                    <select class="input" name="protocol">
+                        <option value="udp">{{ t $.Lang "firewall.udp" }}</option>
+                        <option value="tcp">{{ t $.Lang "firewall.tcp" }}</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "pppoe.username" }}</label>
+                    <input class="input" name="username">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "pppoe.password" }}</label>
+                    <input class="input" name="password" type="password">
+                </div>
+            </div>
+            <div class="input-group" style="margin-top:var(--space-md);">
+                <label class="input-label">{{ t $.Lang "openvpn.rawConfig" }}</label>
+                <textarea class="input" name="configFile" rows="4" placeholder="{{ t $.Lang "openvpn.rawConfigPlaceholder" }}"></textarea>
+            </div>
+            <div style="display:flex; gap:var(--space-sm); margin-top:var(--space-md);">
+                <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('form').style.display='none'">{{ t $.Lang "common.cancel" }}</button>
+            </div>
+        </form>
+    </div>
+
     {{ end }}
 </div>
 {{ end }}

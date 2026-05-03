@@ -111,6 +111,12 @@
     "openvpn.fixedIPPlaceholder": "ör: 10.8.0.10",
     "openvpn.publicEndpoint": "Genel Uç Nokta",
     "openvpn.revoked": "İptal Edildi",
+    "openvpn.outbound": "Giden VPN Bağlantıları",
+    "openvpn.addOutbound": "Giden Bağlantı Ekle",
+    "openvpn.remoteHost": "Uzak Sunucu",
+    "openvpn.remoteHostPlaceholder": "ör: vpn.example.com",
+    "openvpn.rawConfig": "Ham Yapılandırma (.ovpn)",
+    "openvpn.rawConfigPlaceholder": ".ovpn dosyasının içeriğini buraya yapıştırın (opsiyonel)",
 
     "routing.title": "Politika Tabanlı Yönlendirme",
     "routing.addPolicy": "Politika Ekle",
@@ -324,6 +330,7 @@
     "openvpn.pkiNotReady": "PKI başlatılmamış",
     "openvpn.initPki": "PKI Oluştur",
 
+    "pppoe.captureTitle": "PPPoE Kimlik Yakalama",
     "pppoe.startCapture": "Yakalamayı Başlat",
     "pppoe.stopCapture": "Yakalamayı Durdur",
     "pppoe.captureDesc": "ISP kimlik bilgilerini modemden yakalamak için WAN arayüzünde PPPoE sunucu başlatın."

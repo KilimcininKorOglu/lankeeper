@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -164,6 +165,11 @@ func (s *PPPoEService) renderConfig() error {
 	peerDir := "/etc/ppp/peers"
 	os.MkdirAll(peerDir, 0o755)
 
+	optSrc, err := os.ReadFile("configs/sysconf/pppoe-options.tmpl")
+	if err == nil {
+		os.WriteFile("/etc/ppp/options", optSrc, 0o644)
+	}
+
 	tmpl, err := template.ParseFiles("configs/sysconf/pppoe-peer.tmpl")
 	if err != nil {
 		return fmt.Errorf("parse peer template: %w", err)
@@ -218,6 +224,85 @@ func processExists(pid int) bool {
 	}
 	err = proc.Signal(os.Signal(nil))
 	return err == nil
+}
+
+type SniffStatus struct {
+	Active          bool
+	CapturedUser    string
+	CapturedPass    string
+}
+
+func (s *PPPoEService) SniffStart(ctx context.Context) error {
+	var wanDevice string
+	for _, iface := range s.cfg.Interfaces {
+		if iface.Role == "wan" {
+			wanDevice = iface.Device
+			break
+		}
+	}
+	if wanDevice == "" {
+		return fmt.Errorf("no WAN interface configured")
+	}
+
+	optSrc, err := os.ReadFile("configs/sysconf/pppoe-server-options.tmpl")
+	if err != nil {
+		return fmt.Errorf("read pppoe-server-options: %w", err)
+	}
+	os.MkdirAll("/etc/ppp", 0o755)
+	if err := os.WriteFile("/etc/pppoe-server-options", optSrc, 0o644); err != nil {
+		return fmt.Errorf("write pppoe-server-options: %w", err)
+	}
+
+	os.Remove("/var/log/pppoe-sniff.log")
+
+	_, err = netutil.Run(ctx, "pppoe-server", "-I", wanDevice, "-O", "/etc/pppoe-server-options", "-F")
+	if err != nil {
+		return fmt.Errorf("start pppoe-server: %w", err)
+	}
+
+	log.Printf("PPPoE sniff started on %s", wanDevice)
+	return nil
+}
+
+func (s *PPPoEService) SniffStop(ctx context.Context) error {
+	_, err := netutil.Run(ctx, "pkill", "-f", "pppoe-server")
+	if err != nil {
+		log.Printf("stop pppoe-server: %v", err)
+	}
+	log.Println("PPPoE sniff stopped")
+	return nil
+}
+
+func (s *PPPoEService) SniffStatus() *SniffStatus {
+	status := &SniffStatus{}
+
+	_, err := netutil.RunSimple(context.Background(), "pgrep", "-f", "pppoe-server")
+	status.Active = err == nil
+
+	logData, err := os.ReadFile("/var/log/pppoe-sniff.log")
+	if err == nil {
+		lines := strings.Split(string(logData), "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "user=") {
+				for _, part := range strings.Fields(line) {
+					if strings.HasPrefix(part, "user=") {
+						status.CapturedUser = strings.TrimPrefix(part, "user=")
+						status.CapturedUser = strings.Trim(status.CapturedUser, "\"")
+					}
+				}
+			}
+			if strings.Contains(line, "PAP") && strings.Contains(line, "password") {
+				for _, part := range strings.Fields(line) {
+					if strings.HasPrefix(part, "password=") {
+						status.CapturedPass = strings.TrimPrefix(part, "password=")
+						status.CapturedPass = strings.Trim(status.CapturedPass, "\"")
+					}
+				}
+			}
+		}
+	}
+
+	return status
 }
 
 func appendToFile(path, line string) error {
