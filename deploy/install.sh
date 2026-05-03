@@ -406,20 +406,16 @@ setup_initial_tls() {
     fi
 
     log_info "Generating initial self-signed TLS certificate..."
-    "$INSTALL_DIR/$BINARY_NAME" serve --config "$CONFIG_DIR/router.yaml" >/dev/null 2>&1 &
-    local pid=$!
-    sleep 2
-    kill "$pid" 2>/dev/null || true
-    wait "$pid" 2>/dev/null || true
-
-    if [[ -f "$DATA_DIR/tls/server.crt" ]]; then
-        chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR/tls"
-        chmod 600 "$DATA_DIR/tls"/*.key 2>/dev/null || true
-        chmod 644 "$DATA_DIR/tls"/*.crt 2>/dev/null || true
-        log_info "TLS certificate generated"
-    else
-        log_warn "TLS certificate generation deferred to first start"
+    if ! "$INSTALL_DIR/$BINARY_NAME" gen-cert \
+            --config "$CONFIG_DIR/router.yaml" \
+            --data-dir "$DATA_DIR" >/dev/null; then
+        log_error "TLS certificate generation failed"
+        exit 1
     fi
+    chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR/tls"
+    chmod 600 "$DATA_DIR/tls"/*.key
+    chmod 644 "$DATA_DIR/tls"/*.crt
+    log_info "TLS certificate generated"
 }
 
 check_installation() {

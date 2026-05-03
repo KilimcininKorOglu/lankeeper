@@ -162,7 +162,7 @@ go vet ./...              # Static analysis
 ### Project Structure
 
 ```
-cmd/home-router/        CLI entry point (serve, agent, version)
+cmd/home-router/        CLI entry point (serve, agent, version, hash-password, gen-cert)
 internal/
   agent/                JSON-RPC 2.0 IPC (server + client)
   config/               YAML config structs, crypto, TLS

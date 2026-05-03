@@ -204,20 +204,18 @@ grep -q '^PermitRootLogin ' /etc/ssh/sshd_config || echo "PermitRootLogin yes" >
 grep -q '^PasswordAuthentication ' /etc/ssh/sshd_config || echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
 
 # Generate initial self-signed TLS certificate so the web service can start
-# immediately on first boot. Run the binary as root briefly; EnsureTLSCert()
-# fires before ListenAndServeTLS so the cert is written even if the bind
-# fails (target system has no LAN IP yet). Then transfer ownership to the
-# service user.
+# immediately on first boot. The dedicated `gen-cert` subcommand writes the
+# cert synchronously and exits — no background process, no sleep race.
 if [[ ! -f "$DATA_DIR/tls/server.crt" ]] && [[ -f "$CONFIG_DIR/router.yaml" ]]; then
-    "$INSTALL_DIR/$BINARY_NAME" serve --config "$CONFIG_DIR/router.yaml" >/dev/null 2>&1 &
-    TLS_PID=$!
-    sleep 2
-    kill "$TLS_PID" 2>/dev/null || true
-    wait "$TLS_PID" 2>/dev/null || true
-    if [[ -f "$DATA_DIR/tls/server.crt" ]]; then
+    if "$INSTALL_DIR/$BINARY_NAME" gen-cert \
+            --config "$CONFIG_DIR/router.yaml" \
+            --data-dir "$DATA_DIR" >/dev/null; then
         chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR/tls" 2>/dev/null || true
         chmod 600 "$DATA_DIR/tls"/*.key 2>/dev/null || true
         chmod 644 "$DATA_DIR/tls"/*.crt 2>/dev/null || true
+    else
+        echo "HATA / ERROR: TLS sertifikası üretilemedi / TLS certificate generation failed" >&2
+        exit 1
     fi
 fi
 
