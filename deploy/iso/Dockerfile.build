@@ -1,7 +1,7 @@
 FROM debian:bookworm
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    xorriso isolinux dpkg-dev gzip ca-certificates \
+    xorriso isolinux dpkg-dev gzip cpio ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 RUN apt-get update

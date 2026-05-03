@@ -82,10 +82,20 @@ dpkg-scanpackages pool/extra /dev/null 2>/dev/null | gzip > pool/extra/Packages.
 dpkg-scanpackages pool/extra /dev/null 2>/dev/null > pool/extra/Packages
 popd >/dev/null
 
-echo "[4/7] Adding home-router files..."
+echo "[4/8] Adding home-router files..."
 cp "$BINARY_PATH" "$BUILD_DIR/iso/home-router"
 cp "$SCRIPT_DIR/preseed.cfg" "$BUILD_DIR/iso/"
 cp "$SCRIPT_DIR/post-install.sh" "$BUILD_DIR/iso/"
+
+echo "[5/8] Embedding preseed.cfg into initrd..."
+chmod +w "$BUILD_DIR/iso/install.amd/initrd.gz"
+cd "$BUILD_DIR"
+gunzip -k "$BUILD_DIR/iso/install.amd/initrd.gz"
+cp "$SCRIPT_DIR/preseed.cfg" preseed.cfg
+echo preseed.cfg | cpio -H newc -o -A -F "$BUILD_DIR/iso/install.amd/initrd" 2>/dev/null
+gzip -f "$BUILD_DIR/iso/install.amd/initrd"
+rm -f preseed.cfg
+cd "$PROJECT_ROOT"
 
 mkdir -p "$BUILD_DIR/iso/configs/defaults"
 cp "$PROJECT_ROOT/configs/defaults"/*.yaml "$BUILD_DIR/iso/configs/defaults/" 2>/dev/null || true
@@ -93,7 +103,7 @@ cp "$PROJECT_ROOT/configs/defaults"/*.yaml "$BUILD_DIR/iso/configs/defaults/" 2>
 mkdir -p "$BUILD_DIR/iso/configs/sysconf"
 cp "$PROJECT_ROOT/configs/sysconf"/*.tmpl "$BUILD_DIR/iso/configs/sysconf/" 2>/dev/null || true
 
-echo "[5/7] Updating GRUB config..."
+echo "[6/8] Updating GRUB config..."
 if [[ -f "$BUILD_DIR/iso/boot/grub/grub.cfg" ]]; then
     cp "$BUILD_DIR/iso/boot/grub/grub.cfg" "$BUILD_DIR/iso/boot/grub/grub.cfg.orig"
 fi
@@ -108,12 +118,12 @@ source $prefix/${grub_cpu}-efi/grub.cfg
 EFICFG
 fi
 
-echo "[6/7] Updating isolinux config..."
+echo "[7/8] Updating isolinux config..."
 if [[ -f "$BUILD_DIR/iso/isolinux/txt.cfg" ]]; then
     sed -i 's|append |append auto=true preseed/file=/cdrom/preseed.cfg |' "$BUILD_DIR/iso/isolinux/txt.cfg"
 fi
 
-echo "[7/7] Building ISO..."
+echo "[8/8] Building ISO..."
 xorriso -as mkisofs \
     -r -V "HomeRouter" \
     -o "$OUTPUT_ISO" \
