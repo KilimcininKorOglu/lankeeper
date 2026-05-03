@@ -91,12 +91,15 @@ if [[ -f /tmp/dhcp-dns-update.sh ]]; then
     chmod +x /usr/local/lib/home-router/dhcp-dns-update.sh
 fi
 
-# Sysconf templates (used by services to render /etc configs at runtime)
+# Sysconf templates — service code calls
+# template.ParseFiles("configs/sysconf/...") relative to CWD, so mirror
+# that path under $DATA_DIR. render-configs chdirs to $DATA_DIR.
 if [[ -d /tmp/configs/sysconf ]]; then
     sysconf_files=( /tmp/configs/sysconf/*.tmpl )
     if [[ ${#sysconf_files[@]} -gt 0 ]]; then
-        cp "${sysconf_files[@]}" "$DATA_DIR/sysconf/"
-        chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR/sysconf" 2>/dev/null || true
+        mkdir -p "$DATA_DIR/configs/sysconf"
+        cp "${sysconf_files[@]}" "$DATA_DIR/configs/sysconf/"
+        chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR/configs" 2>/dev/null || true
     else
         echo "UYARI / WARN: sysconf şablonları boş / sysconf templates empty"
     fi
@@ -279,10 +282,10 @@ fi
 
 # Tüm servis template'lerini /etc/ altına render et. Native Debian servisleri
 # ilk boot'ta home-router config'leriyle başlasın.
-if [[ -f "$CONFIG_DIR/router.yaml" ]] && [[ -d "$DATA_DIR/sysconf" ]]; then
+if [[ -f "$CONFIG_DIR/router.yaml" ]] && [[ -d "$DATA_DIR/configs/sysconf" ]]; then
     if ! "$INSTALL_DIR/$BINARY_NAME" render-configs \
             --config "$CONFIG_DIR/router.yaml" \
-            --sysconf-dir "$DATA_DIR/sysconf"; then
+            --cwd "$DATA_DIR"; then
         echo "HATA / ERROR: Servis config'leri render edilemedi / render-configs failed" >&2
         exit 1
     fi

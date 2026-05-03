@@ -452,8 +452,10 @@ setup_sysconf_templates() {
         log_warn "No sysconf templates in $sysconf_dir"
         return
     fi
-    mkdir -p "$DATA_DIR/sysconf"
-    cp "${tmpls[@]}" "$DATA_DIR/sysconf/"
+    # Service code calls template.ParseFiles("configs/sysconf/...") relative
+    # to CWD; mirror that path so render-configs can chdir to $DATA_DIR.
+    mkdir -p "$DATA_DIR/configs/sysconf"
+    cp "${tmpls[@]}" "$DATA_DIR/configs/sysconf/"
     log_info "Installed sysconf templates"
 }
 
@@ -477,14 +479,14 @@ setup_initial_tls() {
 }
 
 setup_render_configs() {
-    if [[ ! -f "$CONFIG_DIR/router.yaml" ]] || [[ ! -d "$DATA_DIR/sysconf" ]]; then
+    if [[ ! -f "$CONFIG_DIR/router.yaml" ]] || [[ ! -d "$DATA_DIR/configs/sysconf" ]]; then
         log_warn "render-configs skipped (missing router.yaml or sysconf templates)"
         return
     fi
     log_info "Rendering service configs to /etc/..."
     if ! "$INSTALL_DIR/$BINARY_NAME" render-configs \
             --config "$CONFIG_DIR/router.yaml" \
-            --sysconf-dir "$DATA_DIR/sysconf"; then
+            --cwd "$DATA_DIR"; then
         log_error "render-configs failed"
         exit 1
     fi

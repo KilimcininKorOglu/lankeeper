@@ -17,18 +17,14 @@ import (
 func runRenderConfigs() error {
 	fs := flag.NewFlagSet("render-configs", flag.ExitOnError)
 	configPath := fs.String("config", "/etc/home-router/router.yaml", "config file path")
-	sysconfDir := fs.String("sysconf-dir", "", "directory whose parent will become CWD so template.ParseFiles(\"configs/sysconf/*.tmpl\") resolves")
+	cwd := fs.String("cwd", "", "directory to chdir into so template.ParseFiles(\"configs/sysconf/*.tmpl\") resolves; the directory MUST contain a configs/sysconf/ subtree")
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		return err
 	}
 
-	if *sysconfDir != "" {
-		// Services use template.ParseFiles("configs/sysconf/...") relative to
-		// CWD. Setting CWD to the parent of `--sysconf-dir` makes that path
-		// resolve when run from /var/lib/home-router/sysconf/.. (install time).
-		parent := *sysconfDir + "/.."
-		if err := os.Chdir(parent); err != nil {
-			return fmt.Errorf("chdir %s: %w", parent, err)
+	if *cwd != "" {
+		if err := os.Chdir(*cwd); err != nil {
+			return fmt.Errorf("chdir %s: %w", *cwd, err)
 		}
 	}
 
