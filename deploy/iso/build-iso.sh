@@ -128,6 +128,10 @@ echo "[4/7] Adding home-router files..."
 cp "$BINARY_PATH" "$BUILD_DIR/iso/home-router"
 cp "$SCRIPT_DIR/preseed.cfg" "$BUILD_DIR/iso/"
 cp "$SCRIPT_DIR/post-install.sh" "$BUILD_DIR/iso/"
+find -L /usr/share/zoneinfo -type f \
+    | sed 's|^/usr/share/zoneinfo/||' \
+    | grep -E '^(Africa|America|Antarctica|Arctic|Asia|Atlantic|Australia|Europe|Indian|Pacific|Etc)/|^(CET|EET|GMT|MET|UTC|WET)$' \
+    | sort -u > "$BUILD_DIR/iso/timezones.txt"
 
 # Validate critical assets exist before copying. A silent miss here used
 # to produce a "successful" ISO that broke at install time.
