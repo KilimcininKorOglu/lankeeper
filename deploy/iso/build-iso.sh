@@ -79,6 +79,8 @@ xorriso -osirrox on -indev "$DEBIAN_ISO" -extract / "$BUILD_DIR/iso" 2>/dev/null
 chmod -R +w "$BUILD_DIR/iso"
 
 echo "[2/7] Downloading required $ARCH packages with dependencies..."
+URI_LOOKUP_DIR="$BUILD_DIR/apt-uri-lookup"
+mkdir -p "$URI_LOOKUP_DIR"
 pushd "$PACKAGE_REPO_DIR" >/dev/null
 
 ALL_DEPS=$(apt-cache depends --recurse --no-recommends --no-suggests \
@@ -87,14 +89,30 @@ ALL_DEPS=$(apt-cache depends --recurse --no-recommends --no-suggests \
     | grep "^\w" | sort -u | grep -v "^<")
 
 echo "  Resolving dependencies: $(echo "$ALL_DEPS" | wc -w) packages"
-apt-get download $ALL_DEPS 2>/dev/null || {
-    echo "NOTE: bulk download had errors, retrying individually..."
-    for pkg in $ALL_DEPS; do
-        apt-get download "$pkg" 2>/dev/null || true
-    done
-}
 
-echo "  Downloaded $(ls -1 *.deb 2>/dev/null | wc -l) .deb files"
+MISSING_DEPS=()
+CACHED_COUNT=0
+for pkg in $ALL_DEPS; do
+    deb_name="$(cd "$URI_LOOKUP_DIR" && apt-get --print-uris download "$pkg" 2>/dev/null | awk '/^'\''/ {print $2; exit}')"
+    if [[ -n "$deb_name" && -f "$deb_name" ]]; then
+        CACHED_COUNT=$((CACHED_COUNT + 1))
+    else
+        MISSING_DEPS+=( "$pkg" )
+    fi
+done
+
+echo "  Cached packages: $CACHED_COUNT"
+if [[ ${#MISSING_DEPS[@]} -gt 0 ]]; then
+    echo "  Missing packages: ${#MISSING_DEPS[@]}"
+    apt-get download "${MISSING_DEPS[@]}" 2>/dev/null || {
+        echo "NOTE: bulk download had errors, retrying individually..."
+        for pkg in "${MISSING_DEPS[@]}"; do
+            apt-get download "$pkg" 2>/dev/null || true
+        done
+    }
+fi
+
+echo "  Available $(ls -1 *.deb 2>/dev/null | wc -l) .deb files"
 popd >/dev/null
 
 echo "[3/7] Creating local package repository..."
