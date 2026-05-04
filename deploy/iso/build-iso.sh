@@ -141,13 +141,13 @@ if [[ -f "$BUILD_DIR/iso/EFI/debian/grub.cfg" ]]; then
     cat > "$BUILD_DIR/iso/EFI/debian/grub.cfg" <<'EFICFG'
 search --set=root --file /home-router
 set prefix=($root)/boot/grub
-source $prefix/${grub_cpu}-efi/grub.cfg
+source $prefix/grub.cfg
 EFICFG
 fi
 
 echo "[6/7] Updating isolinux config..."
 if [[ -f "$BUILD_DIR/iso/isolinux/txt.cfg" ]]; then
-    sed -i 's|append |append auto=true preseed/file=/cdrom/preseed.cfg |' "$BUILD_DIR/iso/isolinux/txt.cfg"
+    sed -i 's|append |append auto=true priority=high preseed/file=/cdrom/preseed.cfg |' "$BUILD_DIR/iso/isolinux/txt.cfg"
 fi
 
 echo "[7/7] Building ISO..."
