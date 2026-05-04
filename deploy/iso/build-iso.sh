@@ -3,20 +3,31 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-BUILD_DIR="/tmp/home-router-iso-build"
-OUTPUT_ISO="$PROJECT_ROOT/home-router-installer.iso"
 
 DEBIAN_ISO="${1:-}"
-BINARY_PATH="${2:-$PROJECT_ROOT/home-router}"
+ARCH="${ARCH:-${3:-amd64}}"
+BINARY_PATH="${2:-$PROJECT_ROOT/dist/home-router-linux-$ARCH}"
+OUTPUT_ISO="${OUTPUT_ISO:-${4:-$PROJECT_ROOT/dist/home-router-installer-$ARCH.iso}}"
+BUILD_DIR="${BUILD_DIR:-/tmp/home-router-iso-build-$ARCH}"
+PACKAGE_REPO_DIR="${PACKAGE_REPO_DIR:-$PROJECT_ROOT/dist/packages/$ARCH}"
 
 if [[ -z "$DEBIAN_ISO" ]]; then
-    echo "Usage: $0 <debian-netinst.iso> [home-router-binary]"
+    echo "Usage: $0 <debian-netinst.iso> [home-router-binary] [amd64|arm64] [output.iso]"
     echo ""
     echo "Example:"
-    echo "  make cross"
-    echo "  $0 debian-12.8.0-amd64-netinst.iso ./home-router"
+    echo "  make cross-amd64"
+    echo "  $0 debian-12.10.0-amd64-netinst.iso dist/home-router-linux-amd64 amd64"
     exit 1
 fi
+
+case "$ARCH" in
+    amd64|arm64) ;;
+    *)
+        echo "ERROR: unsupported architecture: $ARCH" >&2
+        echo "Supported architectures: amd64, arm64" >&2
+        exit 1
+        ;;
+esac
 
 if [[ ! -f "$DEBIAN_ISO" ]]; then
     echo "ERROR: Debian ISO not found: $DEBIAN_ISO"
@@ -25,16 +36,23 @@ fi
 
 if [[ ! -f "$BINARY_PATH" ]]; then
     echo "ERROR: Binary not found: $BINARY_PATH"
-    echo "Run 'make cross' first to build the Linux amd64 binary."
+    echo "Run 'make cross-$ARCH' first to build the Linux $ARCH binary."
     exit 1
 fi
 
-for cmd in xorriso dpkg-scanpackages; do
+for cmd in apt-cache apt-get dpkg dpkg-scanpackages xorriso; do
     if ! command -v "$cmd" &>/dev/null; then
         echo "ERROR: $cmd is required. Install with: apt install $cmd"
         exit 1
     fi
 done
+
+APT_ARCH="$(dpkg --print-architecture)"
+if [[ "$APT_ARCH" != "$ARCH" ]]; then
+    echo "ERROR: apt architecture is $APT_ARCH, but ISO architecture is $ARCH" >&2
+    echo "Run this script in a matching container, for example: docker run --platform linux/$ARCH ..." >&2
+    exit 1
+fi
 
 PACKAGES=(
     ppp pppoe nftables wireguard-tools openvpn easy-rsa
@@ -44,21 +62,24 @@ PACKAGES=(
 )
 
 echo "=== Building Home Router Installer ISO ==="
+echo "  Architecture: $ARCH"
 echo "  Debian ISO: $DEBIAN_ISO"
 echo "  Binary:     $BINARY_PATH"
+echo "  Packages:   $PACKAGE_REPO_DIR"
 echo "  Output:     $OUTPUT_ISO"
 echo ""
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
+mkdir -p "$(dirname "$OUTPUT_ISO")"
+mkdir -p "$PACKAGE_REPO_DIR"
 
 echo "[1/7] Extracting Debian ISO..."
 xorriso -osirrox on -indev "$DEBIAN_ISO" -extract / "$BUILD_DIR/iso" 2>/dev/null
 chmod -R +w "$BUILD_DIR/iso"
 
-echo "[2/7] Downloading required packages with dependencies..."
-mkdir -p "$BUILD_DIR/iso/pool/extra"
-pushd "$BUILD_DIR/iso/pool/extra" >/dev/null
+echo "[2/7] Downloading required $ARCH packages with dependencies..."
+pushd "$PACKAGE_REPO_DIR" >/dev/null
 
 ALL_DEPS=$(apt-cache depends --recurse --no-recommends --no-suggests \
     --no-conflicts --no-breaks --no-replaces --no-enhances \
@@ -77,10 +98,13 @@ echo "  Downloaded $(ls -1 *.deb 2>/dev/null | wc -l) .deb files"
 popd >/dev/null
 
 echo "[3/7] Creating local package repository..."
-pushd "$BUILD_DIR/iso/pool/extra" >/dev/null
+pushd "$PACKAGE_REPO_DIR" >/dev/null
 dpkg-scanpackages . /dev/null 2>/dev/null | gzip > Packages.gz
 dpkg-scanpackages . /dev/null 2>/dev/null > Packages
 popd >/dev/null
+mkdir -p "$BUILD_DIR/iso/pool/extra"
+cp "$PACKAGE_REPO_DIR"/*.deb "$BUILD_DIR/iso/pool/extra/"
+cp "$PACKAGE_REPO_DIR"/Packages "$PACKAGE_REPO_DIR"/Packages.gz "$BUILD_DIR/iso/pool/extra/"
 
 echo "[4/7] Adding home-router files..."
 cp "$BINARY_PATH" "$BUILD_DIR/iso/home-router"
@@ -134,7 +158,35 @@ echo "[5/7] Updating GRUB config..."
 if [[ -f "$BUILD_DIR/iso/boot/grub/grub.cfg" ]]; then
     cp "$BUILD_DIR/iso/boot/grub/grub.cfg" "$BUILD_DIR/iso/boot/grub/grub.cfg.orig"
 fi
-cp "$SCRIPT_DIR/grub.cfg" "$BUILD_DIR/iso/boot/grub/grub.cfg"
+
+BOOT_PATHS=(
+    "/install.amd/vmlinuz:/install.amd/initrd.gz"
+    "/install.a64/vmlinuz:/install.a64/initrd.gz"
+    "/install/vmlinuz:/install/initrd.gz"
+    "/vmlinuz:/initrd.gz"
+)
+KERNEL_PATH=""
+INITRD_PATH=""
+for pair in "${BOOT_PATHS[@]}"; do
+    kernel="${pair%%:*}"
+    initrd="${pair#*:}"
+    if [[ -f "$BUILD_DIR/iso$kernel" && -f "$BUILD_DIR/iso$initrd" ]]; then
+        KERNEL_PATH="$kernel"
+        INITRD_PATH="$initrd"
+        break
+    fi
+done
+
+if [[ -z "$KERNEL_PATH" || -z "$INITRD_PATH" ]]; then
+    echo "ERROR: could not find Debian installer kernel/initrd in extracted ISO" >&2
+    exit 1
+fi
+
+sed \
+    -e "s|__KERNEL_PATH__|$KERNEL_PATH|g" \
+    -e "s|__INITRD_PATH__|$INITRD_PATH|g" \
+    "$SCRIPT_DIR/grub.cfg" > "$BUILD_DIR/iso/boot/grub/grub.cfg"
+echo "  Installer boot files: $KERNEL_PATH $INITRD_PATH"
 
 # Fix EFI boot chain -- replace disk UUID search with cdrom search
 if [[ -f "$BUILD_DIR/iso/EFI/debian/grub.cfg" ]]; then
@@ -152,19 +204,50 @@ if [[ -f "$BUILD_DIR/iso/isolinux/txt.cfg" ]]; then
 fi
 
 echo "[7/7] Building ISO..."
-xorriso -as mkisofs \
-    -r -V "HomeRouter" \
-    -o "$OUTPUT_ISO" \
-    -J -joliet-long \
-    -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
-    -partition_offset 16 \
-    -b isolinux/isolinux.bin \
-    -c isolinux/boot.cat \
-    -no-emul-boot -boot-load-size 4 -boot-info-table \
-    -eltorito-alt-boot \
-    -e boot/grub/efi.img \
-    -no-emul-boot -isohybrid-gpt-basdat \
-    "$BUILD_DIR/iso" 2>/dev/null
+case "$ARCH" in
+    amd64)
+        xorriso -as mkisofs \
+            -r -V "HomeRouter" \
+            -o "$OUTPUT_ISO" \
+            -J -joliet-long \
+            -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
+            -partition_offset 16 \
+            -b isolinux/isolinux.bin \
+            -c isolinux/boot.cat \
+            -no-emul-boot -boot-load-size 4 -boot-info-table \
+            -eltorito-alt-boot \
+            -e boot/grub/efi.img \
+            -no-emul-boot -isohybrid-gpt-basdat \
+            "$BUILD_DIR/iso" 2>/dev/null
+        ;;
+    arm64)
+        if ! command -v fdisk &>/dev/null; then
+            echo "ERROR: fdisk is required for arm64 EFI partition extraction." >&2
+            exit 1
+        fi
+        EFI_IMG="$BUILD_DIR/efi.img"
+        PART_LINE="$(fdisk -l "$DEBIAN_ISO" | awk -v part="${DEBIAN_ISO}2" '$1 == part {print}')"
+        if [[ -z "$PART_LINE" ]]; then
+            echo "ERROR: could not find EFI partition in arm64 ISO: $DEBIAN_ISO" >&2
+            exit 1
+        fi
+        read -r _part START_BLOCK _end BLOCK_COUNT _rest <<<"$PART_LINE"
+        if [[ -z "${START_BLOCK:-}" || -z "${BLOCK_COUNT:-}" ]]; then
+            echo "ERROR: could not parse EFI partition geometry: $PART_LINE" >&2
+            exit 1
+        fi
+        dd if="$DEBIAN_ISO" bs=512 skip="$START_BLOCK" count="$BLOCK_COUNT" of="$EFI_IMG" status=none
+        xorriso -as mkisofs \
+            -r -V "HomeRouter" \
+            -o "$OUTPUT_ISO" \
+            -J -joliet-long \
+            -e boot/grub/efi.img \
+            -no-emul-boot \
+            -append_partition 2 0xef "$EFI_IMG" \
+            -partition_cyl_align all \
+            "$BUILD_DIR/iso" 2>/dev/null
+        ;;
+esac
 
 rm -rf "$BUILD_DIR"
 

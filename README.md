@@ -63,11 +63,18 @@ ssh root@<router-ip> bash /tmp/deploy/install.sh /tmp/home-router
 ### ISO Installer (Offline)
 
 ```bash
-make iso DEBIAN_ISO=/path/to/debian-12-netinst.iso
-# Burns a preseed ISO with embedded packages -- no internet required during install
+# amd64 ISO, BIOS + UEFI boot
+make iso DEBIAN_AMD64_ISO=/path/to/debian-12-amd64-netinst.iso
+
+# amd64 + arm64 binaries, package pools, and installer ISOs
+make iso-all \
+  DEBIAN_AMD64_ISO=/path/to/debian-12-amd64-netinst.iso \
+  DEBIAN_ARM64_ISO=/path/to/debian-12-arm64-netinst.iso
 ```
 
-The preseed installer asks 7 questions: language/locale, keyboard layout, timezone, hostname, root password, web UI admin password, and disk selection.
+Generated artifacts are written under `dist/`: Linux binaries, per-architecture offline package pools, and `home-router-installer-<arch>.iso`. The installer embeds all required packages, so no internet connection is required during install.
+
+The preseed installer asks 7 questions: language/locale, keyboard layout, timezone, hostname, web UI admin password, root password, and disk selection.
 
 ## Architecture
 

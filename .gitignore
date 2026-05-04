@@ -1,4 +1,5 @@
 /home-router
+/home-router-installer*.iso
 *.exe
 *.test
 *.out
