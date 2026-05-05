@@ -21,7 +21,7 @@ echo "=== Home Router Kurulum Sonrası / Post-Install ==="
 if [[ -d /tmp/pool-extra ]] && [[ -f /tmp/pool-extra/Packages ]]; then
     cp /etc/apt/sources.list /etc/apt/sources.list.home-router.bak 2>/dev/null || true
     mkdir -p /etc/apt/sources.list.d
-    rm -f /etc/apt/sources.list.d/*.list
+    rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources
     echo "deb [trusted=yes] file:/tmp/pool-extra ./" > /etc/apt/sources.list
     apt-get update -qq
     apt-get install -y -qq \
@@ -29,7 +29,11 @@ if [[ -d /tmp/pool-extra ]] && [[ -f /tmp/pool-extra/Packages ]]; then
         samba samba-common-bin smartmontools mdadm iproute2 \
         unbound dnsmasq rsyslog chrony qrencode \
         wide-dhcpv6-client curl jq hdparm openssh-server
-    echo "# Home Router offline install: no network mirror configured." > /etc/apt/sources.list
+    cat > /etc/apt/sources.list <<'APT_SOURCES'
+deb http://deb.debian.org/debian bookworm main
+deb http://deb.debian.org/debian bookworm-updates main
+deb http://security.debian.org/debian-security bookworm-security main
+APT_SOURCES
 fi
 
 # Set timezone chosen in the installer. This avoids depending on d-i's
