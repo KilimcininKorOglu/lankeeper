@@ -7,5 +7,6 @@
 *.pem
 *.key
 dist/
+source_iso/
 tmp/
 Codex.md
