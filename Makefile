@@ -22,10 +22,12 @@ ISO_BUILDER_ARM64 ?= lankeeper-iso-builder-arm64
 .PHONY: build test lint clean dev cross cross-amd64 cross-arm64 cross-all install iso iso-amd64 iso-arm64 iso-all docker-builder-amd64 docker-builder-arm64 docker-builders release release-archives release-amd64 release-arm64 release-all checksums check
 
 build:
-	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/lankeeper
+	mkdir -p $(DIST_DIR)
+	go build -ldflags "$(LDFLAGS)" -o $(DIST_DIR)/$(BINARY) ./cmd/lankeeper
 
 dev:
-	go build -o $(BINARY) ./cmd/lankeeper
+	mkdir -p $(DIST_DIR)
+	go build -o $(DIST_DIR)/$(BINARY) ./cmd/lankeeper
 
 test:
 	go test ./... -race -count=1
@@ -34,10 +36,9 @@ lint:
 	golangci-lint run
 
 clean:
-	rm -f $(BINARY)
+	rm -rf $(DIST_DIR)
 
 cross: cross-amd64
-	cp $(AMD64_BINARY) $(BINARY)
 
 cross-amd64:
 	mkdir -p $(DIST_DIR)
@@ -50,7 +51,7 @@ cross-arm64:
 cross-all: cross-amd64 cross-arm64
 
 install: cross
-	sudo bash deploy/install.sh ./$(BINARY)
+	sudo bash deploy/install.sh $(DIST_DIR)/$(BINARY)
 
 docker-builder-amd64:
 	$(DOCKER) build --platform linux/amd64 -t $(ISO_BUILDER_AMD64) -f deploy/iso/Dockerfile.build .
