@@ -405,14 +405,11 @@ func httpsURLToStamp(rawURL string) (string, error) {
 	if port == "" {
 		port = "443"
 	}
-	addr := net.JoinHostPort(host, port)
+	// Address field: IP literal + port when host is numeric; empty
+	// for hostnames so the resolver discovers the IP at probe time.
+	var addr string
 	if ip := net.ParseIP(host); ip != nil {
-		// Address field carries the IP literal when host is an IP.
 		addr = net.JoinHostPort(ip.String(), port)
-	} else {
-		// For hostnames, address is empty (the resolver discovers
-		// the IP). Encoder still wants a valid lp; empty is fine.
-		addr = ""
 	}
 	path := u.Path
 	if path == "" {
@@ -506,8 +503,8 @@ func (s *DoHService) Probe(ctx context.Context, spec string) (time.Duration, err
 	if err := msg.Unpack(body); err != nil {
 		return 0, fmt.Errorf("unpack DNS response: %w", err)
 	}
-	if msg.Header.RCode != dnsmessage.RCodeSuccess {
-		return 0, fmt.Errorf("DNS rcode %s", msg.Header.RCode)
+	if msg.RCode != dnsmessage.RCodeSuccess {
+		return 0, fmt.Errorf("DNS rcode %s", msg.RCode)
 	}
 	return time.Since(start), nil
 }

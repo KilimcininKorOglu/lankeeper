@@ -95,6 +95,23 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	dohSvc := services.NewDoHService(cfg)
 	dnsHandler := handlers.NewDNSHandler(renderer, dnsSvc, dohSvc)
 
+	// On startup, if DoH is configured we apply the dnscrypt-proxy
+	// state up-front so the daemon is running BEFORE Unbound's
+	// first forward query lands. ApplyConfig is idempotent (writes
+	// + restart) so calling it on every boot is safe even when the
+	// state already matches.
+	if cfg.DNS.EnableDoH {
+		if err := dohSvc.ApplyConfig(context.Background()); err != nil {
+			log.Printf("doh: initial apply: %v", err)
+		}
+	} else {
+		// Render an idle stub so subsequent toggle-on doesn't need
+		// the proxy to find an empty config file.
+		if err := dohSvc.RenderToDisk(context.Background()); err != nil {
+			log.Printf("doh: initial render: %v", err)
+		}
+	}
+
 	dhcpSvc := services.NewDHCPService(cfg)
 	dhcpSvc.SetDNSService(dnsSvc)
 	dhcpHandler := handlers.NewDHCPHandler(renderer, dhcpSvc)

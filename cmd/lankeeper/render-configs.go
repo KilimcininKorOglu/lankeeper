@@ -41,6 +41,7 @@ func runRenderConfigs() error {
 	}
 	steps := []renderer{
 		{"dns/unbound", services.NewDNSService(cfg).RenderToDisk},
+		{"dns/dnscrypt-proxy", services.NewDoHService(cfg).RenderToDisk},
 		{"dhcp/dnsmasq", services.NewDHCPService(cfg).RenderToDisk},
 		{"ntp/chrony", services.NewNTPService(cfg).RenderToDisk},
 		{"syslog/rsyslog", services.NewSyslogService(cfg).RenderToDisk},
