@@ -16,6 +16,10 @@ PostDown = {{ .PostDown }}
 {{- end }}
 
 {{ range .Peers }}
+{{- /* Skip pending S2S peers: their PublicKey is empty until the
+       remote side returns its ack token, and wg-quick refuses to
+       parse a [Peer] block with no PublicKey. */ -}}
+{{- if and (not .Pending) .PublicKey }}
 [Peer]
 # {{ .Name }}
 PublicKey = {{ .PublicKey }}
@@ -30,3 +34,4 @@ Endpoint = {{ .Endpoint }}
 PersistentKeepalive = {{ .Keepalive }}
 {{- end }}
 {{ end }}
+{{- end }}
