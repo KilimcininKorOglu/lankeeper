@@ -2607,12 +2607,19 @@ v0.1.0 (2026-05-06) ile yukarıdaki 11 faz tamamlandı. Aşağıdaki başlıklar
 
 ### Sonraki adaylar (önceliksiz)
 
-- Backup snapshot scheduling (cron-bazlı otomatik dışa aktarım + S3/SFTP retention).
 - DNS-over-HTTPS upstream (Unbound 1.18+ ile native).
 - Metrik export endpoint (Prometheus formatı `/metrics`, sadece LAN-only).
 
 ### Tamamlananlar
 
+- Backup snapshot scheduling — `/backup` sayfası ile cron-bazlı
+  otomatik şifreli dışa aktarım. Local + S3-uyumlu (SigV4 native,
+  aws-sdk-go yok) + SFTP (`pkg/sftp` 5. direct dep) hedefleri,
+  per-target retention, 50 girişlik history ring buffer. Cron parser
+  `@hourly`/`@daily`/`@weekly`/`@monthly`/`@yearly` aliases + 5 alan
+  destekli (`*`, n, n-m, n,m,p, `*/k`). Hedef başına atomic write
+  (tmp + rename local/sftp; tek PUT s3). AES-256-GCM scrypt
+  pipeline'ına bağlı; boş passphrase form alanı stored değeri korur.
 - Per-client (per-MAC) bandwidth grafiği — `lankeeper_qos` nftables
   tablosuyla per-MAC counter çiftleri, `/events/qos` SSE kanalı,
   `/qos` sayfasında canlı tablo + sparkline. CAKE class stats yerine

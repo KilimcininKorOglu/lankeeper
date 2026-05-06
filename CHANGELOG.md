@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **(backup) Automated snapshot scheduling**: a new `/backup` page
+  drives encrypted config exports against multiple destinations on
+  a cron schedule. Supported targets: local (`/var/lib/lankeeper/
+  backups/`), S3-compatible (real S3 + MinIO + Backblaze B2 +
+  DigitalOcean Spaces via native SigV4 signing — no aws-sdk-go
+  dep), and SFTP (password or private-key auth via `pkg/sftp`).
+  Cron dialect supports the `@hourly`/`@daily`/`@weekly`/
+  `@monthly`/`@yearly` aliases plus 5-field `M H DOM Mo DOW`
+  with `*`, single values, comma lists, ranges and `*/k` steps.
+  Per-target retention prunes old backups (newest N kept) so a
+  flaky remote doesn't drag down healthy ones. Run history is a
+  50-entry ring buffer persisted to `router.yaml` so audit trails
+  survive restarts. Atomic write everywhere: tmp + rename for
+  local and SFTP, single PUT for S3. Encrypted with AES-256-GCM
+  via the existing scrypt-derived passphrase pipeline; empty
+  passphrase on form submit preserves the stored value (mirrors
+  PPPoE.Password and HE.UpdateKey UX). New endpoints:
+  `GET /backup`, `POST /backup/schedule`, `POST /backup/target`,
+  `DELETE /backup/target/{name}`, `POST /backup/run`,
+  `GET /backup/history`.
 - **(vpn) Site-to-Site wizard**: a new `/vpn/s2s` page lets two
   LANKeeper routers establish a WireGuard mesh by exchanging two
   HMAC-signed tokens — no manual key copy/paste between
