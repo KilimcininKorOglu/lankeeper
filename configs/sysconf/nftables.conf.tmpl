@@ -49,6 +49,14 @@ table inet filter {
         udp sport 547 udp dport 546 accept
 {{- end }}
 
+        # 6in4 (RFC 4213) — accept incoming protocol-41 (encapsulated
+        # IPv6) on the IPv4 WAN so the kernel sit driver can decap it.
+        # Tightened to ServerIPv4 so random hosts can't probe the
+        # tunnel endpoint.
+{{- if .SixInFourEnabled }}
+        ip saddr {{ .SixInFourServer }} ip protocol 41 accept
+{{- end }}
+
         log prefix "INPUT_DROP: " drop
     }
 
@@ -62,6 +70,16 @@ table inet filter {
 {{- range .LANInterfaces }}
 {{- range $.WANInterfaces }}
         iifname "{{ $.LANDevice }}" oifname "{{ .Device }}" accept
+{{- end }}
+{{- end }}
+
+        # LAN ↔ 6in4 tunnel (IPv6 only, NEVER MASQUERADE'd below).
+        # Mirror direction so HE-originated replies make it back to
+        # the LAN client.
+{{- range .LANInterfaces }}
+{{- range $.IPv6WANInterfaces }}
+        iifname "{{ $.LANDevice }}" oifname "{{ .Device }}" accept
+        iifname "{{ .Device }}" oifname "{{ $.LANDevice }}" accept
 {{- end }}
 {{- end }}
 

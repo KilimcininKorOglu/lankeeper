@@ -24,21 +24,29 @@ type FirewallService struct {
 type nftTemplateData struct {
 	LANInterfaces   []nftIface
 	WANInterfaces   []nftIface
-	LANDevice       string
-	WANDevice       string
-	IsolatedVLANs   []nftVLAN
-	VLANDevice      string
-	PortForwards    []config.PortForward
-	RateLimits      map[string]string
-	WebPort         int
-	IPv6Enabled     bool
-	USBNATEnabled   bool
-	USBInterface    string
-	TTLFixEnabled   bool
-	TTLFixValue     int
-	WGServerEnabled  bool
-	WGServerIface    string
-	WGClientIfaces   []string
+	// IPv6WANInterfaces lists IPv6-only WAN devices (today: the 6in4
+	// sit interface). Forwarded for LAN ↔ tunnel traffic but
+	// excluded from the IPv4 MASQUERADE block — there is no NAT66.
+	IPv6WANInterfaces []nftIface
+	LANDevice         string
+	WANDevice         string
+	IsolatedVLANs     []nftVLAN
+	VLANDevice        string
+	PortForwards      []config.PortForward
+	RateLimits        map[string]string
+	WebPort           int
+	IPv6Enabled       bool
+	// SixInFourEnabled gates the protocol-41 input rule. Set when
+	// cfg.IPv6.Mode == "6in4" and ServerIPv4 is non-empty.
+	SixInFourEnabled  bool
+	SixInFourServer   string
+	USBNATEnabled     bool
+	USBInterface      string
+	TTLFixEnabled     bool
+	TTLFixValue       int
+	WGServerEnabled   bool
+	WGServerIface     string
+	WGClientIfaces    []string
 	OVPNServerEnabled bool
 	OVPNServerIface   string
 }
@@ -281,6 +289,22 @@ func (s *FirewallService) buildTemplateData() *nftTemplateData {
 
 	if data.TTLFixValue == 0 {
 		data.TTLFixValue = 64
+	}
+
+	// 6in4 wiring: when the operator selected mode "6in4" and provided
+	// at least the ServerIPv4 + a tunnel device, expose the sit
+	// interface as an IPv6-only WAN so LAN can forward to it, and
+	// punch the protocol-41 ingress rule for the encapsulated traffic.
+	if s.cfg.IPv6.Mode == "6in4" && s.cfg.IPv6.Enabled != "off" {
+		dev := strings.TrimSpace(s.cfg.IPv6.Tunnel.Device)
+		if dev == "" {
+			dev = "lkt6in4"
+		}
+		data.IPv6WANInterfaces = append(data.IPv6WANInterfaces, nftIface{Device: dev})
+		if srv := strings.TrimSpace(s.cfg.IPv6.Tunnel.ServerIPv4); srv != "" {
+			data.SixInFourEnabled = true
+			data.SixInFourServer = srv
+		}
 	}
 
 	for _, iface := range s.cfg.Interfaces {
