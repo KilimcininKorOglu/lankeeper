@@ -89,6 +89,31 @@
         </form>
     </div>
 
+    <!-- Per-client bandwidth -->
+    <div class="card" style="margin-top:var(--space-2xl);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "qos.perClient.title" }}</span>
+            <span style="color:var(--text-secondary); font-size:var(--font-sm);">{{ t $.Lang "qos.perClient.subtitle" }}</span>
+        </div>
+        <div style="padding-top:var(--space-md);">
+            <table class="table" id="qos-clients-table">
+                <thead>
+                    <tr>
+                        <th>{{ t $.Lang "qos.perClient.host" }}</th>
+                        <th>{{ t $.Lang "qos.perClient.mac" }}</th>
+                        <th style="text-align:right;">{{ t $.Lang "qos.perClient.download" }}</th>
+                        <th style="text-align:right;">{{ t $.Lang "qos.perClient.upload" }}</th>
+                        <th>{{ t $.Lang "qos.perClient.spark" }}</th>
+                    </tr>
+                </thead>
+                <tbody id="qos-clients-tbody">
+                    <tr><td colspan="5" style="color:var(--text-secondary);">{{ t $.Lang "qos.perClient.waiting" }}</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
     {{ end }}
 </div>
+<script src="/static/js/qos-chart.js"></script>
 {{ end }}
