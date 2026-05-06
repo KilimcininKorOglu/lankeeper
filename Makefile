@@ -9,8 +9,8 @@ LDFLAGS := -s -w \
 	-X main.date=$(DATE)
 AMD64_BINARY := $(DIST_DIR)/$(BINARY)-linux-amd64
 ARM64_BINARY := $(DIST_DIR)/$(BINARY)-linux-arm64
-AMD64_ISO := $(DIST_DIR)/$(BINARY)-installer-amd64.iso
-ARM64_ISO := $(DIST_DIR)/$(BINARY)-installer-arm64.iso
+AMD64_ISO := $(DIST_DIR)/$(BINARY)-$(VERSION)-installer-amd64.iso
+ARM64_ISO := $(DIST_DIR)/$(BINARY)-$(VERSION)-installer-arm64.iso
 AMD64_RELEASE_DIR := $(DIST_DIR)/release-amd64
 ARM64_RELEASE_DIR := $(DIST_DIR)/release-arm64
 DEBIAN_AMD64_ISO ?= source_iso/debian-12.10.0-amd64-netinst.iso
@@ -117,7 +117,7 @@ release-all:
 	$(MAKE) checksums VERSION=$(VERSION)
 
 checksums:
-	@cd dist && { for f in $(BINARY)-$(VERSION)-linux-*.tar.gz $(BINARY)-installer-*.iso; do [ -f "$$f" ] && shasum -a 256 "$$f"; done; } > SHA256SUMS
+	@cd dist && { for f in $(BINARY)-$(VERSION)-linux-*.tar.gz $(BINARY)-$(VERSION)-installer-*.iso; do [ -f "$$f" ] && shasum -a 256 "$$f"; done; } > SHA256SUMS
 	@echo "Checksums: dist/SHA256SUMS"
 
 check:
