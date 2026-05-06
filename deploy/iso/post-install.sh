@@ -20,17 +20,48 @@ if [ -d /tmp/pool-extra ] && [ -f /tmp/pool-extra/Packages ]; then
     rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources
     echo "deb [trusted=yes] file:/tmp/pool-extra ./" > /etc/apt/sources.list
     apt-get update -qq
+    # Debian "Standard system utilities" task (minus systemd-timesyncd
+    # and inetutils-telnet) + LANKeeper-specific packages. Replicated
+    # manually because preseed.cfg disables tasksel for offline
+    # installs. Keep this list aligned with STANDARD_TASK_PACKAGES and
+    # LANKEEPER_PACKAGES in deploy/iso/build-iso.sh.
     apt-get install -y -qq \
-        bash ppp pppoe nftables wireguard-tools openvpn easy-rsa \
+        apt-listchanges apt-utils bash-completion bind9-dnsutils bind9-host \
+        bzip2 ca-certificates cpio cron cron-daemon-common debconf-i18n \
+        debian-faq doc-debian fdisk file gettext-base groff-base ifupdown \
+        init iputils-ping isc-dhcp-client isc-dhcp-common \
+        kmod krb5-locales less libc-l10n liblockfile-bin libnss-systemd \
+        libpam-systemd locales logrotate lsof man-db manpages media-types \
+        mime-support nano ncurses-term netbase netcat-traditional \
+        openssh-client pciutils perl procps python3-reportbug \
+        readline-common reportbug sensible-utils systemd systemd-sysv \
+        traceroute ucf udev vim-common vim-tiny wamerican \
+        wget whiptail xz-utils \
+        bash dbus ppp pppoe nftables wireguard-tools openvpn easy-rsa \
         samba samba-common-bin smartmontools mdadm iproute2 \
         unbound dnsmasq rsyslog chrony qrencode \
-        wide-dhcpv6-client curl jq hdparm openssh-server
+        wide-dhcpv6-client curl jq hdparm openssh-server htop
     cat > /etc/apt/sources.list <<'APT_SOURCES'
 deb http://deb.debian.org/debian bookworm main
 deb http://deb.debian.org/debian bookworm-updates main
 deb http://security.debian.org/debian-security bookworm-security main
 APT_SOURCES
 fi
+
+# Ensure the system message bus is enabled and started. Without dbus the
+# systemd CLIs (hostnamectl, timedatectl, localectl) fail with
+# "Failed to connect to bus" and the hostnamectl call later in this
+# script silently degrades to /etc/hostname only. systemctl enable starts
+# at next boot; --now starts it immediately so the steps below succeed.
+systemctl unmask dbus.service dbus.socket 2>/dev/null || true
+systemctl enable --now dbus.socket 2>/dev/null || true
+systemctl enable --now dbus.service 2>/dev/null || true
+
+# Mask systemd-timesyncd defensively. The package is intentionally
+# excluded from the offline repo (chrony owns NTP), but a future
+# `apt install` from the public mirror could bring it in. Masking now
+# guarantees chrony stays the sole NTP client.
+systemctl mask systemd-timesyncd.service 2>/dev/null || true
 
 # Set timezone chosen in the installer. This avoids depending on d-i's
 # time/zone template availability during CD preseed loading.

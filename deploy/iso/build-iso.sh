@@ -58,12 +58,48 @@ if [[ "$APT_ARCH" != "$ARCH" ]]; then
     exit 1
 fi
 
-PACKAGES=(
-    bash ppp pppoe nftables wireguard-tools openvpn easy-rsa
+# Debian "Standard system utilities" task — pulled by tasksel on a stock
+# netinst but skipped here because preseed.cfg sets pkgsel/run_tasksel
+# false to keep the install fully offline. Sourced from
+# `tasksel --task-packages standard` (Debian 12 bookworm) and trimmed
+# against LANKeeper's own daemon set:
+#
+#   * systemd-timesyncd is OMITTED — it Provides "time-daemon", the
+#     same slot chrony provides; chrony is the canonical NTP daemon
+#     here, so shipping both creates an enable/mask race.
+#   * inetutils-telnet is OMITTED — clear-text Telnet client has no
+#     legitimate use on a router and its absence is a small security
+#     win.
+#
+# Everything else from the Standard task is kept verbatim. bind9-host
+# and bind9-dnsutils ship only the dig/host/nslookup/nsupdate clients
+# (no `named`), so they do NOT collide with unbound. isc-dhcp-client
+# is the WAN-side client (`dhclient`, already whitelisted by the
+# agent) and does NOT collide with dnsmasq, which only acts as a DHCP
+# server.
+STANDARD_TASK_PACKAGES=(
+    apt-listchanges apt-utils bash-completion bind9-dnsutils bind9-host
+    bzip2 ca-certificates cpio cron cron-daemon-common debconf-i18n
+    debian-faq doc-debian fdisk file gettext-base groff-base ifupdown
+    init iputils-ping isc-dhcp-client isc-dhcp-common
+    kmod krb5-locales less libc-l10n liblockfile-bin libnss-systemd
+    libpam-systemd locales logrotate lsof man-db manpages media-types
+    mime-support nano ncurses-term netbase netcat-traditional
+    openssh-client pciutils perl procps python3-reportbug
+    readline-common reportbug sensible-utils systemd systemd-sysv
+    traceroute ucf udev vim-common vim-tiny wamerican
+    wget whiptail xz-utils
+)
+
+# LANKeeper-specific runtime packages (router daemons + admin tooling).
+LANKEEPER_PACKAGES=(
+    bash dbus ppp pppoe nftables wireguard-tools openvpn easy-rsa
     samba samba-common-bin smartmontools mdadm iproute2
     unbound dnsmasq rsyslog chrony qrencode
-    wide-dhcpv6-client curl jq hdparm openssh-server
+    wide-dhcpv6-client curl jq hdparm openssh-server htop
 )
+
+PACKAGES=( "${STANDARD_TASK_PACKAGES[@]}" "${LANKEEPER_PACKAGES[@]}" )
 
 echo "=== Building LANKeeper Installer ISO ==="
 echo "  Architecture: $ARCH"
