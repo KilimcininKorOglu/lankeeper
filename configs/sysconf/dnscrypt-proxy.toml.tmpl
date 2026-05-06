@@ -1,0 +1,41 @@
+# dnscrypt-proxy.toml rendered by lankeeper.
+# Do not edit by hand - changes will be overwritten on next ApplyConfig.
+
+listen_addresses = ['127.0.0.1:5353']
+{{- if .ServerNames }}
+server_names = [{{ range $i, $n := .ServerNames }}{{ if $i }}, {{ end }}'{{ $n }}'{{ end }}]
+{{- end }}
+
+ipv6_servers = false
+dnscrypt_servers = false
+doh_servers = true
+odoh_servers = false
+require_dnssec = true
+require_nolog = true
+require_nofilter = false
+http3 = false
+ignore_system_dns = true
+netprobe_timeout = 60
+log_level = 2
+log_file = '/var/log/dnscrypt-proxy.log'
+use_syslog = false
+cert_refresh_delay = 240
+timeout = 5000
+keepalive = 30
+
+[sources]
+  [sources.public-resolvers]
+  urls = ['https://download.dnscrypt.info/resolvers-list/v3/public-resolvers.md', 'https://raw.githubusercontent.com/DNSCrypt/dnscrypt-resolvers/master/v3/public-resolvers.md']
+  cache_file = '/var/cache/dnscrypt-proxy/public-resolvers.md'
+  minisign_key = 'RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3'
+  refresh_delay = 72
+  prefix = ''
+
+{{- if .CustomServers }}
+
+[static]
+{{- range .CustomServers }}
+  [static.'{{ .Name }}']
+  stamp = '{{ .Stamp }}'
+{{- end }}
+{{- end }}
