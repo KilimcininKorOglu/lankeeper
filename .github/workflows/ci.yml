@@ -1,0 +1,69 @@
+name: CI
+
+# Push/PR to main runs the same gates a developer would: compile, race
+# tests, golangci-lint, go vet, and govulncheck against vuln.go.dev.
+# Keep these aligned with the Makefile so contributors can reproduce
+# every failure locally with `make test lint`.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          # Pinned to the toolchain declared in go.mod so CI matches
+          # local builds; bump together with go.mod.
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test (race + count=1)
+        # Mirror `make test` — never invoke `go test` directly outside
+        # CI, but the Makefile target adds nothing useful in CI so we
+        # call go test inline to keep the matrix readable.
+        run: go test ./... -race -count=1
+
+      - name: go vet
+        run: go vet ./...
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: Scan
+        run: govulncheck ./...

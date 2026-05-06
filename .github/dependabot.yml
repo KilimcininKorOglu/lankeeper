@@ -1,0 +1,26 @@
+# Dependabot keeps the four direct Go modules current and surfaces
+# new CVE fixes as PRs without waiting for a manual `go get -u`. Keep
+# the schedule weekly so the PR cadence does not drown the solo
+# maintainer; security advisories still land out of band.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - dependencies
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore(ci)"
+    labels:
+      - ci
+      - dependencies
