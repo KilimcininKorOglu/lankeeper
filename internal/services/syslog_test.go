@@ -80,6 +80,53 @@ func TestSyslogSaveServerEmptyPathsAccepted(t *testing.T) {
 	}
 }
 
+// TestSyslogSaveServerRejectsPathTraversalLogPath verifies that an
+// authenticated operator cannot point rsyslog's dynaFile root at
+// privileged directories. With LAN syslog clients writing message
+// content the attacker could otherwise plant files in /etc/cron.d,
+// /etc/sudoers.d, etc., enabling local privilege escalation. (BUG-068)
+func TestSyslogSaveServerRejectsPathTraversalLogPath(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"cron.d", "/etc/cron.d"},
+		{"sudoers.d", "/etc/sudoers.d"},
+		{"profile.d", "/etc/profile.d"},
+		{"crontabs", "/var/spool/cron/crontabs"},
+		{"relative path", "var/log/lankeeper"},
+		{"traversal segments", "/var/log/../etc/cron.d"},
+		{"root /", "/"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.DefaultConfig()
+			cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
+			svc := services.NewSyslogService(cfg)
+			err := svc.SaveServerConfig(config.SyslogServerConfig{LogPath: tc.path})
+			if err == nil {
+				t.Fatalf("expected error for log_path=%q, got nil", tc.path)
+			}
+			if !strings.Contains(err.Error(), "log_path") {
+				t.Errorf("error should name log_path, got %q", err.Error())
+			}
+		})
+	}
+}
+
+// TestSyslogSaveServerAcceptsVarLogPaths covers legitimate operator
+// paths so the validator stays usable.
+func TestSyslogSaveServerAcceptsVarLogPaths(t *testing.T) {
+	for _, p := range []string{"/var/log/lankeeper", "/var/log/syslog", "/var/log"} {
+		cfg := config.DefaultConfig()
+		cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
+		svc := services.NewSyslogService(cfg)
+		if err := svc.SaveServerConfig(config.SyslogServerConfig{LogPath: p}); err != nil {
+			t.Fatalf("expected accept for %q, got %v", p, err)
+		}
+	}
+}
+
 // TestSyslogSaveClientRejectsPathTraversalCAFile mirrors the server
 // test for the client-side CA field, which feeds the same rsyslog
 // directive on a forwarding client.

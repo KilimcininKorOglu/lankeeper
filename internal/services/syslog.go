@@ -94,8 +94,37 @@ func (s *SyslogService) SaveServerConfig(cfg config.SyslogServerConfig) error {
 	if err := validateTLSPath("tls_ca_file", cfg.TLSCAFile); err != nil {
 		return err
 	}
+	if err := validateLogPath(cfg.LogPath); err != nil {
+		return err
+	}
 	s.cfg.Syslog.Server = cfg
 	return s.cfg.SaveToFile()
+}
+
+// validateLogPath restricts the dynaFile root in rsyslog.conf to
+// /var/log/. rsyslog runs as root and creates dynamic log files
+// under this prefix; without the gate an authenticated operator
+// could pivot it into /etc/cron.d, /etc/sudoers.d, /etc/profile.d
+// and friends, with LAN syslog clients influencing file content for
+// potential local privilege escalation. (BUG-068)
+func validateLogPath(p string) error {
+	if p == "" {
+		// rsyslog template falls back to a sane default when empty;
+		// treat blank as "leave it unconfigured".
+		return nil
+	}
+	if !filepath.IsAbs(p) {
+		return fmt.Errorf("syslog log_path must be an absolute path, got %q", p)
+	}
+	clean := filepath.Clean(p)
+	if clean != p {
+		return fmt.Errorf("syslog log_path contains traversal segments; expected %q, got %q", clean, p)
+	}
+	const root = "/var/log/"
+	if clean != "/var/log" && !strings.HasPrefix(clean+"/", root) {
+		return fmt.Errorf("syslog log_path %q must live under /var/log/", p)
+	}
+	return nil
 }
 
 // SaveClientConfig replaces the client-side syslog config (forwarding our
