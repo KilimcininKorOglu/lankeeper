@@ -123,6 +123,16 @@ func (f *fakeAgent) execCount(cmd string) int {
 	return n
 }
 
+// execCallsCopy returns a snapshot of the recorded exec.run calls so
+// callers can inspect args without holding the agent lock.
+func (f *fakeAgent) execCallsCopy() []execCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]execCall, len(f.execLog))
+	copy(out, f.execLog)
+	return out
+}
+
 func (f *fakeAgent) wroteFile(suffix string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()

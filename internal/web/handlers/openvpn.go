@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -145,7 +146,9 @@ func (h *OpenVPNHandler) HandleDownloadOVPN(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *OpenVPNHandler) HandleServerStart(w http.ResponseWriter, r *http.Request) {
-	if err := h.ovpn.ServerStart(r.Context()); err != nil {
+	// "Already running" treated as a no-op; see VPN handler comment
+	// for rationale.
+	if err := h.ovpn.ServerStart(r.Context()); err != nil && !errors.Is(err, services.ErrOpenVPNAlreadyRunning) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -158,7 +161,7 @@ func (h *OpenVPNHandler) HandleServerStart(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *OpenVPNHandler) HandleServerStop(w http.ResponseWriter, r *http.Request) {
-	if err := h.ovpn.ServerStop(r.Context()); err != nil {
+	if err := h.ovpn.ServerStop(r.Context()); err != nil && !errors.Is(err, services.ErrOpenVPNAlreadyStopped) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

@@ -17,6 +17,12 @@ import (
 type VPNService struct {
 	cfg *config.Config
 	mu  sync.RWMutex
+	// running tracks whether wgs0 has been brought up by this
+	// process. Guarded by mu. ServerUp/ServerDown short-circuit when
+	// the desired state already holds so a double-click in the UI
+	// (or two browser tabs) cannot drive `wg-quick up/down` in
+	// parallel and leave the kernel interface half-configured.
+	running bool
 }
 
 func NewVPNService(cfg *config.Config) *VPNService {
@@ -190,17 +196,42 @@ func (s *VPNService) ServerStatus(ctx context.Context) (*WGServerStatus, error) 
 	return status, nil
 }
 
+// ErrVPNAlreadyRunning is returned when ServerUp is called while the
+// wgs0 interface is already up under this process, and the analogous
+// "already stopped" condition for ServerDown. Callers can choose to
+// surface a UI message or treat as a no-op.
+var (
+	ErrVPNAlreadyRunning = fmt.Errorf("wireguard server already running")
+	ErrVPNAlreadyStopped = fmt.Errorf("wireguard server already stopped")
+)
+
 func (s *VPNService) ServerUp(ctx context.Context) error {
-	if err := s.RenderServerConfig(ctx); err != nil {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.running {
+		return ErrVPNAlreadyRunning
+	}
+	if err := s.renderServerConfig("/etc/wireguard/wgs0.conf"); err != nil {
 		return err
 	}
-	_, err := netutil.Run(ctx, "wg-quick", "up", "wgs0")
-	return err
+	if _, err := netutil.Run(ctx, "wg-quick", "up", "wgs0"); err != nil {
+		return err
+	}
+	s.running = true
+	return nil
 }
 
 func (s *VPNService) ServerDown(ctx context.Context) error {
-	_, err := netutil.Run(ctx, "wg-quick", "down", "wgs0")
-	return err
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.running {
+		return ErrVPNAlreadyStopped
+	}
+	if _, err := netutil.Run(ctx, "wg-quick", "down", "wgs0"); err != nil {
+		return err
+	}
+	s.running = false
+	return nil
 }
 
 // RenderServerConfig writes /etc/wireguard/wgs0.conf without bringing the

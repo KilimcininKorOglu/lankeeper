@@ -19,7 +19,19 @@ import (
 type OpenVPNService struct {
 	cfg *config.Config
 	mu  sync.RWMutex
+	// running tracks whether `openvpn@server` has been started by
+	// this process. Guarded by mu. ServerStart/ServerStop
+	// short-circuit when the desired state already holds so a
+	// concurrent UI click cannot race two systemctl invocations.
+	running bool
 }
+
+// ErrOpenVPNAlreadyRunning / ErrOpenVPNAlreadyStopped let handlers
+// distinguish a benign idempotent retry from a genuine failure.
+var (
+	ErrOpenVPNAlreadyRunning = fmt.Errorf("openvpn server already running")
+	ErrOpenVPNAlreadyStopped = fmt.Errorf("openvpn server already stopped")
+)
 
 func NewOpenVPNService(cfg *config.Config) *OpenVPNService {
 	return &OpenVPNService{cfg: cfg}
@@ -380,16 +392,32 @@ func subnetFromCIDR(cidr string) string {
 }
 
 func (s *OpenVPNService) ServerStart(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.running {
+		return ErrOpenVPNAlreadyRunning
+	}
 	if err := s.RenderServerConfig(); err != nil {
 		return fmt.Errorf("render config: %w", err)
 	}
-	_, err := netutil.Run(ctx, "systemctl", "start", "openvpn@server")
-	return err
+	if _, err := netutil.Run(ctx, "systemctl", "start", "openvpn@server"); err != nil {
+		return err
+	}
+	s.running = true
+	return nil
 }
 
 func (s *OpenVPNService) ServerStop(ctx context.Context) error {
-	_, err := netutil.Run(ctx, "systemctl", "stop", "openvpn@server")
-	return err
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.running {
+		return ErrOpenVPNAlreadyStopped
+	}
+	if _, err := netutil.Run(ctx, "systemctl", "stop", "openvpn@server"); err != nil {
+		return err
+	}
+	s.running = false
+	return nil
 }
 
 func (s *OpenVPNService) ImportClientConfig(name, ovpnContent string) {

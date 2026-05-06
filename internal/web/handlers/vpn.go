@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"regexp"
@@ -109,7 +110,11 @@ func (h *VPNHandler) HandleRemovePeer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *VPNHandler) HandleServerStart(w http.ResponseWriter, r *http.Request) {
-	if err := h.vpn.ServerUp(r.Context()); err != nil {
+	// "Already running" is treated as a no-op so a double-click in
+	// the UI is benign rather than throwing a 500. The mutex inside
+	// ServerUp serialises concurrent requests; the second one finds
+	// `running == true` and returns ErrVPNAlreadyRunning.
+	if err := h.vpn.ServerUp(r.Context()); err != nil && !errors.Is(err, services.ErrVPNAlreadyRunning) {
 		log.Printf("vpn server start: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -123,7 +128,7 @@ func (h *VPNHandler) HandleServerStart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *VPNHandler) HandleServerStop(w http.ResponseWriter, r *http.Request) {
-	if err := h.vpn.ServerDown(r.Context()); err != nil {
+	if err := h.vpn.ServerDown(r.Context()); err != nil && !errors.Is(err, services.ErrVPNAlreadyStopped) {
 		log.Printf("vpn server stop: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
