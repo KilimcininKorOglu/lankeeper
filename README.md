@@ -284,4 +284,4 @@ GRUB boot menu is rebranded with the new version on success.
 
 ## License
 
-This project is private software. All rights reserved.
+Released under the [MIT License](LICENSE). Copyright (c) 2026 KilimcininKorOglu.
