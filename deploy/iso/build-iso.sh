@@ -213,6 +213,17 @@ mkdir -p "$BUILD_DIR/iso/pool/extra"
 cp "$PACKAGE_REPO_DIR"/*.deb "$BUILD_DIR/iso/pool/extra/"
 cp "$PACKAGE_REPO_DIR"/Packages "$PACKAGE_REPO_DIR"/Packages.gz "$BUILD_DIR/iso/pool/extra/"
 
+# Generate a SHA-256 manifest for every .deb plus the Packages
+# indices. post-install.sh verifies this before invoking apt-get so a
+# tampered ISO (where APT runs with [trusted=yes] against an unsigned
+# local repo) cannot silently install backdoored .debs. The manifest
+# itself is unsigned — it only catches accidental corruption and
+# tampering inside the bundled pool, not a fully replaced ISO; ISO
+# distribution integrity is delegated to the outer dist/SHA256SUMS.
+pushd "$BUILD_DIR/iso/pool/extra" >/dev/null
+sha256sum --tag *.deb Packages Packages.gz > SHA256SUMS
+popd >/dev/null
+
 echo "[4/7] Adding lankeeper files..."
 cp "$BINARY_PATH" "$BUILD_DIR/iso/lankeeper"
 cp "$SCRIPT_DIR/preseed.cfg" "$BUILD_DIR/iso/"

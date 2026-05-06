@@ -22,6 +22,24 @@ echo "=== LANKeeper Kurulum Sonrası / Post-Install ==="
 # pointed only at this flat repo so an offline router install never prompts
 # for a Debian CD label or network mirror.
 if [ -d /tmp/pool-extra ] && [ -f /tmp/pool-extra/Packages ]; then
+    # APT runs with [trusted=yes] against this flat repo because we
+    # cannot ship a signed Release file from an offline ISO without
+    # carrying a key we'd have to also distribute. Defend against
+    # tampering in the bundled pool by verifying the build-time
+    # SHA-256 manifest before APT touches a single .deb. A mismatch
+    # is fatal — installing an unverified package as root from an
+    # ISO an attacker may have rewritten is exactly what we are
+    # avoiding here.
+    if [ ! -f /tmp/pool-extra/SHA256SUMS ]; then
+        echo "HATA / ERROR: pool-extra/SHA256SUMS yok; kurulum güvenli değil / missing manifest, refusing to install" >&2
+        exit 1
+    fi
+    if ! ( cd /tmp/pool-extra && sha256sum -c --quiet --strict SHA256SUMS ); then
+        echo "HATA / ERROR: pool-extra SHA-256 doğrulaması başarısız / package pool integrity check failed" >&2
+        exit 1
+    fi
+    echo "pool-extra integrity verified ($(grep -c '' /tmp/pool-extra/SHA256SUMS) entries)"
+
     cp /etc/apt/sources.list /etc/apt/sources.list.lankeeper.bak 2>/dev/null || true
     mkdir -p /etc/apt/sources.list.d
     rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources
