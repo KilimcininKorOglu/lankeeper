@@ -128,7 +128,26 @@ pushd "$PACKAGE_REPO_DIR" >/dev/null
 # the inputs and skip the resolve when the hash matches a saved
 # manifest. Falls through to a fresh resolve on any mismatch.
 DEPS_INPUT_HASH=$(printf '%s\n' "${PACKAGES[@]}" | sort | sha256sum | awk '{print $1}')
-APT_SIGNATURE=$( { stat -c '%Y' /var/lib/apt/lists/* 2>/dev/null; cat /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null; } | sha256sum | awk '{print $1}')
+# Apt source signature: hash file mtimes of source-list inputs. Use only
+# regular files (not directories like /var/lib/apt/lists/partial) and
+# tolerate empty matches via nullglob. Wrapped in an explicit subshell
+# with `|| true` so a transient stat error never trips `set -euo
+# pipefail` upstream.
+APT_SIGNATURE=$(
+    set +e
+    shopt -s nullglob
+    files=()
+    for f in /var/lib/apt/lists/*Release /var/lib/apt/lists/*Packages* \
+             /etc/apt/sources.list /etc/apt/sources.list.d/*.list \
+             /etc/apt/sources.list.d/*.sources; do
+        [[ -f "$f" ]] && files+=( "$f" )
+    done
+    if [[ ${#files[@]} -gt 0 ]]; then
+        stat -c '%n %Y' "${files[@]}" 2>/dev/null | sha256sum | awk '{print $1}'
+    else
+        echo empty
+    fi
+)
 DEPS_CACHE_FILE="$PACKAGE_REPO_DIR/.deps.$DEPS_INPUT_HASH.$APT_SIGNATURE.txt"
 
 if [[ -s "$DEPS_CACHE_FILE" ]]; then
