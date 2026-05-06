@@ -226,6 +226,11 @@ popd >/dev/null
 
 echo "[4/7] Adding lankeeper files..."
 cp "$BINARY_PATH" "$BUILD_DIR/iso/lankeeper"
+# Pin a SHA-256 of the lankeeper binary alongside it so the
+# preseed/post-install pipeline can refuse a tampered ISO before it
+# installs a backdoored web/agent binary as root. The manifest is a
+# single GNU `sha256sum` line — directly fed to `sha256sum -c`.
+( cd "$BUILD_DIR/iso" && sha256sum lankeeper > lankeeper.sha256 )
 cp "$SCRIPT_DIR/preseed.cfg" "$BUILD_DIR/iso/"
 cp "$SCRIPT_DIR/post-install.sh" "$BUILD_DIR/iso/"
 sed -i "s|__LANKEEPER_VERSION__|$SED_VERSION|g" "$BUILD_DIR/iso/post-install.sh"
