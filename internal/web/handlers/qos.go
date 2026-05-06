@@ -42,7 +42,10 @@ func (h *QoSHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *QoSHandler) HandleApply(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 
 	if profile := r.FormValue("profile"); profile != "" {
 		if profile != "default" && profile != "gaming" && profile != "streaming" && profile != "voip" {

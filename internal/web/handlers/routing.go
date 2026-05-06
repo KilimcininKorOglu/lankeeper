@@ -40,7 +40,10 @@ func (h *RoutingHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *RoutingHandler) HandleAddPolicy(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 
 	policy := config.RoutingPolicy{
 		Name:    r.FormValue("name"),

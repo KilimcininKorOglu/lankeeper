@@ -142,7 +142,9 @@ func generateSelfSigned(cfg *TLSConfig, certPath, keyPath string) (*TLSCertInfo,
 	if err := atomicWrite(keyPath, keyPEM); err != nil {
 		return nil, fmt.Errorf("write key: %w", err)
 	}
-	os.Chmod(keyPath, 0o600)
+	if err := os.Chmod(keyPath, 0o600); err != nil {
+		return nil, fmt.Errorf("chmod key: %w", err)
+	}
 
 	return readCertInfo(certPath, keyPath)
 }

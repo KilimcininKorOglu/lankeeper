@@ -145,11 +145,18 @@ func (s *NASService) SyncM3U(ctx context.Context) error {
 		}
 
 		filtered := filterM3UItems(items, source.IncludeGroups, source.ExcludeGroups)
-		os.MkdirAll(source.DownloadPath, 0o755)
+		if err := os.MkdirAll(source.DownloadPath, 0o755); err != nil {
+			log.Printf("m3u sync: mkdir %s: %v", source.DownloadPath, err)
+			continue
+		}
 
 		for _, item := range filtered {
 			groupDir := filepath.Join(source.DownloadPath, sanitizePath(item.Group))
-			os.MkdirAll(groupDir, 0o755)
+			if err := os.MkdirAll(groupDir, 0o755); err != nil {
+				log.Printf("m3u sync: mkdir %s: %v", groupDir, err)
+				totalErrors++
+				continue
+			}
 
 			strmPath := filepath.Join(groupDir, sanitizePath(item.Title)+".strm")
 			if err := os.WriteFile(strmPath, []byte(item.URL+"\n"), 0o644); err != nil {
@@ -184,7 +191,9 @@ func (s *NASService) StartScheduledSync(ctx context.Context) {
 				case <-ctx.Done():
 					return
 				case <-ticker.C:
-					s.SyncM3U(ctx)
+					if err := s.SyncM3U(ctx); err != nil {
+						log.Printf("m3u scheduled sync: %v", err)
+					}
 				}
 			}
 		}(source)
@@ -213,7 +222,7 @@ func downloadAndParseM3U(ctx context.Context, url string) ([]M3UItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var items []M3UItem
 	var currentGroup, currentTitle string

@@ -58,7 +58,9 @@ func (s *OpenVPNService) InitPKI(ctx context.Context) error {
 	easyrsa := "/usr/share/easy-rsa/easyrsa"
 	env := []string{"EASYRSA_PKI=" + pkiDir}
 
-	netutil.MkdirAll(pkiDir, 0o700)
+	if err := netutil.MkdirAll(pkiDir, 0o700); err != nil {
+		return fmt.Errorf("mkdir pki: %w", err)
+	}
 
 	if _, err := netutil.RunWithEnv(ctx, env, easyrsa, "init-pki"); err != nil {
 		return fmt.Errorf("init-pki: %w", err)
@@ -121,7 +123,9 @@ func (s *OpenVPNService) AddClient(ctx context.Context, name string, siteToSite 
 		log.Printf("write CCD for %s: %v", name, err)
 	}
 
-	s.persist()
+	if err := s.persist(); err != nil {
+		return fmt.Errorf("persist: %w", err)
+	}
 	log.Printf("OpenVPN client %q added (s2s=%v)", name, siteToSite)
 	return nil
 }
@@ -151,7 +155,9 @@ func (s *OpenVPNService) RevokeClient(ctx context.Context, name string) error {
 	}
 	s.mu.Unlock()
 
-	s.persist()
+	if err := s.persist(); err != nil {
+		return fmt.Errorf("persist: %w", err)
+	}
 	log.Printf("OpenVPN client %q revoked", name)
 	return nil
 }
@@ -284,8 +290,12 @@ func (s *OpenVPNService) RenderServerConfig() error {
 		}
 	}
 
-	netutil.MkdirAll("/etc/openvpn", 0o755)
-	netutil.MkdirAll("/etc/openvpn/ccd", 0o755)
+	if err := netutil.MkdirAll("/etc/openvpn", 0o755); err != nil {
+		return fmt.Errorf("mkdir /etc/openvpn: %w", err)
+	}
+	if err := netutil.MkdirAll("/etc/openvpn/ccd", 0o755); err != nil {
+		return fmt.Errorf("mkdir /etc/openvpn/ccd: %w", err)
+	}
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
@@ -309,7 +319,9 @@ func (s *OpenVPNService) RenderServerConfig() error {
 
 func (s *OpenVPNService) writeCCD(entry config.OVPNClientEntry) error {
 	ccdDir := "/etc/openvpn/ccd"
-	netutil.MkdirAll(ccdDir, 0o755)
+	if err := netutil.MkdirAll(ccdDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir ccd: %w", err)
+	}
 
 	var sb strings.Builder
 
@@ -388,7 +400,9 @@ func (s *OpenVPNService) ImportClientConfig(name, ovpnContent string) {
 		Name:       name,
 		ConfigFile: ovpnContent,
 	})
-	s.persist()
+	if err := s.persist(); err != nil {
+		log.Printf("openvpn add inbound client: persist: %v", err)
+	}
 }
 
 func (s *OpenVPNService) AddOutboundClient(client config.OVPNClientConfig) error {
@@ -441,7 +455,9 @@ func (s *OpenVPNService) renderClientConfig(c config.OVPNClientConfig, confPath 
 	if c.Username != "" && c.Password != "" {
 		authPath := fmt.Sprintf("/etc/openvpn/client/%s-auth.txt", c.Name)
 		authContent := fmt.Sprintf("%s\n%s\n", c.Username, c.Password)
-		netutil.WriteFile(authPath, []byte(authContent), 0o600)
+		if err := netutil.WriteFile(authPath, []byte(authContent), 0o600); err != nil {
+			return fmt.Errorf("write auth file: %w", err)
+		}
 	}
 
 	return nil
@@ -451,7 +467,9 @@ func (s *OpenVPNService) ConnectClient(ctx context.Context, name string) error {
 	for _, c := range s.cfg.OpenVPN.Clients {
 		if c.Name == name {
 			confPath := fmt.Sprintf("/etc/openvpn/client/%s.conf", name)
-			netutil.MkdirAll("/etc/openvpn/client", 0o700)
+			if err := netutil.MkdirAll("/etc/openvpn/client", 0o700); err != nil {
+				return fmt.Errorf("mkdir client dir: %w", err)
+			}
 
 			if err := s.renderClientConfig(c, confPath); err != nil {
 				return fmt.Errorf("render client config: %w", err)
@@ -470,8 +488,12 @@ func (s *OpenVPNService) DisconnectClient(ctx context.Context, name string) erro
 	pidData, err := os.ReadFile(pidFile)
 	if err == nil {
 		pid := strings.TrimSpace(string(pidData))
-		netutil.Run(ctx, "kill", pid)
-		os.Remove(pidFile)
+		if _, err := netutil.Run(ctx, "kill", pid); err != nil {
+			log.Printf("openvpn disconnect %s: kill: %v", name, err)
+		}
+		if err := os.Remove(pidFile); err != nil {
+			log.Printf("openvpn disconnect %s: remove pidfile: %v", name, err)
+		}
 	}
 	log.Printf("OpenVPN client %q disconnected", name)
 	return nil

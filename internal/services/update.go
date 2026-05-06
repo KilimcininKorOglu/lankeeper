@@ -142,7 +142,7 @@ func (s *UpdateService) CheckForUpdate(ctx context.Context) (*UpdateInfo, error)
 	if err != nil {
 		return nil, fmt.Errorf("fetch releases: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
@@ -190,7 +190,9 @@ func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error
 
 	if s.backup != nil {
 		backupPath := fmt.Sprintf("/var/lib/lankeeper/backups/pre-update-%s.tar.gz", info.LatestVersion)
-		os.MkdirAll(filepath.Dir(backupPath), 0o755)
+		if err := os.MkdirAll(filepath.Dir(backupPath), 0o755); err != nil {
+			log.Printf("pre-update backup: mkdir: %v", err)
+		}
 		if err := s.backup.Export(ctx, backupPath, ""); err != nil {
 			log.Printf("pre-update backup failed (continuing): %v", err)
 		}
@@ -200,7 +202,7 @@ func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error
 	if err := s.downloadFile(ctx, info.DownloadURL, tmpArchive); err != nil {
 		return fmt.Errorf("download: %w", err)
 	}
-	defer os.Remove(tmpArchive)
+	defer func() { _ = os.Remove(tmpArchive) }()
 
 	if err := s.verifyChecksum(ctx, info, tmpArchive); err != nil {
 		return fmt.Errorf("checksum verification: %w", err)
@@ -210,7 +212,7 @@ func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error
 	if err := s.extractBinary(tmpArchive, tmpBinary); err != nil {
 		return fmt.Errorf("extract: %w", err)
 	}
-	defer os.Remove(tmpBinary)
+	defer func() { _ = os.Remove(tmpBinary) }()
 
 	backupBinary := s.binaryPath + ".bak"
 	if _, err := netutil.Run(ctx, "cp", "-f", s.binaryPath, backupBinary); err != nil {
@@ -218,19 +220,27 @@ func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error
 	}
 
 	if _, err := netutil.Run(ctx, "cp", "-f", tmpBinary, s.binaryPath); err != nil {
-		netutil.Run(ctx, "cp", "-f", backupBinary, s.binaryPath)
+		// Best-effort rollback; if the restore also fails the operator
+		// has the .bak file to recover by hand.
+		if _, rbErr := netutil.Run(ctx, "cp", "-f", backupBinary, s.binaryPath); rbErr != nil {
+			log.Printf("update: rollback failed: %v", rbErr)
+		}
 		return fmt.Errorf("install binary: %w", err)
 	}
 
 	if _, err := netutil.Run(ctx, "chmod", "+x", s.binaryPath); err != nil {
-		netutil.Run(ctx, "cp", "-f", backupBinary, s.binaryPath)
+		if _, rbErr := netutil.Run(ctx, "cp", "-f", backupBinary, s.binaryPath); rbErr != nil {
+			log.Printf("update: rollback failed: %v", rbErr)
+		}
 		return fmt.Errorf("chmod: %w", err)
 	}
 
 	out, err := s.runBinaryVersion(ctx)
 	if err != nil || !strings.Contains(out, strings.TrimPrefix(info.LatestVersion, "v")) {
 		log.Printf("version check failed after install: %v (output: %s)", err, out)
-		netutil.Run(ctx, "cp", "-f", backupBinary, s.binaryPath)
+		if _, rbErr := netutil.Run(ctx, "cp", "-f", backupBinary, s.binaryPath); rbErr != nil {
+			log.Printf("update: rollback failed: %v", rbErr)
+		}
 		return fmt.Errorf("version verification failed")
 	}
 
@@ -241,7 +251,9 @@ func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error
 		AppliedAt:       time.Now().UTC(),
 	}
 	if err := s.saveUpdateState(state); err != nil {
-		netutil.Run(ctx, "cp", "-f", backupBinary, s.binaryPath)
+		if _, rbErr := netutil.Run(ctx, "cp", "-f", backupBinary, s.binaryPath); rbErr != nil {
+			log.Printf("update: rollback failed: %v", rbErr)
+		}
 		return fmt.Errorf("save update state: %w", err)
 	}
 
@@ -257,7 +269,9 @@ func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error
 	log.Printf("update to %s applied, waiting for confirmation (60s watchdog)", info.LatestVersion)
 
 	s.updateBootBranding(ctx, info.LatestVersion)
-	netutil.Run(ctx, "systemctl", "restart", "lankeeper.target")
+	if _, err := netutil.Run(ctx, "systemctl", "restart", "lankeeper.target"); err != nil {
+		log.Printf("update: systemctl restart: %v", err)
+	}
 
 	return nil
 }
@@ -272,7 +286,9 @@ func (s *UpdateService) ConfirmUpdate(ctx context.Context) error {
 	}
 
 	if s.backupBinary != "" {
-		netutil.Run(ctx, "rm", "-f", s.backupBinary)
+		if _, err := netutil.Run(ctx, "rm", "-f", s.backupBinary); err != nil {
+			log.Printf("update: remove backup binary: %v", err)
+		}
 	}
 	if err := s.clearUpdateState(); err != nil {
 		log.Printf("clear update state failed: %v", err)
@@ -314,7 +330,9 @@ func (s *UpdateService) Rollback(ctx context.Context) error {
 	s.previousVersion = ""
 	s.backupBinary = ""
 
-	netutil.Run(ctx, "systemctl", "restart", "lankeeper.target")
+	if _, err := netutil.Run(ctx, "systemctl", "restart", "lankeeper.target"); err != nil {
+		log.Printf("update: systemctl restart after rollback: %v", err)
+	}
 
 	return nil
 }
@@ -430,7 +448,7 @@ func (s *UpdateService) downloadFile(ctx context.Context, url, dest string) erro
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download returned %d", resp.StatusCode)
@@ -440,7 +458,7 @@ func (s *UpdateService) downloadFile(ctx context.Context, url, dest string) erro
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	_, err = io.Copy(f, resp.Body)
 	return err
@@ -451,13 +469,13 @@ func (s *UpdateService) extractBinary(archivePath, destPath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gz, err := gzip.NewReader(f)
 	if err != nil {
 		return fmt.Errorf("gzip open: %w", err)
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 
 	tr := tar.NewReader(gz)
 	for {
@@ -475,11 +493,15 @@ func (s *UpdateService) extractBinary(archivePath, destPath string) error {
 				return err
 			}
 			if _, err := io.Copy(out, tr); err != nil {
-				out.Close()
+				_ = out.Close()
 				return err
 			}
-			out.Close()
-			os.Chmod(destPath, 0o755)
+			if err := out.Close(); err != nil {
+				return fmt.Errorf("close binary: %w", err)
+			}
+			if err := os.Chmod(destPath, 0o755); err != nil {
+				return fmt.Errorf("chmod binary: %w", err)
+			}
 			return nil
 		}
 	}
@@ -517,7 +539,7 @@ func (s *UpdateService) verifyChecksum(ctx context.Context, info *UpdateInfo, ar
 	if err != nil {
 		return fmt.Errorf("download checksum file: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("checksum file returned HTTP %d", resp.StatusCode)
@@ -546,7 +568,7 @@ func (s *UpdateService) verifyChecksum(ctx context.Context, info *UpdateInfo, ar
 	if err != nil {
 		return fmt.Errorf("open archive for checksum: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {

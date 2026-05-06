@@ -52,7 +52,7 @@ func (s *NTPService) GetStatus(ctx context.Context) (*NTPStatus, error) {
 			}
 		}
 		if strings.HasPrefix(line, "Stratum") {
-			fmt.Sscanf(line, "Stratum : %d", &status.Stratum)
+			_, _ = fmt.Sscanf(line, "Stratum : %d", &status.Stratum)
 		}
 		if strings.HasPrefix(line, "System time") {
 			parts := strings.Fields(line)
@@ -93,7 +93,7 @@ func (s *NTPService) getSources(ctx context.Context) ([]NTPSource, error) {
 			Name:  fields[1],
 			Poll:  fields[3],
 		}
-		fmt.Sscanf(fields[2], "%d", &src.Stratum)
+		_, _ = fmt.Sscanf(fields[2], "%d", &src.Stratum)
 		if len(fields) >= 8 {
 			src.Offset = fields[7]
 		}

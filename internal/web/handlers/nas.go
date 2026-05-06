@@ -46,7 +46,10 @@ func (h *NASHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *NASHandler) HandleAddShare(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 
 	name := r.FormValue("name")
 	if name == "" {
@@ -110,7 +113,11 @@ func (h *NASHandler) HandleDeleteShare(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *NASHandler) HandleSyncM3U(w http.ResponseWriter, r *http.Request) {
-	go h.nas.SyncM3U(r.Context())
+	go func() {
+		if err := h.nas.SyncM3U(r.Context()); err != nil {
+			log.Printf("nas: m3u sync: %v", err)
+		}
+	}()
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Trigger", "m3uSyncStarted")
@@ -121,7 +128,10 @@ func (h *NASHandler) HandleSyncM3U(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *NASHandler) HandleDiscoverGroups(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 	rawURL := r.FormValue("url")
 	if rawURL == "" {
 		http.Error(w, "url required", http.StatusBadRequest)
@@ -142,6 +152,6 @@ func (h *NASHandler) HandleDiscoverGroups(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	for _, g := range groups {
 		escaped := html.EscapeString(g)
-		fmt.Fprintf(w, `<label style="display:flex;align-items:center;gap:var(--space-xs);cursor:pointer;padding:var(--space-xs) 0;"><input type="checkbox" name="includeGroups" value="%s" checked> %s</label>`, escaped, escaped)
+		_, _ = fmt.Fprintf(w, `<label style="display:flex;align-items:center;gap:var(--space-xs);cursor:pointer;padding:var(--space-xs) 0;"><input type="checkbox" name="includeGroups" value="%s" checked> %s</label>`, escaped, escaped)
 	}
 }

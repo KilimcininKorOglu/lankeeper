@@ -33,7 +33,9 @@ func testI18n(t *testing.T) *i18n.I18n {
 			Data: []byte(`{"test.title": "Test Page"}`),
 		},
 	}
-	loc.LoadFromFS(locFS, "locales")
+	if err := loc.LoadFromFS(locFS, "locales"); err != nil {
+		panic(err)
+	}
 	return loc
 }
 

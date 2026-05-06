@@ -24,7 +24,9 @@ func TestExecRunWhitelistAllowed(t *testing.T) {
 
 	var execResult agent.ExecResult
 	raw, _ := json.Marshal(result)
-	json.Unmarshal(raw, &execResult)
+	if err := json.Unmarshal(raw, &execResult); err != nil {
+		t.Fatalf("unmarshal exec result: %v", err)
+	}
 
 	if execResult.Stdout == "" {
 		t.Error("expected non-empty stdout from df")

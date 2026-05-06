@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
@@ -71,10 +72,10 @@ func (s *StorageService) GetRAIDStatus(ctx context.Context) (*RAIDStatus, error)
 			status.State = strings.TrimSpace(strings.TrimPrefix(line, "State :"))
 		}
 		if strings.HasPrefix(line, "Active Devices :") {
-			fmt.Sscanf(strings.TrimPrefix(line, "Active Devices :"), "%d", &status.ActiveDisks)
+			_, _ = fmt.Sscanf(strings.TrimPrefix(line, "Active Devices :"), "%d", &status.ActiveDisks)
 		}
 		if strings.HasPrefix(line, "Total Devices :") {
-			fmt.Sscanf(strings.TrimPrefix(line, "Total Devices :"), "%d", &status.TotalDisks)
+			_, _ = fmt.Sscanf(strings.TrimPrefix(line, "Total Devices :"), "%d", &status.TotalDisks)
 		}
 		if strings.Contains(line, "/dev/sd") || strings.Contains(line, "/dev/nvme") {
 			fields := strings.Fields(line)
@@ -107,17 +108,17 @@ func (s *StorageService) GetSMARTInfo(ctx context.Context, device string) (*SMAR
 			fields := strings.Fields(line)
 			for i, f := range fields {
 				if f == "Celsius" && i > 0 {
-					fmt.Sscanf(fields[i-1], "%d", &info.Temperature)
+					_, _ = fmt.Sscanf(fields[i-1], "%d", &info.Temperature)
 				}
 			}
 			if info.Temperature == 0 && len(fields) >= 10 {
-				fmt.Sscanf(fields[9], "%d", &info.Temperature)
+				_, _ = fmt.Sscanf(fields[9], "%d", &info.Temperature)
 			}
 		}
 		if strings.Contains(line, "Power_On_Hours") {
 			fields := strings.Fields(line)
 			if len(fields) >= 10 {
-				fmt.Sscanf(fields[9], "%d", &info.PowerOnHours)
+				_, _ = fmt.Sscanf(fields[9], "%d", &info.PowerOnHours)
 			}
 		}
 		if strings.Contains(line, "SMART overall-health") && strings.Contains(line, "FAILED") {
@@ -126,7 +127,7 @@ func (s *StorageService) GetSMARTInfo(ctx context.Context, device string) (*SMAR
 		if strings.Contains(line, "Reallocated_Sector") {
 			fields := strings.Fields(line)
 			if len(fields) >= 10 {
-				fmt.Sscanf(fields[9], "%d", &info.Errors)
+				_, _ = fmt.Sscanf(fields[9], "%d", &info.Errors)
 			}
 		}
 	}
@@ -251,7 +252,9 @@ func (s *StorageService) CreateRAID(ctx context.Context, level int, devices []st
 		return fmt.Errorf("mkfs: %w", err)
 	}
 
-	netutil.Run(ctx, "mkdir", "-p", mountPoint)
+	if _, err := netutil.Run(ctx, "mkdir", "-p", mountPoint); err != nil {
+		return fmt.Errorf("mkdir mount point: %w", err)
+	}
 	_, err = netutil.Run(ctx, "mount", mdDevice, mountPoint)
 	if err != nil {
 		return fmt.Errorf("mount: %w", err)
@@ -259,7 +262,11 @@ func (s *StorageService) CreateRAID(ctx context.Context, level int, devices []st
 
 	appendFstabEntry(mdDevice, mountPoint, "ext4")
 
-	netutil.Run(ctx, "mdadm", "--detail", "--scan", "--verbose")
+	// Persist the new array's state to mdadm.conf (best-effort: the
+	// scan runs even if previous state is incomplete).
+	if _, err := netutil.Run(ctx, "mdadm", "--detail", "--scan", "--verbose"); err != nil {
+		log.Printf("storage: mdadm scan: %v", err)
+	}
 
 	s.cfg.Storage.RAID.Device = mdDevice
 	s.cfg.Storage.RAID.Level = level
@@ -274,7 +281,9 @@ func (s *StorageService) FormatAndMount(ctx context.Context, device, mountPoint 
 		return fmt.Errorf("mkfs %s: %w", device, err)
 	}
 
-	netutil.Run(ctx, "mkdir", "-p", mountPoint)
+	if _, err := netutil.Run(ctx, "mkdir", "-p", mountPoint); err != nil {
+		return fmt.Errorf("mkdir mount point: %w", err)
+	}
 	_, err = netutil.Run(ctx, "mount", device, mountPoint)
 	if err != nil {
 		return fmt.Errorf("mount %s: %w", device, err)
@@ -292,5 +301,7 @@ func appendFstabEntry(device, mountPoint, fsType string) {
 		return
 	}
 	newContent := strings.TrimRight(string(existing), "\n") + "\n" + entry + "\n"
-	netutil.WriteFile("/etc/fstab", []byte(newContent), 0o644)
+	if err := netutil.WriteFile("/etc/fstab", []byte(newContent), 0o644); err != nil {
+		log.Printf("storage: write fstab: %v", err)
+	}
 }

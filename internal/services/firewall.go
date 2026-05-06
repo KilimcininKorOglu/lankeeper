@@ -83,7 +83,7 @@ func (s *FirewallService) Apply(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("render nftables: %w", err)
 	}
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	ac := netutil.NewAtomicChange("firewall")
 
@@ -228,11 +228,6 @@ func (s *FirewallService) GenerateCustomNftRules() string {
 			continue
 		}
 
-		chain := r.Chain
-		if chain == "" {
-			chain = "input"
-		}
-
 		var conditions []string
 
 		if r.Interface != "" {
@@ -356,12 +351,14 @@ func (s *FirewallService) renderToFile() (string, error) {
 	}
 
 	if err := s.tmpl.Execute(f, data); err != nil {
-		f.Close()
-		os.Remove(f.Name())
+		_ = f.Close()
+		_ = os.Remove(f.Name())
 		return "", fmt.Errorf("execute template: %w", err)
 	}
 
-	f.Close()
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("close temp: %w", err)
+	}
 	return f.Name(), nil
 }
 

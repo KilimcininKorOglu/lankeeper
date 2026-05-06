@@ -23,12 +23,14 @@ func TestRoutingAddRemovePolicy(t *testing.T) {
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewRoutingService(cfg)
 
-	svc.AddPolicy(config.RoutingPolicy{
+	if err := svc.AddPolicy(config.RoutingPolicy{
 		Name:    "xbox-vpn",
 		Enabled: true,
 		SrcMACs: []string{"aa:bb:cc:dd:ee:ff"},
 		Tunnel:  "nl-amsterdam",
-	})
+	}); err != nil {
+		t.Fatalf("add policy: %v", err)
+	}
 
 	policies := svc.GetPolicies()
 	if len(policies) != 1 {
@@ -53,7 +55,9 @@ func TestRoutingTogglePolicy(t *testing.T) {
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewRoutingService(cfg)
 
-	svc.AddPolicy(config.RoutingPolicy{Name: "test", Enabled: true})
+	if err := svc.AddPolicy(config.RoutingPolicy{Name: "test", Enabled: true}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
 
 	if err := svc.TogglePolicy("test", false); err != nil {
 		t.Fatalf("toggle: %v", err)
@@ -70,11 +74,15 @@ func TestRoutingUpdatePriorities(t *testing.T) {
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewRoutingService(cfg)
 
-	svc.AddPolicy(config.RoutingPolicy{Name: "a", Enabled: true})
-	svc.AddPolicy(config.RoutingPolicy{Name: "b", Enabled: true})
-	svc.AddPolicy(config.RoutingPolicy{Name: "c", Enabled: true})
+	for _, name := range []string{"a", "b", "c"} {
+		if err := svc.AddPolicy(config.RoutingPolicy{Name: name, Enabled: true}); err != nil {
+			t.Fatalf("add %s: %v", name, err)
+		}
+	}
 
-	svc.UpdatePriorities([]string{"c", "a", "b"})
+	if err := svc.UpdatePriorities([]string{"c", "a", "b"}); err != nil {
+		t.Fatalf("update priorities: %v", err)
+	}
 
 	policies := svc.GetPolicies()
 	if policies[0].Name != "c" {
@@ -90,12 +98,14 @@ func TestRoutingGenerateNftRules(t *testing.T) {
 	}
 
 	svc := services.NewRoutingService(cfg)
-	svc.AddPolicy(config.RoutingPolicy{
+	if err := svc.AddPolicy(config.RoutingPolicy{
 		Name:    "xbox",
 		Enabled: true,
 		SrcMACs: []string{"aa:bb:cc:dd:ee:ff"},
 		Tunnel:  "nl-amsterdam",
-	})
+	}); err != nil {
+		t.Fatalf("add policy: %v", err)
+	}
 
 	rules := svc.GenerateNftRules()
 	if !strings.Contains(rules, "ether saddr aa:bb:cc:dd:ee:ff meta mark set 100") {
@@ -117,12 +127,14 @@ func TestRoutingDstIPRules(t *testing.T) {
 	}
 
 	svc := services.NewRoutingService(cfg)
-	svc.AddPolicy(config.RoutingPolicy{
+	if err := svc.AddPolicy(config.RoutingPolicy{
 		Name:    "netflix",
 		Enabled: true,
 		DstIPs:  []string{"1.2.3.0/24", "4.5.6.0/24"},
 		Tunnel:  "vpn1",
-	})
+	}); err != nil {
+		t.Fatalf("add policy: %v", err)
+	}
 
 	rules := svc.GenerateNftRules()
 	if !strings.Contains(rules, "ip daddr 1.2.3.0/24 meta mark set 200") {
@@ -138,13 +150,15 @@ func TestRoutingPortRules(t *testing.T) {
 	}
 
 	svc := services.NewRoutingService(cfg)
-	svc.AddPolicy(config.RoutingPolicy{
+	if err := svc.AddPolicy(config.RoutingPolicy{
 		Name:     "gaming",
 		Enabled:  true,
 		DstPorts: []int{3478, 3479},
 		Protocol: "udp",
 		Tunnel:   "vpn1",
-	})
+	}); err != nil {
+		t.Fatalf("add policy: %v", err)
+	}
 
 	rules := svc.GenerateNftRules()
 	if !strings.Contains(rules, "udp dport 3478 meta mark set 200") {
@@ -160,13 +174,15 @@ func TestRoutingScheduleRules(t *testing.T) {
 	}
 
 	svc := services.NewRoutingService(cfg)
-	svc.AddPolicy(config.RoutingPolicy{
+	if err := svc.AddPolicy(config.RoutingPolicy{
 		Name:     "night-vpn",
 		Enabled:  true,
 		SrcIPs:   []string{"10.10.10.50"},
 		Tunnel:   "vpn1",
 		Schedule: "22:00-06:00",
-	})
+	}); err != nil {
+		t.Fatalf("add policy: %v", err)
+	}
 
 	rules := svc.GenerateNftRules()
 	if !strings.Contains(rules, `meta hour >= "22:00"`) {
@@ -185,13 +201,15 @@ func TestRoutingKillSwitch(t *testing.T) {
 	}
 
 	svc := services.NewRoutingService(cfg)
-	svc.AddPolicy(config.RoutingPolicy{
+	if err := svc.AddPolicy(config.RoutingPolicy{
 		Name:       "secure",
 		Enabled:    true,
 		SrcMACs:    []string{"aa:bb:cc:dd:ee:ff"},
 		Tunnel:     "vpn1",
 		KillSwitch: true,
-	})
+	}); err != nil {
+		t.Fatalf("add policy: %v", err)
+	}
 
 	rules := svc.GenerateNftRules()
 	if !strings.Contains(rules, "meta mark != 100 drop") {
@@ -207,12 +225,14 @@ func TestRoutingDomainSet(t *testing.T) {
 	}
 
 	svc := services.NewRoutingService(cfg)
-	svc.AddPolicy(config.RoutingPolicy{
+	if err := svc.AddPolicy(config.RoutingPolicy{
 		Name:    "streaming",
 		Enabled: true,
 		Domains: []string{"netflix.com", "youtube.com"},
 		Tunnel:  "vpn1",
-	})
+	}); err != nil {
+		t.Fatalf("add policy: %v", err)
+	}
 
 	rules := svc.GenerateNftRules()
 	if !strings.Contains(rules, "pbr_streaming") {

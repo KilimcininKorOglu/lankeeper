@@ -25,7 +25,7 @@ func waitForSocket(t *testing.T, sock string, errCh <-chan error) {
 		}
 		conn, err := net.DialTimeout("unix", sock, 50*time.Millisecond)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -51,7 +51,7 @@ func TestServerClientRoundTrip(t *testing.T) {
 	waitForSocket(t, sock, errCh)
 
 	client := agent.NewClient(sock)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	raw, err := client.Call(ctx, "ping", nil)
 	if err != nil {
@@ -94,7 +94,7 @@ func TestMethodNotFound(t *testing.T) {
 	waitForSocket(t, sock, errCh)
 
 	client := agent.NewClient(sock)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	_, err := client.Call(ctx, "nonexistent.method", nil)
 	if err == nil {

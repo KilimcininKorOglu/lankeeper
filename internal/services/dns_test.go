@@ -1,6 +1,7 @@
 package services_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
@@ -29,7 +30,7 @@ func TestClearQueryLog(t *testing.T) {
 	cfg := &config.Config{}
 	svc := services.NewDNSService(cfg)
 
-	err := svc.ClearQueryLog(nil)
+	err := svc.ClearQueryLog(context.TODO())
 	if err != nil {
 		t.Fatalf("clear: %v", err)
 	}

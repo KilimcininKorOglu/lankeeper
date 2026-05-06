@@ -199,11 +199,15 @@ func (s *PPPoEService) renderConfig() error {
 	}
 
 	peerDir := "/etc/ppp/peers"
-	netutil.MkdirAll(peerDir, 0o755)
+	if err := netutil.MkdirAll(peerDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", peerDir, err)
+	}
 
 	optSrc, err := os.ReadFile("configs/sysconf/pppoe-options.tmpl")
 	if err == nil {
-		netutil.WriteFile("/etc/ppp/options", optSrc, 0o644)
+		if err := netutil.WriteFile("/etc/ppp/options", optSrc, 0o644); err != nil {
+			return fmt.Errorf("write /etc/ppp/options: %w", err)
+		}
 	}
 
 	tmpl, err := template.ParseFiles("configs/sysconf/pppoe-peer.tmpl")
@@ -283,12 +287,14 @@ func (s *PPPoEService) SniffStart(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("read pppoe-server-options: %w", err)
 	}
-	netutil.MkdirAll("/etc/ppp", 0o755)
+	if err := netutil.MkdirAll("/etc/ppp", 0o755); err != nil {
+		return fmt.Errorf("mkdir /etc/ppp: %w", err)
+	}
 	if err := netutil.WriteFile("/etc/pppoe-server-options", optSrc, 0o644); err != nil {
 		return fmt.Errorf("write pppoe-server-options: %w", err)
 	}
 
-	os.Remove("/var/log/pppoe-sniff.log")
+	_ = os.Remove("/var/log/pppoe-sniff.log")
 
 	_, err = netutil.Run(ctx, "pppoe-server", "-I", wanDevice, "-O", "/etc/pppoe-server-options", "-F")
 	if err != nil {

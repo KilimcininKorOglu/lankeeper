@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,13 +82,13 @@ func (s *BackupService) Import(ctx context.Context, archivePath, passphrase stri
 	if err != nil {
 		return fmt.Errorf("open backup: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gz, err := gzip.NewReader(f)
 	if err != nil {
 		return fmt.Errorf("gzip reader: %w", err)
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 
 	destRoot := s.configDir
 	tr := tar.NewReader(gz)
@@ -113,7 +114,9 @@ func (s *BackupService) Import(ctx context.Context, archivePath, passphrase stri
 
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			netutil.MkdirAll(target, os.FileMode(hdr.Mode)|0o755)
+			if err := netutil.MkdirAll(target, os.FileMode(hdr.Mode)|0o755); err != nil {
+				return fmt.Errorf("mkdir %s: %w", target, err)
+			}
 		case tar.TypeReg:
 			memberData, err := io.ReadAll(io.LimitReader(tr, 10<<20))
 			if err != nil {
@@ -149,7 +152,9 @@ func (s *BackupService) FactoryReset(ctx context.Context) error {
 		if err != nil {
 			continue
 		}
-		netutil.WriteFile(dst, fileData, 0o644)
+		if err := netutil.WriteFile(dst, fileData, 0o644); err != nil {
+			log.Printf("factory reset: write %s: %v", dst, err)
+		}
 	}
 
 	return nil

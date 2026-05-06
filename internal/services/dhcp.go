@@ -166,7 +166,7 @@ func ParseLeaseFile(path string) ([]Lease, error) {
 		}
 		return nil, fmt.Errorf("open lease file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var leases []Lease
 	now := time.Now()
@@ -406,19 +406,27 @@ func (s *DHCPService) RebuildDNSRecords(ctx context.Context, domain string) erro
 	if resolveDomain == "" {
 		resolveDomain = "lan"
 	}
-	netutil.Run(ctx, "unbound-control", "flush_zone", resolveDomain)
+	if _, err := netutil.Run(ctx, "unbound-control", "flush_zone", resolveDomain); err != nil {
+		log.Printf("dns refresh: flush_zone %s: %v", resolveDomain, err)
+	}
 	count := 0
 	for _, l := range leases {
 		if l.Hostname == "" || !l.Active {
 			continue
 		}
 		fqdn := l.Hostname + "." + resolveDomain
-		netutil.Run(ctx, "unbound-control", "local_data", fqdn+". 300 IN A "+l.IP)
-		netutil.Run(ctx, "unbound-control", "local_data", l.Hostname+". 300 IN A "+l.IP)
+		if _, err := netutil.Run(ctx, "unbound-control", "local_data", fqdn+". 300 IN A "+l.IP); err != nil {
+			log.Printf("dns refresh: local_data fqdn %s: %v", fqdn, err)
+		}
+		if _, err := netutil.Run(ctx, "unbound-control", "local_data", l.Hostname+". 300 IN A "+l.IP); err != nil {
+			log.Printf("dns refresh: local_data hostname %s: %v", l.Hostname, err)
+		}
 		parts := strings.Split(l.IP, ".")
 		if len(parts) == 4 {
 			ptr := parts[3] + "." + parts[2] + "." + parts[1] + "." + parts[0] + ".in-addr.arpa."
-			netutil.Run(ctx, "unbound-control", "local_data", ptr+" 300 IN PTR "+fqdn+".")
+			if _, err := netutil.Run(ctx, "unbound-control", "local_data", ptr+" 300 IN PTR "+fqdn+"."); err != nil {
+				log.Printf("dns refresh: local_data ptr %s: %v", ptr, err)
+			}
 		}
 		count++
 	}

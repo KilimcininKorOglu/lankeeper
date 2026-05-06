@@ -92,7 +92,10 @@ func (h *DNSHandler) HandleUpdateBlocklist(w http.ResponseWriter, r *http.Reques
 // DoT upstream and returns an inline HTMX-friendly status snippet (small
 // HTML span) so the result lands in the Test button's hx-target.
 func (h *DNSHandler) HandleProbeDoT(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 	upstream := strings.TrimSpace(r.FormValue("dot_upstream"))
 	if upstream == "" {
 		http.Error(w, "upstream required", http.StatusBadRequest)
@@ -101,14 +104,17 @@ func (h *DNSHandler) HandleProbeDoT(w http.ResponseWriter, r *http.Request) {
 	latency, err := h.dns.ProbeDoT(r.Context(), upstream)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err != nil {
-		fmt.Fprintf(w, `<span class="badge badge-error">FAIL: %s</span>`, html.EscapeString(err.Error()))
+		_, _ = fmt.Fprintf(w, `<span class="badge badge-error">FAIL: %s</span>`, html.EscapeString(err.Error()))
 		return
 	}
-	fmt.Fprintf(w, `<span class="badge badge-success">OK (%dms)</span>`, latency.Milliseconds())
+	_, _ = fmt.Fprintf(w, `<span class="badge badge-success">OK (%dms)</span>`, latency.Milliseconds())
 }
 
 func (h *DNSHandler) HandleSaveDoT(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 	enable := r.FormValue("enable_dot") == "on"
 	upstream := strings.TrimSpace(r.FormValue("dot_upstream"))
 	if enable && upstream == "" {
@@ -131,7 +137,10 @@ func (h *DNSHandler) HandleSaveDoT(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *DNSHandler) HandleAddRecord(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 	name := strings.TrimSpace(r.FormValue("name"))
 	ip := strings.TrimSpace(r.FormValue("ip"))
 	localZone := r.FormValue("local_zone") == "on"

@@ -45,7 +45,10 @@ func (h *VPNHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *VPNHandler) HandleAddPeer(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 	name := r.FormValue("name")
 	if name == "" {
 		http.Error(w, "name required", http.StatusBadRequest)
@@ -87,7 +90,7 @@ func (h *VPNHandler) HandleAddPeer(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.Header().Set("Content-Disposition", "attachment; filename="+name+".conf")
-	w.Write([]byte(confStr))
+	_, _ = w.Write([]byte(confStr))
 }
 
 func (h *VPNHandler) HandleRemovePeer(w http.ResponseWriter, r *http.Request) {

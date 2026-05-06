@@ -122,14 +122,16 @@ func TestFirewallPortForwardCRUD(t *testing.T) {
 	cfg := testFirewallConfig(t)
 	svc, _ := services.NewFirewallServiceFromFS(cfg, testNftTemplate)
 
-	svc.AddPortForward(config.PortForward{
+	if err := svc.AddPortForward(config.PortForward{
 		Name:     "SSH",
 		Protocol: "tcp",
 		ExtPort:  2222,
 		IntIP:    "10.10.10.50",
 		IntPort:  22,
 		Enabled:  true,
-	})
+	}); err != nil {
+		t.Fatalf("add port forward: %v", err)
+	}
 
 	if len(cfg.Firewall.PortForwards) != 1 {
 		t.Fatalf("expected 1 port forward, got %d", len(cfg.Firewall.PortForwards))

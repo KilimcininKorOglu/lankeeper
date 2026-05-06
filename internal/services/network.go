@@ -86,12 +86,16 @@ func (s *NetworkService) ApplyMACClone(ctx context.Context, device, cloneMAC str
 		return err
 	}
 
-	netutil.Run(ctx, "ip", "link", "set", device, "down")
+	if _, err := netutil.Run(ctx, "ip", "link", "set", device, "down"); err != nil {
+		return fmt.Errorf("link down %s: %w", device, err)
+	}
 	_, err := netutil.Run(ctx, "ip", "link", "set", device, "address", cloneMAC)
 	if err != nil {
 		return fmt.Errorf("set MAC %s on %s: %w", cloneMAC, device, err)
 	}
-	netutil.Run(ctx, "ip", "link", "set", device, "up")
+	if _, err := netutil.Run(ctx, "ip", "link", "set", device, "up"); err != nil {
+		return fmt.Errorf("link up %s: %w", device, err)
+	}
 
 	log.Printf("MAC clone applied: %s → %s", device, cloneMAC)
 	return nil
@@ -121,7 +125,9 @@ func (s *NetworkService) CreateVLAN(ctx context.Context, parentDevice string, vi
 	}
 
 	if mtu > 0 {
-		netutil.Run(ctx, "ip", "link", "set", vlanDev, "mtu", fmt.Sprintf("%d", mtu))
+		if _, err := netutil.Run(ctx, "ip", "link", "set", vlanDev, "mtu", fmt.Sprintf("%d", mtu)); err != nil {
+			return fmt.Errorf("set mtu on %s: %w", vlanDev, err)
+		}
 	}
 
 	if address != "" {

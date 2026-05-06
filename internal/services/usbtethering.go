@@ -113,8 +113,9 @@ func (s *USBTetheringService) Deactivate(ctx context.Context) error {
 		iface = "usb0"
 	}
 
-	netutil.Run(ctx, "ip", "route", "del", "default", "dev", iface)
-	netutil.Run(ctx, "dhclient", "-r", iface)
+	// Best-effort cleanup; missing routes/leases are not errors.
+	_, _ = netutil.Run(ctx, "ip", "route", "del", "default", "dev", iface)
+	_, _ = netutil.Run(ctx, "dhclient", "-r", iface)
 
 	s.mu.Lock()
 	s.active = false

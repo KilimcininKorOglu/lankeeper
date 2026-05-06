@@ -54,7 +54,10 @@ func (h *SyslogHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *SyslogHandler) HandleSaveServerConfig(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 	cfg := config.SyslogServerConfig{
 		Enabled:      r.FormValue("enabled") == "on",
 		ListenUDP:    strings.TrimSpace(r.FormValue("listen_udp")),
@@ -78,7 +81,10 @@ func (h *SyslogHandler) HandleSaveServerConfig(w http.ResponseWriter, r *http.Re
 }
 
 func (h *SyslogHandler) HandleSaveClientConfig(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 	current := h.syslog.GetConfig().Client
 	current.Enabled = r.FormValue("enabled") == "on"
 	current.RemoteHost = strings.TrimSpace(r.FormValue("remote_host"))
@@ -100,7 +106,10 @@ func (h *SyslogHandler) HandleSaveClientConfig(w http.ResponseWriter, r *http.Re
 }
 
 func (h *SyslogHandler) HandleAddFacility(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 	name := strings.ToLower(strings.TrimSpace(r.FormValue("name")))
 	if !allowedFacilities[name] {
 		http.Error(w, "invalid facility", http.StatusBadRequest)

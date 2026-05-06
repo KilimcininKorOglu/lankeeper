@@ -76,7 +76,10 @@ func (h *OpenVPNHandler) HandleInitPKI(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *OpenVPNHandler) HandleAddClient(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 	name := r.FormValue("name")
 	if name == "" {
 		http.Error(w, "name required", http.StatusBadRequest)
@@ -138,7 +141,7 @@ func (h *OpenVPNHandler) HandleDownloadOVPN(w http.ResponseWriter, r *http.Reque
 
 	w.Header().Set("Content-Type", "application/x-openvpn-profile")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.ovpn"`, name))
-	w.Write([]byte(ovpnContent))
+	_, _ = w.Write([]byte(ovpnContent))
 }
 
 func (h *OpenVPNHandler) HandleServerStart(w http.ResponseWriter, r *http.Request) {
@@ -182,7 +185,10 @@ func (h *OpenVPNHandler) HandleRevokeClient(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *OpenVPNHandler) HandleAddOutboundClient(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 	name := r.FormValue("name")
 	if name == "" {
 		http.Error(w, "name required", http.StatusBadRequest)

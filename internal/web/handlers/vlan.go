@@ -35,7 +35,9 @@ func (h *VLANHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Header.Get("HX-Request") == "true" {
-		h.renderer.RenderPartial(w, "network", "vlan_list", data)
+		if err := h.renderer.RenderPartial(w, "network", "vlan_list", data); err != nil {
+			log.Printf("render vlan_list: %v", err)
+		}
 		return
 	}
 
@@ -46,7 +48,10 @@ func (h *VLANHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *VLANHandler) HandleAdd(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 
 	vid, err := strconv.Atoi(r.FormValue("vid"))
 	if err != nil || netutil.ValidateVLANID(vid) != nil {
@@ -124,7 +129,9 @@ func (h *VLANHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if parentDev != "" {
-				h.network.DeleteVLAN(r.Context(), parentDev, v.VID)
+				if err := h.network.DeleteVLAN(r.Context(), parentDev, v.VID); err != nil {
+					log.Printf("vlan: delete %s.%d: %v", parentDev, v.VID, err)
+				}
 			}
 
 			h.cfg.VLANs = append(h.cfg.VLANs[:i], h.cfg.VLANs[i+1:]...)

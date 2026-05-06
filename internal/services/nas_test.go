@@ -22,12 +22,14 @@ func TestShareCRUD(t *testing.T) {
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewNASService(cfg)
 
-	svc.AddShare(config.ShareConfig{
+	if err := svc.AddShare(config.ShareConfig{
 		Name:     "media",
 		Path:     "/mnt/raid/media",
 		GuestOK:  true,
 		ReadOnly: true,
-	})
+	}); err != nil {
+		t.Fatalf("add share: %v", err)
+	}
 
 	shares := svc.GetShares()
 	if len(shares) != 1 {

@@ -101,7 +101,6 @@ func LANOnly(allowedNets []*net.IPNet) func(http.Handler) http.Handler {
 			}
 
 			http.Error(w, "Forbidden", http.StatusForbidden)
-			return
 		})
 	}
 }

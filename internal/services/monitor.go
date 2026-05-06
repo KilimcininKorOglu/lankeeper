@@ -141,7 +141,7 @@ func (s *MonitorService) readCPU() float64 {
 	if err != nil {
 		return 0
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	if !scanner.Scan() {
@@ -183,16 +183,16 @@ func readMemInfo() (total, used uint64, percent float64) {
 	if err != nil {
 		return 0, 0, 0
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var memTotal, memAvailable uint64
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "MemTotal:") {
-			fmt.Sscanf(line, "MemTotal: %d kB", &memTotal)
+			_, _ = fmt.Sscanf(line, "MemTotal: %d kB", &memTotal)
 		} else if strings.HasPrefix(line, "MemAvailable:") {
-			fmt.Sscanf(line, "MemAvailable: %d kB", &memAvailable)
+			_, _ = fmt.Sscanf(line, "MemAvailable: %d kB", &memAvailable)
 		}
 	}
 

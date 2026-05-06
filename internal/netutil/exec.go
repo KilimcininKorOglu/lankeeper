@@ -178,7 +178,9 @@ func WriteFile(path string, content []byte, mode os.FileMode) error {
 		}
 		return nil
 	}
-	os.MkdirAll(filepath.Dir(path), 0o755)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("mkdir parent: %w", err)
+	}
 	return os.WriteFile(path, content, mode)
 }
 

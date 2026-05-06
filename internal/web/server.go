@@ -202,7 +202,9 @@ func (s *Server) Serve(ctx context.Context) error {
 		close(stopMonitor)
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		s.http.Shutdown(shutdownCtx)
+		if err := s.http.Shutdown(shutdownCtx); err != nil {
+			log.Printf("web shutdown: %v", err)
+		}
 	}()
 
 	log.Printf("web server listening on %s (TLS mode: %s)", s.http.Addr, s.cfg.System.TLS.Mode)
@@ -400,7 +402,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	s.auth.Logout(w, r)
+	if err := s.auth.Logout(w, r); err != nil {
+		log.Printf("logout: %v", err)
+	}
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Redirect", "/login")
 		w.WriteHeader(http.StatusOK)

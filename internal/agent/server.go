@@ -63,7 +63,7 @@ func (s *Server) Serve(ctx context.Context) error {
 		return fmt.Errorf("create socket dir: %w", err)
 	}
 
-	os.Remove(s.socketPath)
+	_ = os.Remove(s.socketPath)
 
 	var err error
 	s.listener, err = net.Listen("unix", s.socketPath)
@@ -79,7 +79,7 @@ func (s *Server) Serve(ctx context.Context) error {
 
 	go func() {
 		<-ctx.Done()
-		s.listener.Close()
+		_ = s.listener.Close()
 	}()
 
 	for {
@@ -99,13 +99,13 @@ func (s *Server) Serve(ctx context.Context) error {
 
 func (s *Server) Close() {
 	if s.listener != nil {
-		s.listener.Close()
+		_ = s.listener.Close()
 	}
-	os.Remove(s.socketPath)
+	_ = os.Remove(s.socketPath)
 }
 
 func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	dec := json.NewDecoder(conn)
 	enc := json.NewEncoder(conn)

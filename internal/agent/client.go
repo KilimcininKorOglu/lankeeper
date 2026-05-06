@@ -57,16 +57,16 @@ func (c *Client) Call(ctx context.Context, method string, params any) (json.RawM
 	if !ok {
 		deadline = time.Now().Add(c.timeout)
 	}
-	c.conn.SetDeadline(deadline)
+	_ = c.conn.SetDeadline(deadline)
 
 	if err := c.enc.Encode(req); err != nil {
-		c.close()
+		_ = c.close()
 		return nil, fmt.Errorf("send request: %w", err)
 	}
 
 	var resp Response
 	if err := c.dec.Decode(&resp); err != nil {
-		c.close()
+		_ = c.close()
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 

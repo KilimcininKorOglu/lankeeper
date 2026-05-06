@@ -43,12 +43,20 @@ func SetupFirstBootNetworking(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("no physical NICs found")
 	}
 
-	netutil.Run(ctx, "ip", "link", "add", firstBootBridge, "type", "bridge")
-	netutil.Run(ctx, "ip", "link", "set", firstBootBridge, "up")
+	if _, err := netutil.Run(ctx, "ip", "link", "add", firstBootBridge, "type", "bridge"); err != nil {
+		log.Printf("first-boot: bridge add: %v", err)
+	}
+	if _, err := netutil.Run(ctx, "ip", "link", "set", firstBootBridge, "up"); err != nil {
+		log.Printf("first-boot: bridge up: %v", err)
+	}
 
 	for _, nic := range physicalNICs {
-		netutil.Run(ctx, "ip", "addr", "flush", "dev", nic)
-		netutil.Run(ctx, "ip", "link", "set", nic, "up")
+		if _, err := netutil.Run(ctx, "ip", "addr", "flush", "dev", nic); err != nil {
+			log.Printf("first-boot: addr flush %s: %v", nic, err)
+		}
+		if _, err := netutil.Run(ctx, "ip", "link", "set", nic, "up"); err != nil {
+			log.Printf("first-boot: link up %s: %v", nic, err)
+		}
 		_, err := netutil.Run(ctx, "ip", "link", "set", nic, "master", firstBootBridge)
 		if err != nil {
 			log.Printf("first-boot: failed to add %s to bridge: %v", nic, err)
@@ -68,13 +76,18 @@ func SetupFirstBootNetworking(ctx context.Context) ([]string, error) {
 
 func TeardownFirstBootBridge(ctx context.Context, wanDevices []string) {
 	for _, dev := range wanDevices {
-		netutil.Run(ctx, "ip", "link", "set", dev, "nomaster")
+		// Best-effort: device may already be detached.
+		if _, err := netutil.Run(ctx, "ip", "link", "set", dev, "nomaster"); err != nil {
+			log.Printf("first-boot: detach %s from bridge: %v", dev, err)
+			continue
+		}
 		log.Printf("first-boot: removed %s from bridge (assigned as WAN)", dev)
 	}
 }
 
 func RemoveFirstBootBridge(ctx context.Context) {
-	netutil.Run(ctx, "ip", "link", "set", firstBootBridge, "down")
-	netutil.Run(ctx, "ip", "link", "del", firstBootBridge)
+	// Best-effort teardown; bridge may already be gone.
+	_, _ = netutil.Run(ctx, "ip", "link", "set", firstBootBridge, "down")
+	_, _ = netutil.Run(ctx, "ip", "link", "del", firstBootBridge)
 	log.Printf("first-boot: bridge %s removed", firstBootBridge)
 }

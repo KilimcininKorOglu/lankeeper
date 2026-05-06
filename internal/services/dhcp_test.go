@@ -47,7 +47,9 @@ func TestStaticLeaseCRUD(t *testing.T) {
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewDHCPService(cfg)
 
-	svc.AddStaticLease("aa:bb:cc:dd:ee:ff", "10.10.10.10", "desktop")
+	if err := svc.AddStaticLease("aa:bb:cc:dd:ee:ff", "10.10.10.10", "desktop"); err != nil {
+		t.Fatalf("add static lease: %v", err)
+	}
 	if len(cfg.DHCP.StaticLeases) != 1 {
 		t.Fatalf("expected 1 static lease, got %d", len(cfg.DHCP.StaticLeases))
 	}

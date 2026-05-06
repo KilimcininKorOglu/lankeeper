@@ -90,7 +90,10 @@ func (h *FirewallHandler) HandleRollback(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *FirewallHandler) HandleAddPortForward(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 
 	extPort, err := strconv.Atoi(r.FormValue("extPort"))
 	if err != nil || netutil.ValidatePort(extPort) != nil {
@@ -157,7 +160,10 @@ func (h *FirewallHandler) HandleDeletePortForward(w http.ResponseWriter, r *http
 }
 
 func (h *FirewallHandler) HandleAddRule(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 
 	port, err := strconv.Atoi(r.FormValue("port"))
 	if err != nil || netutil.ValidatePort(port) != nil {
@@ -264,7 +270,10 @@ func (h *FirewallHandler) HandleToggleRule(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *FirewallHandler) HandleAddOpenPort(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 	port, err := strconv.Atoi(r.FormValue("port"))
 	if err != nil || netutil.ValidatePort(port) != nil {
 		http.Error(w, "invalid port", http.StatusBadRequest)

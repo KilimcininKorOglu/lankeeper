@@ -55,7 +55,10 @@ func (h *NTPHandler) HandleForceSync(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *NTPHandler) HandleAddSource(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 	host := strings.TrimSpace(r.FormValue("host"))
 	if host == "" {
 		http.Error(w, "host required", http.StatusBadRequest)
@@ -98,7 +101,10 @@ func (h *NTPHandler) HandleRemoveSource(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *NTPHandler) HandleAddAllowSubnet(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 	cidr := strings.TrimSpace(r.FormValue("cidr"))
 	if netutil.ValidateCIDR(cidr) != nil {
 		http.Error(w, "invalid CIDR", http.StatusBadRequest)
@@ -141,7 +147,10 @@ func (h *NTPHandler) HandleRemoveAllowSubnet(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *NTPHandler) HandleSaveSettings(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 	fallback := r.FormValue("fallback")
 	listenAddress := r.FormValue("listen_address")
 	listenPort, _ := strconv.Atoi(r.FormValue("listen_port"))

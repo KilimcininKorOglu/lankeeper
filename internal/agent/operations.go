@@ -210,7 +210,9 @@ func opFileWrite(_ context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	if params.MkdirP {
-		os.MkdirAll(filepath.Dir(params.Path), 0o755)
+		if err := os.MkdirAll(filepath.Dir(params.Path), 0o755); err != nil {
+			return nil, fmt.Errorf("mkdir parent: %w", err)
+		}
 	}
 
 	if err := os.WriteFile(params.Path, []byte(params.Content), mode); err != nil {

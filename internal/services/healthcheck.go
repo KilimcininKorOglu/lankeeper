@@ -193,7 +193,7 @@ func httpProbe(ctx context.Context, url string, expectStatus int) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	return resp.StatusCode == expectStatus
 }
@@ -270,14 +270,18 @@ func (s *HealthCheckService) actionRestartInterface(ctx context.Context, ifaceID
 		return fmt.Errorf("interface %s not found", ifaceID)
 	}
 
-	netutil.Run(ctx, "ip", "link", "set", device, "down")
+	if _, err := netutil.Run(ctx, "ip", "link", "set", device, "down"); err != nil {
+		log.Printf("healthcheck: link down %s: %v", device, err)
+	}
 	time.Sleep(2 * time.Second)
 	_, err := netutil.Run(ctx, "ip", "link", "set", device, "up")
 	return err
 }
 
 func (s *HealthCheckService) actionRestartPPPoE(ctx context.Context) error {
-	netutil.Run(ctx, "killall", "pppd")
+	if _, err := netutil.Run(ctx, "killall", "pppd"); err != nil {
+		log.Printf("healthcheck: killall pppd: %v", err)
+	}
 	time.Sleep(3 * time.Second)
 	_, err := netutil.Run(ctx, "pppd", "call", "wan")
 	return err

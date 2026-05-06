@@ -182,11 +182,11 @@ func (s *DNSService) GetStats(ctx context.Context) (*DNSStats, error) {
 
 		switch key {
 		case "total.num.queries":
-			fmt.Sscanf(val, "%d", &stats.TotalQueries)
+			_, _ = fmt.Sscanf(val, "%d", &stats.TotalQueries)
 		case "total.num.cachehits":
-			fmt.Sscanf(val, "%d", &stats.CacheHits)
+			_, _ = fmt.Sscanf(val, "%d", &stats.CacheHits)
 		case "total.num.cachemiss":
-			fmt.Sscanf(val, "%d", &stats.CacheMisses)
+			_, _ = fmt.Sscanf(val, "%d", &stats.CacheMisses)
 		}
 	}
 
@@ -240,7 +240,7 @@ func downloadBlocklist(ctx context.Context, url string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var domains []string
 	scanner := bufio.NewScanner(resp.Body)
@@ -312,7 +312,9 @@ func (s *DNSService) ClearQueryLog(ctx context.Context) error {
 
 	logPath := s.cfg.DNS.QueryLog.LogPath
 	if logPath != "" {
-		os.Truncate(logPath, 0)
+		if err := os.Truncate(logPath, 0); err != nil && !os.IsNotExist(err) {
+			log.Printf("dns clear log: truncate %s: %v", logPath, err)
+		}
 	}
 
 	return nil
@@ -360,14 +362,14 @@ func (s *DNSService) ProbeDoT(ctx context.Context, upstream string) (time.Durati
 	if err != nil {
 		return 0, fmt.Errorf("dial: %w", err)
 	}
-	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 
 	// Send a tiny "cloudflare.com. A IN" query (any name works; we only
 	// care that the upstream answers at all).
 	var msg dnsmessage.Message
-	msg.Header.ID = 0x1234
-	msg.Header.RecursionDesired = true
+	msg.ID = 0x1234
+	msg.RecursionDesired = true
 	msg.Questions = []dnsmessage.Question{{
 		Name:  dnsmessage.MustNewName("cloudflare.com."),
 		Type:  dnsmessage.TypeA,
@@ -532,13 +534,13 @@ func (s *DNSService) tailQueryLog(ctx context.Context) {
 			continue
 		}
 
-		f.Seek(0, 2)
+		_, _ = f.Seek(0, 2)
 
 		scanner := bufio.NewScanner(f)
 		for scanner.Scan() {
 			select {
 			case <-ctx.Done():
-				f.Close()
+				_ = f.Close()
 				return
 			default:
 			}
@@ -559,7 +561,7 @@ func (s *DNSService) tailQueryLog(ctx context.Context) {
 			s.mu.Unlock()
 		}
 
-		f.Close()
+		_ = f.Close()
 		time.Sleep(1 * time.Second)
 	}
 }
@@ -571,7 +573,7 @@ func parseQueryLogLine(line string) *QueryLogEntry {
 	}
 
 	var ts int64
-	fmt.Sscanf(matches[1], "%d", &ts)
+	_, _ = fmt.Sscanf(matches[1], "%d", &ts)
 
 	entry := &QueryLogEntry{
 		Timestamp: time.Unix(ts, 0),

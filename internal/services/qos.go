@@ -99,10 +99,11 @@ func (s *QoSService) Clear(ctx context.Context) error {
 
 func (s *QoSService) clear(ctx context.Context) error {
 	wanDev := s.wanDevice()
-	netutil.Run(ctx, "tc", "qdisc", "del", "dev", wanDev, "root")
-	netutil.Run(ctx, "tc", "qdisc", "del", "dev", "ifb0", "root")
-	netutil.Run(ctx, "ip", "link", "set", "ifb0", "down")
-	netutil.Run(ctx, "ip", "link", "del", "ifb0")
+	// Best-effort cleanup; missing qdiscs/links are not errors.
+	_, _ = netutil.Run(ctx, "tc", "qdisc", "del", "dev", wanDev, "root")
+	_, _ = netutil.Run(ctx, "tc", "qdisc", "del", "dev", "ifb0", "root")
+	_, _ = netutil.Run(ctx, "ip", "link", "set", "ifb0", "down")
+	_, _ = netutil.Run(ctx, "ip", "link", "del", "ifb0")
 	return nil
 }
 
@@ -117,8 +118,12 @@ func (s *QoSService) applyCake(ctx context.Context, wanDev string) error {
 		return fmt.Errorf("cake egress: %w", err)
 	}
 
-	netutil.Run(ctx, "ip", "link", "add", "ifb0", "type", "ifb")
-	netutil.Run(ctx, "ip", "link", "set", "ifb0", "up")
+	// ifb0 may already exist from a previous apply; ignore the error
+	// from the add and treat the set-up as the authoritative step.
+	_, _ = netutil.Run(ctx, "ip", "link", "add", "ifb0", "type", "ifb")
+	if _, err := netutil.Run(ctx, "ip", "link", "set", "ifb0", "up"); err != nil {
+		return fmt.Errorf("ifb0 up: %w", err)
+	}
 
 	_, err = netutil.Run(ctx, "tc", "qdisc", "replace", "dev", wanDev, "handle", "ffff:",
 		"ingress")
@@ -158,7 +163,9 @@ func (s *QoSService) setCongestionControl(ctx context.Context) error {
 	}
 
 	if cc == "bbr" {
-		netutil.Run(ctx, "sysctl", "-w", "net.core.default_qdisc=fq")
+		if _, err := netutil.Run(ctx, "sysctl", "-w", "net.core.default_qdisc=fq"); err != nil {
+			log.Printf("qos: set default_qdisc=fq: %v", err)
+		}
 	}
 
 	_, err := netutil.Run(ctx, "sysctl", "-w",

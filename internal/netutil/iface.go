@@ -86,12 +86,12 @@ func GetInterfaceAddresses(name string) ([]string, error) {
 }
 
 func ReadInterfaceStats(name string) (rxBytes, txBytes uint64, err error) {
-	path := fmt.Sprintf("/proc/net/dev")
+	path := "/proc/net/dev"
 	f, err := os.Open(path)
 	if err != nil {
 		return 0, 0, fmt.Errorf("open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
@@ -105,8 +105,8 @@ func ReadInterfaceStats(name string) (rxBytes, txBytes uint64, err error) {
 			return 0, 0, fmt.Errorf("unexpected format for %s", name)
 		}
 
-		fmt.Sscanf(fields[0], "%d", &rxBytes)
-		fmt.Sscanf(fields[8], "%d", &txBytes)
+		_, _ = fmt.Sscanf(fields[0], "%d", &rxBytes)
+		_, _ = fmt.Sscanf(fields[8], "%d", &txBytes)
 		return rxBytes, txBytes, nil
 	}
 

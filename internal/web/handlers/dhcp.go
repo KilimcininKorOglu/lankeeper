@@ -41,7 +41,10 @@ func (h *DHCPHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *DHCPHandler) HandleAddStatic(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 
 	mac := r.FormValue("mac")
 	ip := r.FormValue("ip")

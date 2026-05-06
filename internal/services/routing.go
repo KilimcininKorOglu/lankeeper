@@ -131,7 +131,9 @@ func (s *RoutingService) Apply(ctx context.Context) error {
 			continue
 		}
 
-		netutil.Run(ctx, "ip", "rule", "del", "fwmark",
+		// Best-effort delete of the previous rule before adding the
+		// fresh one; missing rules are not errors.
+		_, _ = netutil.Run(ctx, "ip", "rule", "del", "fwmark",
 			fmt.Sprintf("%d", tunnel.Fwmark), "lookup", fmt.Sprintf("%d", tunnel.Table))
 
 		_, err := netutil.Run(ctx, "ip", "rule", "add", "fwmark",
@@ -151,18 +153,21 @@ func (s *RoutingService) Apply(ctx context.Context) error {
 }
 
 func (s *RoutingService) Clear(ctx context.Context) error {
-	netutil.Run(ctx, "nft", "delete", "chain", "inet", "filter", "pbr_policies")
+	// All deletes below are best-effort cleanup; missing objects are
+	// not errors. The function never fails — at worst we leave stale
+	// state that the next Apply will overwrite.
+	_, _ = netutil.Run(ctx, "nft", "delete", "chain", "inet", "filter", "pbr_policies")
 
 	for _, p := range s.cfg.Routing.Policies {
 		tunnel := s.findTunnel(p.Tunnel)
 		if tunnel == nil {
 			continue
 		}
-		netutil.Run(ctx, "ip", "rule", "del", "fwmark",
+		_, _ = netutil.Run(ctx, "ip", "rule", "del", "fwmark",
 			fmt.Sprintf("%d", tunnel.Fwmark), "lookup", fmt.Sprintf("%d", tunnel.Table))
 
 		if len(p.Domains) > 0 {
-			netutil.Run(ctx, "nft", "delete", "set", "inet", "filter", "pbr_"+sanitizeName(p.Name))
+			_, _ = netutil.Run(ctx, "nft", "delete", "set", "inet", "filter", "pbr_"+sanitizeName(p.Name))
 		}
 	}
 
@@ -244,7 +249,7 @@ func (s *RoutingService) applyNftRules(ctx context.Context, rules string) error 
 	if err := os.WriteFile(tmpFile, []byte(rules), 0o600); err != nil {
 		return fmt.Errorf("write PBR rules: %w", err)
 	}
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	_, err := netutil.Run(ctx, "nft", "-f", tmpFile)
 	return err
@@ -276,7 +281,9 @@ func (s *RoutingService) resolveDomains(ctx context.Context, setName string, dom
 			if ip == "" || strings.Contains(ip, ":") {
 				continue
 			}
-			netutil.Run(ctx, "nft", "add", "element", "inet", "filter", setName,
+			// Best-effort: missing set is logged at apply time. Per-IP
+			// add failures are tolerated (next refresh will retry).
+			_, _ = netutil.Run(ctx, "nft", "add", "element", "inet", "filter", setName,
 				"{", ip, "timeout", "300s", "}")
 		}
 	}

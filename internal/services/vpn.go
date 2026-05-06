@@ -104,8 +104,9 @@ func (s *VPNService) DisconnectClient(ctx context.Context, name string) error {
 
 	iface := fmt.Sprintf("wg%d", idx)
 
-	netutil.Run(ctx, "ip", "rule", "del", "fwmark", fmt.Sprintf("%d", client.Fwmark))
-	netutil.Run(ctx, "ip", "route", "del", "default", "dev", iface, "table", fmt.Sprintf("%d", client.Table))
+	// Best-effort: missing rule/route is fine — this is teardown.
+	_, _ = netutil.Run(ctx, "ip", "rule", "del", "fwmark", fmt.Sprintf("%d", client.Fwmark))
+	_, _ = netutil.Run(ctx, "ip", "route", "del", "default", "dev", iface, "table", fmt.Sprintf("%d", client.Table))
 
 	_, err := netutil.Run(ctx, "wg-quick", "down", iface)
 	return err
@@ -252,7 +253,9 @@ func (s *VPNService) AddPeer(ctx context.Context, name string, siteToSite bool, 
 	s.cfg.VPN.Server.Peers = append(s.cfg.VPN.Server.Peers, peer)
 	s.mu.Unlock()
 
-	s.persist()
+	if err := s.persist(); err != nil {
+		return nil, "", fmt.Errorf("persist: %w", err)
+	}
 	return &peer, privKey, nil
 }
 
