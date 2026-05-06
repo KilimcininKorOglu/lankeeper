@@ -3,12 +3,65 @@ package services
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"text/template"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 )
+
+// ntpHostChars is the conservative byte allowlist for any value
+// rendered into chrony.conf as `server <X> iburst`. chrony's config
+// grammar treats whitespace as a token break, so a value containing
+// `\n`, ` `, `\t`, `;`, `"`, `'`, etc. allows directive injection
+// (`pool.ntp.org\nallow 0.0.0.0/0` would expose the NTP server to
+// the public internet). Real hostnames and IP literals only need
+// alphanumerics, dot, hyphen, and `:` for IPv6. (BUG-071)
+const ntpHostChars = "abcdefghijklmnopqrstuvwxyz" +
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
+	"0123456789" +
+	".-:"
+
+func hasOnlyNTPHostChars(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if !strings.ContainsRune(ntpHostChars, rune(s[i])) {
+			return false
+		}
+	}
+	return true
+}
+
+// validateNTPHost rejects empty values, values containing chrony
+// config-grammar metacharacters, and strings that are neither valid
+// IP literals nor RFC-1123-shaped hostnames. The result lands in
+// chrony.conf without further escaping.
+func validateNTPHost(host string) error {
+	if host == "" {
+		return fmt.Errorf("empty source")
+	}
+	if !hasOnlyNTPHostChars(host) {
+		return fmt.Errorf("NTP source %q contains characters that could inject chrony directives", host)
+	}
+	if net.ParseIP(host) != nil {
+		return nil
+	}
+	// RFC-1123 hostname shape: 1-253 chars, dot-separated labels of
+	// 1-63 chars each, alphanumerics + hyphen, no leading/trailing
+	// hyphen on a label.
+	if len(host) > 253 {
+		return fmt.Errorf("NTP source %q exceeds 253 characters", host)
+	}
+	for _, label := range strings.Split(host, ".") {
+		if label == "" || len(label) > 63 {
+			return fmt.Errorf("NTP source %q has an invalid label", host)
+		}
+		if label[0] == '-' || label[len(label)-1] == '-' {
+			return fmt.Errorf("NTP source %q label cannot start or end with a hyphen", host)
+		}
+	}
+	return nil
+}
 
 type NTPService struct {
 	cfg *config.Config
@@ -154,10 +207,13 @@ func (s *NTPService) GetConfig() config.NTPConfig {
 }
 
 // AddSource appends a NTP server hostname to the client source list.
+// The host is validated against the chrony-grammar allowlist so an
+// authenticated operator cannot inject extra `allow`/`cmdallow`
+// directives via an embedded newline. (BUG-071)
 func (s *NTPService) AddSource(host string) error {
 	host = strings.TrimSpace(host)
-	if host == "" {
-		return fmt.Errorf("empty source")
+	if err := validateNTPHost(host); err != nil {
+		return err
 	}
 	for _, src := range s.cfg.NTP.Client.Sources {
 		if strings.EqualFold(src, host) {
@@ -207,9 +263,18 @@ func (s *NTPService) RemoveAllowSubnet(index int) error {
 	return s.cfg.SaveToFile()
 }
 
-// SaveSettings updates scalar NTP fields.
+// SaveSettings updates scalar NTP fields. The fallback hostname goes
+// through the same chrony-grammar guard as AddSource so a `\nallow
+// 0.0.0.0/0` payload cannot ride the fallback path into chrony.conf.
+// (BUG-071)
 func (s *NTPService) SaveSettings(fallback, listenAddress string, listenPort int, serverEnabled, rtcSync bool) error {
-	s.cfg.NTP.Client.Fallback = strings.TrimSpace(fallback)
+	fallback = strings.TrimSpace(fallback)
+	if fallback != "" {
+		if err := validateNTPHost(fallback); err != nil {
+			return err
+		}
+	}
+	s.cfg.NTP.Client.Fallback = fallback
 	s.cfg.NTP.Server.Enabled = serverEnabled
 	s.cfg.NTP.Server.ListenAddress = strings.TrimSpace(listenAddress)
 	s.cfg.NTP.Server.ListenPort = listenPort
