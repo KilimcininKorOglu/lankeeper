@@ -633,6 +633,68 @@ func (s *IPv6Service) Stop(ctx context.Context) error {
 	return s.stopUnitLocked(ctx)
 }
 
+// ValidateSubnetMap enforces the invariants for a SLA-ID assignment
+// before it lands in router.yaml:
+//
+//   - "lan" must map to 0 (the primary LAN bridge keeps SLA-ID 0 by
+//     contract; the UI pins it as the first row);
+//   - every other key must match a VLAN ID present in cfg.VLANs;
+//   - no negative values;
+//   - no duplicate values across the map.
+//
+// The maximum SLA-ID is checked dynamically by buildPrefixInterfaces
+// against the live delegation; we do not enforce it here so an
+// operator can pre-configure subnetMap before the ISP delegates a
+// prefix.
+func (s *IPv6Service) ValidateSubnetMap(m map[string]int) error {
+	if v, ok := m["lan"]; ok && v != 0 {
+		return fmt.Errorf("primary LAN must keep SLA-ID 0, got %d", v)
+	}
+	known := make(map[string]struct{}, len(s.cfg.VLANs))
+	for _, v := range s.cfg.VLANs {
+		if v.ID != "" {
+			known[v.ID] = struct{}{}
+		}
+	}
+	seen := make(map[int]string, len(m))
+	for key, sla := range m {
+		if sla < 0 {
+			return fmt.Errorf("subnetMap[%q] is negative (%d); SLA-ID must be >= 0", key, sla)
+		}
+		if key != "lan" {
+			if _, ok := known[key]; !ok {
+				return fmt.Errorf("subnetMap[%q] does not match any VLAN ID", key)
+			}
+		}
+		if other, dup := seen[sla]; dup {
+			return fmt.Errorf("subnetMap[%q] and subnetMap[%q] both use SLA-ID %d", other, key, sla)
+		}
+		seen[sla] = key
+	}
+	return nil
+}
+
+// SetSubnetMap replaces cfg.IPv6.LAN.SubnetMap, persists to disk, and
+// re-applies the IPv6 config so the new SLA-ID assignment is reflected
+// in dhcp6c.conf and the dnsmasq RA drop-in.
+func (s *IPv6Service) SetSubnetMap(ctx context.Context, m map[string]int) error {
+	if m == nil {
+		m = map[string]int{}
+	}
+	if err := s.ValidateSubnetMap(m); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	s.cfg.IPv6.LAN.SubnetMap = m
+	s.mu.Unlock()
+
+	if err := s.cfg.SaveToFile(); err != nil {
+		return fmt.Errorf("save subnet map: %w", err)
+	}
+	return s.ApplyConfig(ctx)
+}
+
 // Restart bounces the dhcp6c unit. Used after WAN reconnect.
 func (s *IPv6Service) Restart(ctx context.Context) error {
 	s.mu.Lock()

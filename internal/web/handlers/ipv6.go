@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -217,6 +218,46 @@ func (h *IPv6Handler) HandleTunnelUpdateNow(w http.ResponseWriter, r *http.Reque
 	if _, err := h.sixinfour.UpdateRemoteIPv4(r.Context(), currentIPv4); err != nil {
 		log.Printf("6in4 manual update: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.respondOK(w, r)
+}
+
+// HandleSubnetMap accepts a JSON array of names in the desired
+// announcement order (e.g. ["lan", "guest", "iot"]). The first entry
+// must be "lan" — the primary LAN bridge keeps SLA-ID 0 by contract,
+// and the UI pins it as the first row of the sortable table. The
+// remaining entries are assigned SLA-IDs 1, 2, 3 ... in submission
+// order; the resulting map is persisted via SetSubnetMap, which
+// re-renders dhcp6c.conf and the dnsmasq RA drop-in.
+func (h *IPv6Handler) HandleSubnetMap(w http.ResponseWriter, r *http.Request) {
+	var order []string
+	if err := json.NewDecoder(r.Body).Decode(&order); err != nil {
+		http.Error(w, "bad json", http.StatusBadRequest)
+		return
+	}
+	if len(order) == 0 || order[0] != "lan" {
+		http.Error(w, "first entry must be \"lan\"", http.StatusBadRequest)
+		return
+	}
+	m := make(map[string]int, len(order))
+	seen := make(map[string]struct{}, len(order))
+	for i, name := range order {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			http.Error(w, "empty entry in order list", http.StatusBadRequest)
+			return
+		}
+		if _, dup := seen[name]; dup {
+			http.Error(w, fmt.Sprintf("duplicate entry %q", name), http.StatusBadRequest)
+			return
+		}
+		seen[name] = struct{}{}
+		m[name] = i
+	}
+	if err := h.ipv6.SetSubnetMap(r.Context(), m); err != nil {
+		log.Printf("ipv6 subnet-map: %v", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	h.respondOK(w, r)

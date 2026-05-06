@@ -360,6 +360,7 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	mux.Handle("POST /ipv6/start", authed(http.HandlerFunc(s.ipv6.HandleStart)))
 	mux.Handle("POST /ipv6/stop", authed(http.HandlerFunc(s.ipv6.HandleStop)))
 	mux.Handle("POST /ipv6/tunnel/update", authed(http.HandlerFunc(s.ipv6.HandleTunnelUpdateNow)))
+	mux.Handle("POST /ipv6/subnet-map", authed(http.HandlerFunc(s.ipv6.HandleSubnetMap)))
 	mux.Handle("GET /qos", authed(http.HandlerFunc(s.qos.HandlePage)))
 	mux.Handle("POST /qos/apply", authed(http.HandlerFunc(s.qos.HandleApply)))
 	mux.Handle("POST /qos/clear", authed(http.HandlerFunc(s.qos.HandleClear)))

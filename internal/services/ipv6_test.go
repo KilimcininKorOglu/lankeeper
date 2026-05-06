@@ -434,6 +434,89 @@ func TestIPv6AnnouncedInterfacesDisabled(t *testing.T) {
 	}
 }
 
+// TestIPv6ValidateSubnetMap covers the invariants the drag-and-drop
+// reorder endpoint relies on: lan pinned at 0, VLAN keys must exist,
+// no negatives, no duplicates. The max-SLA cap is intentionally
+// enforced lazily at render time so an operator can stage assignments
+// before the ISP delegates a prefix — that path is not covered here.
+func TestIPv6ValidateSubnetMap(t *testing.T) {
+	cfg := newIPv6TestConfig(t)
+	cfg.VLANs = []config.VLANConfig{
+		{ID: "guest", Parent: "lan", VID: 13, Role: "guest"},
+		{ID: "iot", Parent: "lan", VID: 20, Role: "iot"},
+	}
+	svc := newIPv6TestService(t, cfg)
+
+	t.Run("empty map", func(t *testing.T) {
+		if err := svc.ValidateSubnetMap(map[string]int{}); err != nil {
+			t.Fatalf("empty map should validate: %v", err)
+		}
+	})
+	t.Run("valid full mapping", func(t *testing.T) {
+		err := svc.ValidateSubnetMap(map[string]int{"lan": 0, "guest": 1, "iot": 2})
+		if err != nil {
+			t.Fatalf("valid map rejected: %v", err)
+		}
+	})
+	t.Run("lan must be zero", func(t *testing.T) {
+		err := svc.ValidateSubnetMap(map[string]int{"lan": 1, "guest": 2})
+		if err == nil {
+			t.Fatal("expected lan != 0 to be rejected")
+		}
+	})
+	t.Run("unknown vlan rejected", func(t *testing.T) {
+		err := svc.ValidateSubnetMap(map[string]int{"lan": 0, "ghost": 1})
+		if err == nil {
+			t.Fatal("expected unknown VLAN to be rejected")
+		}
+	})
+	t.Run("negative sla rejected", func(t *testing.T) {
+		err := svc.ValidateSubnetMap(map[string]int{"lan": 0, "guest": -1})
+		if err == nil {
+			t.Fatal("expected negative SLA-ID to be rejected")
+		}
+	})
+	t.Run("duplicate sla rejected", func(t *testing.T) {
+		err := svc.ValidateSubnetMap(map[string]int{"lan": 0, "guest": 1, "iot": 1})
+		if err == nil {
+			t.Fatal("expected duplicate SLA-ID to be rejected")
+		}
+	})
+}
+
+// TestIPv6AnnouncedReflectsSubnetMap shows the end-to-end shape of
+// the feature: a SubnetMap entry overrides the auto-assigned SLA-ID
+// returned by AnnouncedInterfaces, which is what the /ipv6 page
+// renders.
+func TestIPv6AnnouncedReflectsSubnetMap(t *testing.T) {
+	cfg := newIPv6TestConfig(t)
+	cfg.VLANs = []config.VLANConfig{
+		{ID: "guest", Parent: "lan", VID: 13, Role: "guest"},
+		{ID: "iot", Parent: "lan", VID: 20, Role: "iot"},
+	}
+	cfg.IPv6.LAN.SubnetMap = map[string]int{"lan": 0, "iot": 1, "guest": 2}
+	svc := newIPv6TestService(t, cfg)
+
+	got, err := svc.AnnouncedInterfaces()
+	if err != nil {
+		t.Fatalf("announced: %v", err)
+	}
+	want := map[string]int{"eth1": 0, "eth1.13": 2, "eth1.20": 1}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d entries, got %d: %+v", len(want), len(got), got)
+	}
+	for _, entry := range got {
+		expected, ok := want[entry.Device]
+		if !ok {
+			t.Errorf("unexpected device %q", entry.Device)
+			continue
+		}
+		if entry.SLAID != expected {
+			t.Errorf("device %q: expected SLA-ID %d, got %d", entry.Device, expected, entry.SLAID)
+		}
+	}
+}
+
 func TestIPv6SetOnLeaseChangeIsRegistered(t *testing.T) {
 	cfg := newIPv6TestConfig(t)
 	svc := newIPv6TestService(t, cfg)
