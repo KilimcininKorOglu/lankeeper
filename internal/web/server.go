@@ -92,7 +92,8 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	firewallHandler := handlers.NewFirewallHandler(renderer, firewallSvc, cfg)
 
 	dnsSvc := services.NewDNSService(cfg)
-	dnsHandler := handlers.NewDNSHandler(renderer, dnsSvc)
+	dohSvc := services.NewDoHService(cfg)
+	dnsHandler := handlers.NewDNSHandler(renderer, dnsSvc, dohSvc)
 
 	dhcpSvc := services.NewDHCPService(cfg)
 	dhcpSvc.SetDNSService(dnsSvc)
@@ -393,6 +394,7 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	mux.Handle("POST /dns/blocklist/update", authed(http.HandlerFunc(s.dns.HandleUpdateBlocklist)))
 	mux.Handle("POST /dns/dot", authed(http.HandlerFunc(s.dns.HandleSaveDoT)))
 	mux.Handle("POST /dns/dot/probe", authed(s.dotProbeLimiter.Middleware(http.HandlerFunc(s.dns.HandleProbeDoT))))
+	mux.Handle("POST /dns/doh/probe", authed(s.dotProbeLimiter.Middleware(http.HandlerFunc(s.dns.HandleProbeDoH))))
 	mux.Handle("POST /dns/records", authed(http.HandlerFunc(s.dns.HandleAddRecord)))
 	mux.Handle("DELETE /dns/records/{index}", authed(http.HandlerFunc(s.dns.HandleDeleteRecord)))
 	mux.Handle("GET /dhcp", authed(http.HandlerFunc(s.dhcp.HandlePage)))
