@@ -12,5 +12,7 @@ require (
 require (
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
+	github.com/kr/fs v0.1.0 // indirect
+	github.com/pkg/sftp v1.13.10 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 )
