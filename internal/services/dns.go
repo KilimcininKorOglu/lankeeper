@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -537,10 +538,21 @@ func isInternalIP(ip net.IP) bool {
 // `#hostname` SNI suffix so unbound (and our probe) can verify the
 // server certificate against a name; otherwise the connection
 // silently degrades to chain-only validation and is MITM-able.
-func (s *DNSService) SaveDNSSettings(enableDoT bool, dotUpstream string) error {
+//
+// DoT and DoH are mutually exclusive: when both bools come in
+// true we reject - the form layer should never let it happen, but
+// a backend caller bypassing the UI must hit a hard error rather
+// than silently picking one. When DoH is enabled the upstream is
+// validated via DoHService.ValidateUpstream from the handler before
+// this method runs; we trust it here.
+func (s *DNSService) SaveDNSSettings(enableDoT bool, dotUpstream string, enableDoH bool, dohUpstream string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	dotUpstream = strings.TrimSpace(dotUpstream)
+	dohUpstream = strings.TrimSpace(dohUpstream)
+	if enableDoT && enableDoH {
+		return errors.New("DoT and DoH cannot both be enabled")
+	}
 	if enableDoT {
 		if _, _, _, err := parseAndValidateDoTSpec(dotUpstream); err != nil {
 			return err
@@ -548,6 +560,8 @@ func (s *DNSService) SaveDNSSettings(enableDoT bool, dotUpstream string) error {
 	}
 	s.cfg.DNS.EnableDoT = enableDoT
 	s.cfg.DNS.DoTUpstream = dotUpstream
+	s.cfg.DNS.EnableDoH = enableDoH
+	s.cfg.DNS.DoHUpstream = dohUpstream
 	return s.cfg.SaveToFile()
 }
 

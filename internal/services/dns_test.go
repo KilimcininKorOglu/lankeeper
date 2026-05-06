@@ -51,7 +51,7 @@ func TestSaveDNSSettingsRejectsBareIPDoTUpstream(t *testing.T) {
 			cfg := config.DefaultConfig()
 			cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
 			svc := services.NewDNSService(cfg)
-			err := svc.SaveDNSSettings(true, tc.upstream)
+			err := svc.SaveDNSSettings(true, tc.upstream, false, "")
 			if tc.wantErr && err == nil {
 				t.Fatalf("expected error for upstream %q, got nil", tc.upstream)
 			}
@@ -94,7 +94,7 @@ func TestSaveDNSSettingsRejectsSSRFTargets(t *testing.T) {
 			cfg := config.DefaultConfig()
 			cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
 			svc := services.NewDNSService(cfg)
-			if err := svc.SaveDNSSettings(true, tc.upstream); err == nil {
+			if err := svc.SaveDNSSettings(true, tc.upstream, false, ""); err == nil {
 				t.Fatalf("expected error for upstream %q, got nil", tc.upstream)
 			}
 		})
@@ -123,7 +123,7 @@ func TestSaveDNSSettingsRejectsUnboundConfInjection(t *testing.T) {
 			cfg := config.DefaultConfig()
 			cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
 			svc := services.NewDNSService(cfg)
-			if err := svc.SaveDNSSettings(true, tc.upstream); err == nil {
+			if err := svc.SaveDNSSettings(true, tc.upstream, false, ""); err == nil {
 				t.Fatalf("expected error for upstream %q, got nil", tc.upstream)
 			}
 		})
@@ -137,7 +137,7 @@ func TestSaveDNSSettingsAllowsAnyUpstreamWhenDoTDisabled(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
 	svc := services.NewDNSService(cfg)
-	if err := svc.SaveDNSSettings(false, "1.1.1.1"); err != nil {
+	if err := svc.SaveDNSSettings(false, "1.1.1.1", false, ""); err != nil {
 		t.Fatalf("disabled DoT should accept bare IP, got %v", err)
 	}
 }

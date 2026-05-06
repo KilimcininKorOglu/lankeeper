@@ -121,7 +121,7 @@ func (h *DNSHandler) HandleSaveDoT(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "DoT upstream required when enabled", http.StatusBadRequest)
 		return
 	}
-	if err := h.dns.SaveDNSSettings(enable, upstream); err != nil {
+	if err := h.dns.SaveDNSSettings(enable, upstream, false, ""); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

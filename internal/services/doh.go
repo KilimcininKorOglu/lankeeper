@@ -3,14 +3,20 @@ package services
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 	"text/template"
+	"time"
+
+	"golang.org/x/net/dns/dnsmessage"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
@@ -423,6 +429,117 @@ func httpsURLToStamp(rawURL string) (string, error) {
 	writeLP(&buf, []byte(path))
 	// no bootstrap IPs
 	return "sdns://" + base64.RawURLEncoding.EncodeToString(buf.Bytes()), nil
+}
+
+// Probe sends a single A-record query over DoH and returns the
+// round-trip latency. Used by /dns/doh/probe so the operator can
+// validate a DoH upstream before saving it. Caller should rate
+// limit (mirrors dotProbeLimiter).
+//
+// Catalogue names are not directly probable - we'd need to hit
+// the dnscrypt-proxy resolver list to map name → endpoint - so
+// this method only supports https:// URLs and sdns:// stamps.
+// Catalogue picks are validated by membership and trusted to work.
+func (s *DoHService) Probe(ctx context.Context, spec string) (time.Duration, error) {
+	spec = strings.TrimSpace(spec)
+	if IsBuiltInDoHResolver(spec) {
+		return 0, errors.New("catalogue picks are validated by name; no probe required")
+	}
+
+	var endpoint string
+	switch {
+	case strings.HasPrefix(spec, "https://"):
+		if err := validateHTTPSUpstream(spec); err != nil {
+			return 0, err
+		}
+		endpoint = spec
+	case strings.HasPrefix(spec, "sdns://"):
+		if err := validateSDNSUpstream(spec); err != nil {
+			return 0, err
+		}
+		host, path, err := parseSDNSEndpoint(spec)
+		if err != nil {
+			return 0, err
+		}
+		endpoint = "https://" + host + path
+	default:
+		return 0, errors.New("probe requires https:// URL or sdns:// stamp")
+	}
+
+	query, err := buildDoHQuery("www.example.com.")
+	if err != nil {
+		return 0, fmt.Errorf("build query: %w", err)
+	}
+
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(probeCtx, http.MethodPost, endpoint, bytes.NewReader(query))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/dns-message")
+	req.Header.Set("Accept", "application/dns-message")
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
+			TLSHandshakeTimeout:   3 * time.Second,
+			ResponseHeaderTimeout: 3 * time.Second,
+		},
+	}
+
+	start := time.Now()
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return 0, fmt.Errorf("read response: %w", err)
+	}
+	var msg dnsmessage.Message
+	if err := msg.Unpack(body); err != nil {
+		return 0, fmt.Errorf("unpack DNS response: %w", err)
+	}
+	if msg.Header.RCode != dnsmessage.RCodeSuccess {
+		return 0, fmt.Errorf("DNS rcode %s", msg.Header.RCode)
+	}
+	return time.Since(start), nil
+}
+
+func buildDoHQuery(name string) ([]byte, error) {
+	q, err := dnsmessage.NewName(name)
+	if err != nil {
+		return nil, err
+	}
+	msg := dnsmessage.Message{
+		Header: dnsmessage.Header{ID: 0x1234, RecursionDesired: true},
+		Questions: []dnsmessage.Question{{
+			Name:  q,
+			Type:  dnsmessage.TypeA,
+			Class: dnsmessage.ClassINET,
+		}},
+	}
+	return msg.Pack()
+}
+
+// parseSDNSEndpoint pulls (host, path) out of a stamp without the
+// validation guards - the caller has already validated. Returns the
+// values shaped for direct URL composition (path keeps its leading
+// slash).
+func parseSDNSEndpoint(spec string) (string, string, error) {
+	body := strings.TrimPrefix(spec, "sdns://")
+	body = strings.TrimRight(body, "=")
+	raw, err := base64.RawURLEncoding.DecodeString(body)
+	if err != nil {
+		return "", "", err
+	}
+	return decodeDoHStamp(raw)
 }
 
 func writeLP(buf *bytes.Buffer, payload []byte) {
