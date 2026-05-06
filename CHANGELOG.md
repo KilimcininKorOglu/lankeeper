@@ -28,6 +28,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Backed by `IPv6Service.AnnouncedInterfaces()`. Locale keys
   `ipv6.announced`, `ipv6.announcedHelp`, `ipv6.interface`, `ipv6.slaId`
   added to both tr.json and en.json.
+- **Lease-driven firewall refresh**: `IPv6Service` now watches
+  `/var/lib/lankeeper/state/ipv6-prefix.json` via fsnotify and fires a
+  registered callback whenever the dhcp6c hook script swaps the file
+  in. Wired in `web/server.go` so the firewall ruleset re-applies
+  (with auto-confirm) after every prefix change. Identical leases
+  are deduped via a Prefix/Reason/Lifetime hash so renewals do not
+  cause spurious reloads.
+
+### Dependencies
+
+- Added `github.com/fsnotify/fsnotify` for IPv6 lease state file watching.
 
 ## [0.2.0] - 2026-05-06
 

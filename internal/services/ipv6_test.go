@@ -1,8 +1,12 @@
 package services_test
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/services"
@@ -419,6 +423,128 @@ func TestIPv6AnnouncedInterfacesDisabled(t *testing.T) {
 	}
 	if got != nil {
 		t.Errorf("expected nil when disabled, got %+v", got)
+	}
+}
+
+func TestIPv6SetOnLeaseChangeIsRegistered(t *testing.T) {
+	cfg := newIPv6TestConfig(t)
+	svc := newIPv6TestService(t, cfg)
+
+	// Just exercising the setter — it must accept a nil and a real
+	// callback without panicking, so subsequent dispatch is safe.
+	svc.SetOnLeaseChange(nil)
+	svc.SetOnLeaseChange(func(_ context.Context, _ services.PrefixState) error {
+		return nil
+	})
+}
+
+func TestIPv6StopLeaseWatcherWithoutStartIsNoop(t *testing.T) {
+	cfg := newIPv6TestConfig(t)
+	svc := newIPv6TestService(t, cfg)
+
+	// Calling Stop before Start (or twice) must not deadlock or panic.
+	svc.StopLeaseWatcher()
+	svc.StopLeaseWatcher()
+}
+
+func TestIPv6LeaseWatcherFiresOnFileChange(t *testing.T) {
+	cfg := newIPv6TestConfig(t)
+	svc := newIPv6TestService(t, cfg)
+
+	statePath := filepath.Join(t.TempDir(), "ipv6-prefix.json")
+	svc.SetStatePathForTest(statePath)
+
+	calls := make(chan services.PrefixState, 8)
+	svc.SetOnLeaseChange(func(_ context.Context, st services.PrefixState) error {
+		calls <- st
+		return nil
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := svc.StartLeaseWatcher(ctx); err != nil {
+		t.Fatalf("StartLeaseWatcher: %v", err)
+	}
+	defer svc.StopLeaseWatcher()
+
+	// Initial dispatch fires once with the empty state.
+	select {
+	case st := <-calls:
+		if st.Active() {
+			t.Fatalf("expected inactive initial state, got %+v", st)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("initial dispatch never fired")
+	}
+
+	// Simulate the dhcp6c hook script's atomic-mv write.
+	tmp := statePath + ".tmp"
+	body := []byte(`{"timestamp":1,"reason":"REPLY","prefix":"2001:db8::","prefixLength":56,"preferredLifetime":3600,"validLifetime":7200}`)
+	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+		t.Fatalf("write tmp: %v", err)
+	}
+	if err := os.Rename(tmp, statePath); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+
+	select {
+	case st := <-calls:
+		if !st.Active() {
+			t.Fatalf("expected Active state after lease write, got %+v", st)
+		}
+		if st.Prefix != "2001:db8::" || st.PrefixLength != 56 {
+			t.Errorf("unexpected lease body: %+v", st)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("lease change dispatch never fired")
+	}
+}
+
+func TestIPv6LeaseWatcherDedupesIdenticalEvents(t *testing.T) {
+	cfg := newIPv6TestConfig(t)
+	svc := newIPv6TestService(t, cfg)
+
+	statePath := filepath.Join(t.TempDir(), "ipv6-prefix.json")
+	svc.SetStatePathForTest(statePath)
+
+	// Pre-write the lease so the initial dispatch consumes one slot.
+	body := []byte(`{"timestamp":1,"reason":"REPLY","prefix":"2001:db8::","prefixLength":56,"preferredLifetime":3600,"validLifetime":7200}`)
+	if err := os.WriteFile(statePath, body, 0o644); err != nil {
+		t.Fatalf("seed lease: %v", err)
+	}
+
+	calls := make(chan struct{}, 8)
+	svc.SetOnLeaseChange(func(_ context.Context, _ services.PrefixState) error {
+		calls <- struct{}{}
+		return nil
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := svc.StartLeaseWatcher(ctx); err != nil {
+		t.Fatalf("StartLeaseWatcher: %v", err)
+	}
+	defer svc.StopLeaseWatcher()
+
+	// Initial dispatch.
+	select {
+	case <-calls:
+	case <-time.After(2 * time.Second):
+		t.Fatal("initial dispatch never fired")
+	}
+
+	// Re-write the same body — same hash, callback must NOT fire.
+	if err := os.WriteFile(statePath, body, 0o644); err != nil {
+		t.Fatalf("rewrite lease: %v", err)
+	}
+
+	select {
+	case <-calls:
+		t.Fatal("callback fired for identical lease (dedup broken)")
+	case <-time.After(500 * time.Millisecond):
+		// expected silence
 	}
 }
 

@@ -111,6 +111,24 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	// is restarted on every (re)connect and torn down on disconnect.
 	pppoeSvc.SetOnConnect(func(ctx context.Context) error { return ipv6Svc.Restart(ctx) })
 	pppoeSvc.SetOnDisconnect(func(ctx context.Context) error { return ipv6Svc.Stop(ctx) })
+	// Whenever the dhcp6c lease changes (new prefix, RELEASE, EXIT) we
+	// re-apply the firewall ruleset so any ip6-derived rules are
+	// rebuilt from the freshly delegated prefix. The 30s watchdog is
+	// auto-confirmed because the lease event itself is proof we kept
+	// connectivity end-to-end.
+	ipv6Svc.SetOnLeaseChange(func(ctx context.Context, _ services.PrefixState) error {
+		if err := firewallSvc.Apply(ctx); err != nil {
+			return fmt.Errorf("ipv6 lease -> firewall apply: %w", err)
+		}
+		firewallSvc.Confirm()
+		return nil
+	})
+	if err := ipv6Svc.StartLeaseWatcher(context.Background()); err != nil {
+		// Watcher is best-effort: we log the failure but keep serving.
+		// dhcp6c will still write the state file; only the auto-refresh
+		// is lost.
+		log.Printf("ipv6: start lease watcher: %v", err)
+	}
 	ipv6Handler := handlers.NewIPv6Handler(renderer, cfg, ipv6Svc)
 
 	backupSvc := services.NewBackupService("/etc/lankeeper")

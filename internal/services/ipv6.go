@@ -24,6 +24,8 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
+
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 )
@@ -79,6 +81,38 @@ type IPv6Service struct {
 	confTmpl   string
 	scriptTmpl string
 	raTmpl     string
+	// statePathOverride overrides ipv6StatePath. Tests set this to a
+	// temporary file so the watcher does not need /var/lib/lankeeper/.
+	statePathOverride string
+
+	// onLease is invoked whenever the dhcp6c lease state file changes
+	// (registered via SetOnLeaseChange). Lets cross-cutting services
+	// (firewall, DNS) refresh their derived state without polling.
+	// Errors are logged; never block the watcher loop.
+	onLease     func(ctx context.Context, state PrefixState) error
+	watcherStop chan struct{}
+	watcherWG   sync.WaitGroup
+	// lastLeaseHash tracks the digest of the last state we dispatched
+	// so duplicate fsnotify events (atomic mv writes 1+ events) do not
+	// trigger duplicate firewall reloads.
+	lastLeaseHash string
+}
+
+// statePath returns the active lease state path, honouring the test
+// override when present.
+func (s *IPv6Service) statePath() string {
+	if s.statePathOverride != "" {
+		return s.statePathOverride
+	}
+	return ipv6StatePath
+}
+
+// SetStatePathForTest overrides the lease state file path. Test-only
+// hook; production code should never call this.
+func (s *IPv6Service) SetStatePathForTest(path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.statePathOverride = path
 }
 
 func NewIPv6Service(cfg *config.Config) *IPv6Service {
@@ -455,12 +489,13 @@ func (s *IPv6Service) Release(ctx context.Context) error {
 // Returns a zero PrefixState (Active() == false) when no lease has
 // been recorded yet.
 func (s *IPv6Service) Status(ctx context.Context) (PrefixState, error) {
-	raw, err := netutil.ReadFile(ipv6StatePath)
+	path := s.statePath()
+	raw, err := netutil.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return PrefixState{}, nil
 		}
-		return PrefixState{}, fmt.Errorf("read %s: %w", ipv6StatePath, err)
+		return PrefixState{}, fmt.Errorf("read %s: %w", path, err)
 	}
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return PrefixState{}, nil
@@ -602,4 +637,148 @@ func (s *IPv6Service) stopUnitLocked(ctx context.Context) error {
 		return fmt.Errorf("stop %s: %w", dhcp6cUnitName, err)
 	}
 	return nil
+}
+
+// SetOnLeaseChange registers a callback invoked whenever the dhcp6c
+// lease state file changes. Replaces any previously registered hook.
+// Pass nil to clear. Must be called before StartLeaseWatcher.
+func (s *IPv6Service) SetOnLeaseChange(fn func(ctx context.Context, state PrefixState) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onLease = fn
+}
+
+// StartLeaseWatcher launches a goroutine that watches the lease state
+// file via fsnotify and dispatches changes to the registered callback.
+// The watcher attaches to the *parent directory* (not the file itself)
+// because the hook script uses atomic mv to swap the state file in,
+// which destroys the inode the watcher would otherwise be tied to.
+//
+// Idempotent: subsequent calls are no-ops while the watcher is running.
+// Stop() tears it down.
+func (s *IPv6Service) StartLeaseWatcher(ctx context.Context) error {
+	s.mu.Lock()
+	if s.watcherStop != nil {
+		s.mu.Unlock()
+		return nil // already running
+	}
+	stopCh := make(chan struct{})
+	s.watcherStop = stopCh
+	s.mu.Unlock()
+
+	statePath := s.statePath()
+	stateDir := filepath.Dir(statePath)
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		return fmt.Errorf("ensure state dir %s: %w", stateDir, err)
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("create fsnotify watcher: %w", err)
+	}
+	if err := watcher.Add(stateDir); err != nil {
+		_ = watcher.Close()
+		return fmt.Errorf("watch %s: %w", stateDir, err)
+	}
+
+	s.watcherWG.Add(1)
+	go s.runLeaseWatcher(ctx, watcher, stopCh, statePath)
+	return nil
+}
+
+// StopLeaseWatcher signals the watcher goroutine to exit and waits
+// for it to drain. Safe to call when no watcher is running.
+func (s *IPv6Service) StopLeaseWatcher() {
+	s.mu.Lock()
+	stopCh := s.watcherStop
+	s.watcherStop = nil
+	s.mu.Unlock()
+
+	if stopCh == nil {
+		return
+	}
+	close(stopCh)
+	s.watcherWG.Wait()
+}
+
+func (s *IPv6Service) runLeaseWatcher(ctx context.Context, watcher *fsnotify.Watcher, stopCh chan struct{}, statePath string) {
+	defer s.watcherWG.Done()
+	defer func() { _ = watcher.Close() }()
+
+	// Initial dispatch so the callback sees the state that already
+	// exists on disk when the watcher starts (e.g. lankeeper restart
+	// while the lease is held).
+	s.dispatchLeaseLocked(ctx)
+
+	stateName := filepath.Base(statePath)
+	// fsnotify can fire 2-3 events per atomic mv (Create + Rename +
+	// Chmod). Debounce with a short timer so we only call the
+	// callback once per logical update.
+	var debounce *time.Timer
+	for {
+		select {
+		case <-stopCh:
+			return
+		case <-ctx.Done():
+			return
+		case ev, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+			if filepath.Base(ev.Name) != stateName {
+				continue
+			}
+			if ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Rename|fsnotify.Chmod) == 0 {
+				continue
+			}
+			if debounce != nil {
+				debounce.Stop()
+			}
+			debounce = time.AfterFunc(150*time.Millisecond, func() {
+				s.dispatchLeaseLocked(ctx)
+			})
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			log.Printf("ipv6: lease watcher error: %v", err)
+		}
+	}
+}
+
+// dispatchLeaseLocked reads the current lease state, dedupes against
+// the last dispatched hash, and fires the registered callback. Errors
+// are logged and never propagated — the watcher must keep running.
+func (s *IPv6Service) dispatchLeaseLocked(ctx context.Context) {
+	state, err := s.Status(ctx)
+	if err != nil {
+		log.Printf("ipv6: lease watcher status read: %v", err)
+		return
+	}
+	hash := leaseHash(state)
+	s.mu.Lock()
+	if hash == s.lastLeaseHash {
+		s.mu.Unlock()
+		return
+	}
+	s.lastLeaseHash = hash
+	cb := s.onLease
+	s.mu.Unlock()
+
+	if cb == nil {
+		return
+	}
+	if err := cb(ctx, state); err != nil {
+		log.Printf("ipv6: lease change callback: %v", err)
+	}
+}
+
+// leaseHash produces a stable digest of the fields callers actually
+// care about. We deliberately omit Timestamp so spurious re-writes
+// of the same lease (dhcp6c re-renews preserving the prefix) do not
+// re-trigger the callback.
+func leaseHash(p PrefixState) string {
+	return fmt.Sprintf("%s/%d|%s|%d|%d|%s",
+		p.Prefix, p.PrefixLength, p.Reason,
+		p.PreferredLifetime, p.ValidLifetime, p.RDNSS)
 }
