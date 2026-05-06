@@ -72,8 +72,8 @@ func (h *SyslogHandler) HandleSaveServerConfig(w http.ResponseWriter, r *http.Re
 	}
 	if err := h.syslog.SaveServerConfig(cfg); err != nil {
 		// SaveServerConfig validates TLS paths against an allowlist
-		// (BUG-067) so a rejection here is operator input, not an
-		// I/O fault — return 400 so HTMX surfaces the message.
+		// so a rejection here is operator input, not an I/O fault —
+		// return 400 so HTMX surfaces the message.
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

@@ -17,7 +17,7 @@ import (
 // `\n`, ` `, `\t`, `;`, `"`, `'`, etc. allows directive injection
 // (`pool.ntp.org\nallow 0.0.0.0/0` would expose the NTP server to
 // the public internet). Real hostnames and IP literals only need
-// alphanumerics, dot, hyphen, and `:` for IPv6. (BUG-071)
+// alphanumerics, dot, hyphen, and `:` for IPv6.
 const ntpHostChars = "abcdefghijklmnopqrstuvwxyz" +
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
 	"0123456789" +
@@ -209,7 +209,7 @@ func (s *NTPService) GetConfig() config.NTPConfig {
 // AddSource appends a NTP server hostname to the client source list.
 // The host is validated against the chrony-grammar allowlist so an
 // authenticated operator cannot inject extra `allow`/`cmdallow`
-// directives via an embedded newline. (BUG-071)
+// directives via an embedded newline.
 func (s *NTPService) AddSource(host string) error {
 	host = strings.TrimSpace(host)
 	if err := validateNTPHost(host); err != nil {
@@ -265,12 +265,12 @@ func (s *NTPService) RemoveAllowSubnet(index int) error {
 
 // SaveSettings updates scalar NTP fields. The fallback hostname goes
 // through the same chrony-grammar guard as AddSource so a `\nallow
-// 0.0.0.0/0` payload cannot ride the fallback path into chrony.conf
-// (BUG-071). The listen address must parse as a literal IPv4/IPv6
-// address — chrony's `bindaddress` directive is documented as
-// IP-only, and a hostname-shaped value would silently disable the
-// listener anyway. Stricter validation here also closes the
-// chrony.conf newline-injection vector. (BUG-072)
+// 0.0.0.0/0` payload cannot ride the fallback path into chrony.conf.
+// The listen address must parse as a literal IPv4/IPv6 address —
+// chrony's `bindaddress` directive is documented as IP-only, and a
+// hostname-shaped value would silently disable the listener anyway.
+// Stricter validation here also closes the chrony.conf
+// newline-injection vector.
 func (s *NTPService) SaveSettings(fallback, listenAddress string, listenPort int, serverEnabled, rtcSync bool) error {
 	fallback = strings.TrimSpace(fallback)
 	if fallback != "" {

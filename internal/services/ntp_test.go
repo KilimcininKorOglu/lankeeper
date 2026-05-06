@@ -10,7 +10,7 @@ import (
 
 // TestNTPAddSourceRejectsChronyConfInjection blocks payloads crafted
 // to break out of the `server <X> iburst` line and inject sibling
-// chrony directives (e.g. `allow 0.0.0.0/0`). (BUG-071)
+// chrony directives (e.g. `allow 0.0.0.0/0`).
 func TestNTPAddSourceRejectsChronyConfInjection(t *testing.T) {
 	cases := []struct {
 		name string
@@ -60,7 +60,7 @@ func TestNTPAddSourceAcceptsValidHosts(t *testing.T) {
 }
 
 // TestNTPSaveSettingsRejectsFallbackInjection covers the same guard
-// on the fallback hostname stored via SaveSettings. (BUG-071)
+// on the fallback hostname stored via SaveSettings.
 func TestNTPSaveSettingsRejectsFallbackInjection(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
@@ -72,7 +72,7 @@ func TestNTPSaveSettingsRejectsFallbackInjection(t *testing.T) {
 }
 
 // TestNTPSaveSettingsRejectsListenAddressInjection blocks chrony.conf
-// `bindaddress` injection via a newline-laced listen address. (BUG-072)
+// `bindaddress` injection via a newline-laced listen address.
 func TestNTPSaveSettingsRejectsListenAddressInjection(t *testing.T) {
 	cases := []string{
 		"127.0.0.1\nallow 0.0.0.0/0",

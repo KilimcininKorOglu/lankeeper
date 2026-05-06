@@ -19,7 +19,7 @@ import (
 // surface that file's content via PEM-parse error logs visible on
 // the /syslog page. Restricting to canonical TLS storage roots
 // closes that exfiltration channel without breaking legitimate
-// operator workflows. (BUG-067)
+// operator workflows.
 var allowedTLSDirs = []string{
 	"/etc/ssl/",
 	"/etc/pki/",
@@ -32,7 +32,7 @@ var allowedTLSDirs = []string{
 // values inside RainerScript double-quoted strings — `"`, `(`, `)`,
 // newlines, NULs, and whitespace would all close the string and
 // permit injection of arbitrary directives such as
-// `module(load="omprog" binary="/bin/sh")`. (BUG-069)
+// `module(load="omprog" binary="/bin/sh")`.
 //
 // Real-world TLS / log paths only need alphanumerics, `/`, `.`, `_`,
 // `-`, `+` and `~` (for keyring suffix on some distros). Everything
@@ -145,7 +145,7 @@ func (s *SyslogService) SaveServerConfig(cfg config.SyslogServerConfig) error {
 // which is safe to interpolate. Empty UDP value is allowed because
 // the template gates `imudp` on `Server.Enabled` only when the
 // operator wants UDP; we still require a parseable port if a
-// non-empty value is supplied. (BUG-076)
+// non-empty value is supplied.
 func validateRsyslogPort(field, raw string) error {
 	if raw == "" {
 		return nil
@@ -162,7 +162,7 @@ func validateRsyslogPort(field, raw string) error {
 // under this prefix; without the gate an authenticated operator
 // could pivot it into /etc/cron.d, /etc/sudoers.d, /etc/profile.d
 // and friends, with LAN syslog clients influencing file content for
-// potential local privilege escalation. (BUG-068)
+// potential local privilege escalation.
 func validateLogPath(p string) error {
 	if p == "" {
 		// rsyslog template falls back to a sane default when empty;

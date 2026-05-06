@@ -13,7 +13,7 @@ import (
 // authenticated operators cannot coerce rsyslog (root) into reading
 // arbitrary files via TLS cert/key/CA fields. Path-traversal hits
 // /etc/shadow / WireGuard private keys / router.yaml would otherwise
-// surface in PEM-parse errors on the /syslog page. (BUG-067)
+// surface in PEM-parse errors on the /syslog page.
 func TestSyslogSaveServerRejectsPathTraversalCertFiles(t *testing.T) {
 	cases := []struct {
 		name string
@@ -80,11 +80,10 @@ func TestSyslogSaveServerEmptyPathsAccepted(t *testing.T) {
 	}
 }
 
-// TestSyslogSaveServerRejectsPortInjection covers BUG-076: the
-// listen_udp / listen_tcp fields render inside double-quoted
-// RainerScript port literals. Anything but a decimal port lets the
-// operator close the quote and inject directives like
-// `module(load="omprog" binary="/bin/sh")`.
+// TestSyslogSaveServerRejectsPortInjection: listen_udp / listen_tcp
+// render inside double-quoted RainerScript port literals. Anything
+// but a decimal port lets the operator close the quote and inject
+// directives like `module(load="omprog" binary="/bin/sh")`.
 func TestSyslogSaveServerRejectsPortInjection(t *testing.T) {
 	cases := []struct {
 		name string
@@ -126,8 +125,8 @@ func TestSyslogSaveServerAcceptsValidPorts(t *testing.T) {
 	}
 }
 
-// TestSyslogSaveServerRejectsRainerScriptInjection covers BUG-069:
-// values like `/etc/ssl/cert.pem"\n)module(load="omprog")` would
+// TestSyslogSaveServerRejectsRainerScriptInjection: values like
+// `/etc/ssl/cert.pem"\n)module(load="omprog")` would
 // otherwise close the RainerScript double-quoted string and inject
 // arbitrary rsyslog directives (omprog → command execution). The
 // path-prefix allowlist alone is not sufficient — `/etc/ssl/...` is
@@ -186,7 +185,7 @@ func TestSyslogSaveServerRejectsRainerScriptInjection(t *testing.T) {
 // authenticated operator cannot point rsyslog's dynaFile root at
 // privileged directories. With LAN syslog clients writing message
 // content the attacker could otherwise plant files in /etc/cron.d,
-// /etc/sudoers.d, etc., enabling local privilege escalation. (BUG-068)
+// /etc/sudoers.d, etc., enabling local privilege escalation.
 func TestSyslogSaveServerRejectsPathTraversalLogPath(t *testing.T) {
 	cases := []struct {
 		name string

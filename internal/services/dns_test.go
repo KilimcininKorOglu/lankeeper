@@ -32,7 +32,7 @@ func TestQueryLogEmpty(t *testing.T) {
 // DoT with a bare-IP upstream — i.e. one without a `#hostname` SNI
 // suffix — is refused at the service boundary. Without SNI the TLS
 // stack performs only chain validation and any CA-signed cert can
-// MITM the resolver. (BUG-059)
+// MITM the resolver.
 func TestSaveDNSSettingsRejectsBareIPDoTUpstream(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -73,7 +73,7 @@ func TestSaveDNSSettingsRejectsBareIPDoTUpstream(t *testing.T) {
 // pointing at loopback / link-local / RFC-1918 / IMDS — or at any
 // non-853 port — are refused at the service boundary. The probe
 // would otherwise act as a TCP port scanner against the router
-// itself and the LAN. (BUG-066)
+// itself and the LAN.
 func TestSaveDNSSettingsRejectsSSRFTargets(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -104,7 +104,7 @@ func TestSaveDNSSettingsRejectsSSRFTargets(t *testing.T) {
 // crafted to break out of the `forward-addr:` line and inject
 // sibling directives like `forward-tls-upstream: no` or extra
 // forward-addr targets. Real DoT upstreams only need alphanumerics,
-// `.-:@#`. (BUG-070)
+// `.-:@#`.
 func TestSaveDNSSettingsRejectsUnboundConfInjection(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -131,7 +131,7 @@ func TestSaveDNSSettingsRejectsUnboundConfInjection(t *testing.T) {
 
 // TestSaveDNSSettingsAllowsAnyUpstreamWhenDoTDisabled keeps the
 // validator scoped to the "enabled" path so operators can stash a
-// draft upstream while DoT is off. (BUG-059)
+// draft upstream while DoT is off.
 func TestSaveDNSSettingsAllowsAnyUpstreamWhenDoTDisabled(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))

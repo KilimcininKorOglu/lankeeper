@@ -437,14 +437,14 @@ func parseDoTSpec(spec string) (host, port, sni string) {
 // resolve to loopback / link-local / RFC-1918 / IMDS ranges so the
 // probe cannot be coerced into a TCP port scanner against the router
 // itself or the LAN. Without the SNI suffix Go's TLS stack performs
-// only chain validation and silently MITMs every query (BUG-059);
-// without IP-range guarding the probe acts as an SSRF oracle (BUG-066).
+// only chain validation and silently MITMs every query; without
+// IP-range guarding the probe acts as an SSRF oracle.
 func parseAndValidateDoTSpec(spec string) (host, port, sni string, err error) {
 	// Reject any character that could break out of the unbound.conf
 	// `forward-addr:` line and inject a sibling directive. Real DoT
 	// upstreams only need alphanumerics, dots, hyphens, `:` (IPv6),
 	// `@` (port separator), and `#` (SNI separator). Whitespace,
-	// newlines, NULs, `"`, and shell metacharacters are out. (BUG-070)
+	// newlines, NULs, `"`, and shell metacharacters are out.
 	if !hasOnlyDoTSpecChars(spec) {
 		return "", "", "", fmt.Errorf("DoT upstream contains characters that could inject unbound.conf directives")
 	}
