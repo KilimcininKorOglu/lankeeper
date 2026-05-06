@@ -201,10 +201,7 @@ func (s *IPv6Service) AnnouncedInterfaces() ([]AnnouncedInterface, error) {
 	if err != nil {
 		return nil, err
 	}
-	hint := s.cfg.IPv6.WAN.PrefixHint
-	if hint == "" {
-		hint = "/56"
-	}
+	hint := s.routedPrefixLength()
 	delegatedLen, err := parsePrefixHint(hint)
 	if err != nil {
 		return nil, err
@@ -266,10 +263,9 @@ func (s *IPv6Service) RenderRAConfig() (string, error) {
 		return "", err
 	}
 
-	hint := s.cfg.IPv6.WAN.PrefixHint
-	if hint == "" {
-		hint = "/56"
-	}
+	// Pick the source prefix: PD modunda WAN.PrefixHint + lease,
+	// 6in4 modunda Tunnel.RoutedPrefix (statik, lease yok).
+	hint := s.routedPrefixLength()
 	delegatedLen, err := parsePrefixHint(hint)
 	if err != nil {
 		return "", err
@@ -283,12 +279,7 @@ func (s *IPv6Service) RenderRAConfig() (string, error) {
 	if raInterval <= 0 {
 		raInterval = defaultRAInterval
 	}
-	mtu := 1500
-	if s.cfg.PPPoE.Username != "" {
-		// Standard PPPoE WAN MTU; the IPv6 link rides over the same
-		// PPPoE frame so the advertised link MTU must match.
-		mtu = 1492
-	}
+	mtu := s.advertisedMTU()
 	data := dnsmasqRATemplateData{
 		Interfaces:   s.buildPrefixInterfaces(lan, slaLen),
 		LeaseTime:    s.dhcpLeaseTime(),
@@ -321,6 +312,45 @@ func (s *IPv6Service) dhcpLeaseTime() string {
 		return lt
 	}
 	return "12h"
+}
+
+// routedPrefixLength returns the prefix-hint string (`/48`, `/56`, …)
+// the RA renderer should use when carving /64 sub-prefixes for the
+// LAN bridge and each VLAN. In 6in4 mode the operator's RoutedPrefix
+// already encodes the length; in PD mode we honour WAN.PrefixHint.
+// Default is "/56" — the typical residential allocation.
+func (s *IPv6Service) routedPrefixLength() string {
+	if s.cfg.IPv6.Mode == "6in4" {
+		if rp := strings.TrimSpace(s.cfg.IPv6.Tunnel.RoutedPrefix); rp != "" {
+			if i := strings.LastIndex(rp, "/"); i >= 0 && i < len(rp)-1 {
+				return rp[i:] // "/48", "/64"
+			}
+		}
+		// Fallback when RoutedPrefix is mid-form (operator typing).
+		return "/64"
+	}
+	if h := strings.TrimSpace(s.cfg.IPv6.WAN.PrefixHint); h != "" {
+		return h
+	}
+	return "/56"
+}
+
+// advertisedMTU is the link MTU emitted in the RA's ra-param. In
+// 6in4 mode we drop to the tunnel MTU (1452 over PPPoE, 1480 direct)
+// so clients clamp MSS for the encapsulated path. In PD mode we
+// stick with the link MTU (1492 PPPoE / 1500 direct).
+func (s *IPv6Service) advertisedMTU() int {
+	pppoe := s.cfg.PPPoE.Username != ""
+	if s.cfg.IPv6.Mode == "6in4" {
+		if pppoe {
+			return 1452
+		}
+		return 1480
+	}
+	if pppoe {
+		return 1492
+	}
+	return 1500
 }
 
 // rdnssAddrs returns the DNS servers to advertise via RA. Reads the
@@ -484,48 +514,65 @@ func (s *IPv6Service) parseScriptTemplate() (*template.Template, error) {
 
 // RenderToDisk writes the dhcp6c daemon config + hook script and the
 // dnsmasq RA drop-in. Suitable for install-time invocation. State
-// directory is pre-created so the hook script does not fail on first run.
+// directory is pre-created so the hook script does not fail on first
+// run. 6in4 mode skips dhcp6c.conf rendering but still writes the RA
+// drop-in derived from the operator's RoutedPrefix.
 func (s *IPv6Service) RenderToDisk(ctx context.Context) error {
-	if s.cfg.IPv6.Enabled == "off" || !s.cfg.IPv6.WAN.RequestPrefix {
-		// Caller asked for IPv6 off or PD disabled — nothing to render
-		// but make sure stale config does not linger.
+	mode := s.cfg.IPv6.Mode
+	off := s.cfg.IPv6.Enabled == "off"
+	pdRequested := mode != "6in4" && s.cfg.IPv6.WAN.RequestPrefix
+
+	if off || (!pdRequested && mode != "6in4") {
+		// IPv6 disabled, or no plane is active. Drop stubs so stale
+		// config doesn't linger.
 		if err := netutil.WriteFile(dhcp6cConfPath, []byte("# IPv6 PD disabled by LANKeeper config.\n"), 0o644); err != nil {
 			return fmt.Errorf("write disabled stub: %w", err)
 		}
-		// Empty drop-in keeps dnsmasq quiet about RA without removing
-		// the file (which would race with conf-dir scanning).
 		if err := netutil.WriteFile(dnsmasqRAConfPath, []byte("# IPv6 RA disabled by LANKeeper config.\n"), 0o644); err != nil {
 			return fmt.Errorf("write disabled RA stub: %w", err)
 		}
 		return nil
 	}
 
-	conf, err := s.RenderConfig()
-	if err != nil {
-		return err
-	}
-	script, err := s.RenderScript()
-	if err != nil {
-		return err
-	}
-	raConf, err := s.RenderRAConfig()
-	if err != nil {
-		return err
-	}
-	if err := netutil.MkdirAll(filepath.Dir(dhcp6cConfPath), 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", filepath.Dir(dhcp6cConfPath), err)
-	}
 	if err := netutil.MkdirAll(filepath.Dir(ipv6StatePath), 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(ipv6StatePath), err)
 	}
 	if err := netutil.MkdirAll(filepath.Dir(dnsmasqRAConfPath), 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(dnsmasqRAConfPath), err)
 	}
-	if err := netutil.WriteFile(dhcp6cConfPath, []byte(conf), 0o644); err != nil {
-		return fmt.Errorf("write dhcp6c.conf: %w", err)
+
+	// PD plane: render dhcp6c.conf + hook script.
+	if pdRequested {
+		conf, err := s.RenderConfig()
+		if err != nil {
+			return err
+		}
+		script, err := s.RenderScript()
+		if err != nil {
+			return err
+		}
+		if err := netutil.MkdirAll(filepath.Dir(dhcp6cConfPath), 0o755); err != nil {
+			return fmt.Errorf("mkdir %s: %w", filepath.Dir(dhcp6cConfPath), err)
+		}
+		if err := netutil.WriteFile(dhcp6cConfPath, []byte(conf), 0o644); err != nil {
+			return fmt.Errorf("write dhcp6c.conf: %w", err)
+		}
+		if err := netutil.WriteFile(dhcp6cScriptPath, []byte(script), 0o755); err != nil {
+			return fmt.Errorf("write dhcp6c-script: %w", err)
+		}
+	} else if mode == "6in4" {
+		// In 6in4 mode dhcp6c never runs; leave a stub so anyone
+		// inspecting /etc/wide-dhcpv6/ sees why.
+		if err := netutil.WriteFile(dhcp6cConfPath,
+			[]byte("# IPv6 mode is 6in4; dhcp6c is not used.\n"), 0o644); err != nil {
+			return fmt.Errorf("write 6in4 stub: %w", err)
+		}
 	}
-	if err := netutil.WriteFile(dhcp6cScriptPath, []byte(script), 0o755); err != nil {
-		return fmt.Errorf("write dhcp6c-script: %w", err)
+
+	// RA plane (PD or 6in4): always render.
+	raConf, err := s.RenderRAConfig()
+	if err != nil {
+		return err
 	}
 	if err := netutil.WriteFile(dnsmasqRAConfPath, []byte(raConf), 0o644); err != nil {
 		return fmt.Errorf("write dnsmasq RA drop-in: %w", err)
@@ -548,7 +595,11 @@ func (s *IPv6Service) ApplyConfig(ctx context.Context) error {
 		// is briefly stale.
 		log.Printf("ipv6: dnsmasq reload after RA rewrite: %v", err)
 	}
-	if s.cfg.IPv6.Enabled == "off" || !s.cfg.IPv6.WAN.RequestPrefix {
+	// 6in4 mode and PD-disabled both mean dhcp6c must be down. Only
+	// PD-mode + RequestPrefix=true keeps dhcp6c running.
+	if s.cfg.IPv6.Enabled == "off" ||
+		s.cfg.IPv6.Mode == "6in4" ||
+		!s.cfg.IPv6.WAN.RequestPrefix {
 		return s.stopUnitLocked(ctx)
 	}
 	return s.restartUnitLocked(ctx)
@@ -917,11 +968,14 @@ func (s *IPv6Service) dispatchLeaseLocked(ctx context.Context) {
 }
 
 // refreshRADropIn re-renders /etc/dnsmasq.d/lankeeper-ipv6-ra.conf
-// and reloads dnsmasq so RA picks up the freshly-learned RDNSS list.
-// Skipped quietly when IPv6 is disabled or PD is off — the RenderToDisk
-// path already wrote the disabled-stub.
+// and reloads dnsmasq so RA picks up the freshly-learned RDNSS list
+// (PD mode) or the new tunnel endpoint (6in4 mode). Skipped quietly
+// when IPv6 is disabled or no plane is active.
 func (s *IPv6Service) refreshRADropIn(ctx context.Context) error {
-	if s.cfg.IPv6.Enabled == "off" || !s.cfg.IPv6.WAN.RequestPrefix {
+	if s.cfg.IPv6.Enabled == "off" {
+		return nil
+	}
+	if s.cfg.IPv6.Mode != "6in4" && !s.cfg.IPv6.WAN.RequestPrefix {
 		return nil
 	}
 	conf, err := s.RenderRAConfig()

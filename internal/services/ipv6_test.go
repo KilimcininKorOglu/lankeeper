@@ -630,6 +630,31 @@ func TestIPv6RenderRAConfigDirectWANUsesMTU1500(t *testing.T) {
 	}
 }
 
+func TestIPv6RenderRAConfigSixInFourUsesRoutedPrefix(t *testing.T) {
+	cfg := newIPv6TestConfig(t)
+	cfg.IPv6.Mode = "6in4"
+	cfg.IPv6.WAN.RequestPrefix = false
+	cfg.IPv6.Tunnel.RoutedPrefix = "2001:470:abcd::/48"
+	cfg.IPv6.Tunnel.ServerIPv4 = "216.66.80.30"
+	cfg.IPv6.Tunnel.ClientIPv6 = "2001:470:1f0a:abc::2"
+	svc := newIPv6TestService(t, cfg)
+
+	out, err := svc.RenderRAConfig()
+	if err != nil {
+		t.Fatalf("RenderRAConfig: %v", err)
+	}
+	// In 6in4 mode the advertised MTU is the tunnel MTU (1452 over
+	// PPPoE) rather than the link MTU (1492).
+	if !strings.Contains(out, "mtu:1452") {
+		t.Errorf("expected mtu:1452 for 6in4 + PPPoE, got:\n%s", out)
+	}
+	// /48 routed prefix must yield 64-48=16 bits of SLA per /64;
+	// the LAN bridge sub-prefix should land on sla-id 0.
+	if !strings.Contains(out, "interface=eth1") {
+		t.Errorf("LAN bridge missing from RA output:\n%s", out)
+	}
+}
+
 func TestGenerateULAPrefixIsValid(t *testing.T) {
 	// Cover the helper directly via repeated calls — should never
 	// return the same prefix twice (40 random bits) and must always
