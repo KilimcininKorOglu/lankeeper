@@ -178,6 +178,10 @@ type dhcp6cTemplateData struct {
 }
 
 type prefixInterface struct {
+	// Name is the SubnetMap key — "lan" for the primary LAN bridge
+	// or the VLAN ID for a VLAN. The drag-and-drop reorder UI uses
+	// it as the row identity sent back to the subnet-map endpoint.
+	Name   string
 	Device string
 	SLAID  int
 }
@@ -186,6 +190,7 @@ type prefixInterface struct {
 // announces a delegated /64 sub-prefix via SLAAC. Returned by
 // AnnouncedInterfaces for the IPv6 status UI.
 type AnnouncedInterface struct {
+	Name   string
 	Device string
 	SLAID  int
 }
@@ -773,7 +778,7 @@ func (s *IPv6Service) buildPrefixInterfaces(lanDev string, slaLen int) []prefixI
 	}
 
 	out := []prefixInterface{
-		{Device: lanDev, SLAID: pick("lan", 0)},
+		{Name: "lan", Device: lanDev, SLAID: pick("lan", 0)},
 	}
 
 	if slaLen == 0 {
@@ -806,7 +811,7 @@ func (s *IPv6Service) buildPrefixInterfaces(lanDev string, slaLen int) []prefixI
 			// can flag this in a follow-up commit.
 			continue
 		}
-		out = append(out, prefixInterface{Device: dev, SLAID: sla})
+		out = append(out, prefixInterface{Name: vlan.ID, Device: dev, SLAID: sla})
 		auto++
 	}
 	return out

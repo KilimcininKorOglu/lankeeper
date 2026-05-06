@@ -44,6 +44,8 @@
     "ipv6.rapidCommitHelp": "Faster lease acquisition. Disable only if your ISP does not support it.",
     "ipv6.announced": "Announced Sub-Prefixes",
     "ipv6.announcedHelp": "wide-dhcpv6 carves a /64 sub-prefix for every LAN/VLAN; dnsmasq announces those sub-prefixes via Router Advertisement.",
+    "ipv6.dragHelp": "Drag rows to reorder. SLA-IDs are reassigned in submission order; the primary LAN stays at 0.",
+    "ipv6.lanPinned": "primary LAN, pinned at 0",
     "ipv6.interface": "Interface",
     "ipv6.slaId": "SLA-ID",
     "ipv6.plane": "IPv6 Plane",

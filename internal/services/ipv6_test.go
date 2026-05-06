@@ -392,8 +392,8 @@ func TestIPv6AnnouncedInterfacesLANOnly(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected 1 entry, got %d: %+v", len(got), got)
 	}
-	if got[0].Device != "eth1" || got[0].SLAID != 0 {
-		t.Errorf("expected eth1/0, got %+v", got[0])
+	if got[0].Device != "eth1" || got[0].SLAID != 0 || got[0].Name != "lan" {
+		t.Errorf("expected lan/eth1/0, got %+v", got[0])
 	}
 }
 

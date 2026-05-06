@@ -259,7 +259,10 @@
     </div>
     {{ end }}
 
-    <!-- Announced sub-prefix table -->
+    <!-- Announced sub-prefix table — drag rows to reassign SLA-IDs.
+         The first row ("lan") is pinned: the primary LAN bridge keeps
+         SLA-ID 0 by contract so dhcp6c.conf and the dnsmasq RA drop-in
+         stay deterministic across mode swaps. -->
     {{ if .Announced }}
     <div class="card" style="margin-bottom:var(--space-lg);">
         <div class="card-header">
@@ -273,10 +276,10 @@
                         <th>{{ t $.Lang "ipv6.slaId" }}</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody data-sortable data-reorder-url="/ipv6/subnet-map" data-pin-first>
                     {{ range .Announced }}
-                    <tr>
-                        <td style="font-family:monospace;">{{ .Device }}</td>
+                    <tr data-name="{{ .Name }}">
+                        <td style="font-family:monospace;">{{ .Device }}{{ if eq .Name "lan" }} <span style="color:var(--text-tertiary); font-size:var(--font-xs);">({{ t $.Lang "ipv6.lanPinned" }})</span>{{ end }}</td>
                         <td style="font-family:monospace;">{{ .SLAID }}</td>
                     </tr>
                     {{ end }}
@@ -284,6 +287,8 @@
             </table>
             <div style="color:var(--text-tertiary); font-size:var(--font-xs); margin-top:var(--space-sm);">
                 {{ t $.Lang "ipv6.announcedHelp" }}
+                <br>
+                {{ t $.Lang "ipv6.dragHelp" }}
             </div>
         </div>
     </div>

@@ -44,6 +44,8 @@
     "ipv6.rapidCommitHelp": "Daha hızlı lease alımı. Yalnızca ISS'iniz desteklemiyorsa kapatın.",
     "ipv6.announced": "Yayınlanan Sub-Prefix'ler",
     "ipv6.announcedHelp": "wide-dhcpv6 her LAN/VLAN için /64 alt-prefix ayırıyor; dnsmasq bu alt-prefix'leri Router Advertisement ile yayınlıyor.",
+    "ipv6.dragHelp": "Sırayı değiştirmek için satırları sürükleyin. SLA-ID'ler gönderim sırasına göre yeniden atanır; ana LAN her zaman 0'da kalır.",
+    "ipv6.lanPinned": "ana LAN, 0'da sabit",
     "ipv6.interface": "Arayüz",
     "ipv6.slaId": "SLA-ID",
     "ipv6.plane": "IPv6 Modu",
