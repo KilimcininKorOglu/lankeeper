@@ -6,6 +6,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **(ipv6) Drag-and-drop SLA-ID reassignment**: the `/ipv6` Announced
+  card now lets the operator reorder VLANs to control which sub-/64
+  each one receives from the delegated prefix. The primary LAN is
+  pinned at SLA-ID 0; remaining rows take 1, 2, 3 ... in submission
+  order. Backed by `IPv6Service.SetSubnetMap` (validates "lan"=0,
+  rejects unknown VLAN IDs / negatives / duplicates) and
+  `POST /ipv6/subnet-map`. The order persists to
+  `cfg.IPv6.LAN.SubnetMap` and triggers a dhcp6c.conf rewrite plus a
+  dnsmasq RA drop-in reload so clients see the new prefix on the
+  next RA cycle.
+
+### Changed
+
+- **(web) Generic data-sortable helper**: the in-tree
+  `htmx-sortable.js` now reads the reorder URL from a
+  `data-reorder-url` attribute and supports a `data-pin-first` flag
+  for tables where the first row must stay put. The previous hard
+  wiring to `/routing/reorder` (never actually attached to a
+  template) is gone.
+
 ## [0.4.0] - 2026-05-06
 
 First-class 6in4 tunneling for operators whose ISP refuses to
