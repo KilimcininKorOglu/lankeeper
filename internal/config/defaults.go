@@ -50,6 +50,11 @@ func DefaultConfig() *Config {
 			Mode:    "dhcpv6-pd",
 			WAN:     IPv6WANConfig{AcceptRA: true, RequestPrefix: true, PrefixHint: "/56", RapidCommit: true},
 			LAN:     IPv6LANConfig{Mode: "slaac", ULA: IPv6ULAConfig{Enabled: true, Prefix: "fd00:abcd:1234::/48"}, RAInterval: 30, RDNSS: true},
+			Tunnel: IPv6TunnelConfig{
+				Provider:   "he.net",
+				Device:     "lkt6in4",
+				AutoUpdate: true,
+			},
 			Privacy: true,
 		},
 		DNS: DNSConfig{

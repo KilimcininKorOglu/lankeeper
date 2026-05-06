@@ -282,11 +282,43 @@ type StaticLease struct {
 }
 
 type IPv6Config struct {
-	Enabled string         `yaml:"enabled"`
-	Mode    string         `yaml:"mode"`
-	WAN     IPv6WANConfig  `yaml:"wan"`
-	LAN     IPv6LANConfig  `yaml:"lan"`
-	Privacy bool           `yaml:"privacy"`
+	Enabled string           `yaml:"enabled"`
+	// Mode selects the IPv6 plane: "dhcpv6-pd" requests a delegated
+	// prefix from the ISP via wide-dhcpv6, "6in4" terminates a
+	// Hurricane Electric tunnel locally and announces the routed
+	// prefix to LAN, "static" / "slaac" reserve operator overrides.
+	Mode    string           `yaml:"mode"`
+	WAN     IPv6WANConfig    `yaml:"wan"`
+	LAN     IPv6LANConfig    `yaml:"lan"`
+	Tunnel  IPv6TunnelConfig `yaml:"tunnel,omitempty"`
+	Privacy bool             `yaml:"privacy"`
+}
+
+// IPv6TunnelConfig describes a 6in4 (RFC 4213) tunnel terminated on
+// this router. Used when Mode == "6in4". The tunnel /64 between the
+// HE server and our endpoint (ClientIPv6) is point-to-point; the
+// LAN-distributable prefix is the separate RoutedPrefix (/48 or /64)
+// allocated on the tunnel's "Routed" tab.
+type IPv6TunnelConfig struct {
+	// Provider is fixed to "he.net" today; field exists so future
+	// brokers can plug in without a schema migration.
+	Provider     string `yaml:"provider,omitempty"`
+	ServerIPv4   string `yaml:"serverIPv4,omitempty"`
+	ClientIPv6   string `yaml:"clientIPv6,omitempty"`
+	RoutedPrefix string `yaml:"routedPrefix,omitempty"`
+	TunnelID     string `yaml:"tunnelID,omitempty"`
+	Username string `yaml:"username,omitempty"`
+	// UpdateKey is the per-tunnel HE.net "Advanced" key used as the
+	// HTTP Basic Auth password against /nic/update. Stored in the
+	// same plaintext form as PPPoE.Password — promoting it to the
+	// AES-GCM wrapper would orphan PPPoE.Password and is a separate
+	// project-wide migration.
+	UpdateKey  string `yaml:"updateKey,omitempty"`
+	AutoUpdate bool   `yaml:"autoUpdate,omitempty"`
+	// Device is the sit interface name (default "lkt6in4"). Kept
+	// configurable so operators with an existing he-ipv6 unit can
+	// avoid a name collision.
+	Device string `yaml:"device,omitempty"`
 }
 
 type IPv6WANConfig struct {
