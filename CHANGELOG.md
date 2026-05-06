@@ -19,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   so install-time and runtime apply both produce the drop-in.
 - `dnsmasq.conf.tmpl` gains `conf-dir=/etc/dnsmasq.d,*.conf` so the
   primary config picks up the drop-in without a separate include.
+- The dhcp6c lease-event hook now issues
+  `systemctl reload-or-restart dnsmasq` so RA picks up freshly
+  delegated /64 sub-prefixes immediately after every lease change
+  (best-effort: missing dnsmasq is non-fatal).
+- `/ipv6` page gains an "Announced Sub-Prefixes" table listing each
+  LAN/VLAN device that receives a /64 sub-prefix and its sla-id.
+  Backed by `IPv6Service.AnnouncedInterfaces()`. Locale keys
+  `ipv6.announced`, `ipv6.announcedHelp`, `ipv6.interface`, `ipv6.slaId`
+  added to both tr.json and en.json.
 
 ## [0.2.0] - 2026-05-06
 

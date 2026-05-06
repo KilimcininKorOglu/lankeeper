@@ -31,6 +31,13 @@ func (h *IPv6Handler) HandlePage(w http.ResponseWriter, r *http.Request) {
 		log.Printf("ipv6 status: %v", err)
 	}
 
+	announced, err := h.ipv6.AnnouncedInterfaces()
+	if err != nil {
+		// Misconfiguration (no LAN, bad prefix hint) shouldn't blank
+		// the whole page — log and serve an empty list.
+		log.Printf("ipv6 announced: %v", err)
+	}
+
 	data := &tmpl.PageData{
 		Lang: lang,
 		Page: "ipv6",
@@ -44,6 +51,7 @@ func (h *IPv6Handler) HandlePage(w http.ResponseWriter, r *http.Request) {
 			"Enabled":   h.cfg.IPv6.Enabled,
 			"Mode":      h.cfg.IPv6.Mode,
 			"PPPoEUsed": h.cfg.PPPoE.Username != "",
+			"Announced": announced,
 		},
 	}
 

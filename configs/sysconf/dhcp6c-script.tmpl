@@ -40,3 +40,12 @@ mv -f "$TMP" "$STATE_FILE"
 
 # Best-effort log so the operator can correlate via journalctl.
 logger -t lankeeper-dhcp6c "reason=$REASON prefix=$PREFIX/$PLEN pl=$PLTIME vl=$VLTIME"
+
+# Tell dnsmasq to re-read its drop-in directory so RA on every LAN/VLAN
+# picks up the freshly delegated /64 sub-prefixes. Best-effort: dnsmasq
+# may not be installed yet (first boot) or may already be tracking the
+# interface address via constructor:; in either case missing reload
+# is non-fatal.
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl reload-or-restart dnsmasq >/dev/null 2>&1 || true
+fi

@@ -42,6 +42,10 @@
     "ipv6.prefixHintHelp": "Suggest a prefix size. The ISP may delegate a different length. /56 is typical for residential.",
     "ipv6.rapidCommit": "Rapid commit (two-message exchange)",
     "ipv6.rapidCommitHelp": "Faster lease acquisition. Disable only if your ISP does not support it.",
+    "ipv6.announced": "Announced Sub-Prefixes",
+    "ipv6.announcedHelp": "wide-dhcpv6 carves a /64 sub-prefix for every LAN/VLAN; dnsmasq announces those sub-prefixes via Router Advertisement.",
+    "ipv6.interface": "Interface",
+    "ipv6.slaId": "SLA-ID",
 
     "dashboard.title": "Dashboard",
     "dashboard.uptime": "Uptime",

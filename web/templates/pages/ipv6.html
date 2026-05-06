@@ -121,6 +121,36 @@
         </form>
     </div>
 
+    <!-- Announced sub-prefix table -->
+    {{ if .Announced }}
+    <div class="card" style="margin-bottom:var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "ipv6.announced" }}</span>
+        </div>
+        <div style="padding-top:var(--space-md);">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>{{ t $.Lang "ipv6.interface" }}</th>
+                        <th>{{ t $.Lang "ipv6.slaId" }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{ range .Announced }}
+                    <tr>
+                        <td style="font-family:monospace;">{{ .Device }}</td>
+                        <td style="font-family:monospace;">{{ .SLAID }}</td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+            <div style="color:var(--text-tertiary); font-size:var(--font-xs); margin-top:var(--space-sm);">
+                {{ t $.Lang "ipv6.announcedHelp" }}
+            </div>
+        </div>
+    </div>
+    {{ end }}
+
     {{ end }}
 </div>
 {{ end }}

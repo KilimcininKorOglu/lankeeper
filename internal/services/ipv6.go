@@ -112,6 +112,46 @@ type prefixInterface struct {
 	SLAID  int
 }
 
+// AnnouncedInterface describes one downstream device on which dnsmasq
+// announces a delegated /64 sub-prefix via SLAAC. Returned by
+// AnnouncedInterfaces for the IPv6 status UI.
+type AnnouncedInterface struct {
+	Device string
+	SLAID  int
+}
+
+// AnnouncedInterfaces returns one entry per LAN/VLAN that receives a
+// Router Advertisement, in the same order they appear in the rendered
+// dnsmasq drop-in. Returns nil when IPv6 is disabled.
+func (s *IPv6Service) AnnouncedInterfaces() ([]AnnouncedInterface, error) {
+	if s.cfg.IPv6.Enabled == "off" {
+		return nil, nil
+	}
+	_, lan, err := s.resolveInterfaces()
+	if err != nil {
+		return nil, err
+	}
+	hint := s.cfg.IPv6.WAN.PrefixHint
+	if hint == "" {
+		hint = "/56"
+	}
+	delegatedLen, err := parsePrefixHint(hint)
+	if err != nil {
+		return nil, err
+	}
+	slaLen := 64 - delegatedLen
+	if slaLen < 0 {
+		slaLen = 0
+	}
+
+	prefixes := s.buildPrefixInterfaces(lan, slaLen)
+	out := make([]AnnouncedInterface, 0, len(prefixes))
+	for _, p := range prefixes {
+		out = append(out, AnnouncedInterface(p))
+	}
+	return out, nil
+}
+
 type dhcp6cScriptTemplateData struct {
 	StatePath string
 }

@@ -369,6 +369,59 @@ func TestIPv6RenderRAConfigULA(t *testing.T) {
 	}
 }
 
+func TestIPv6AnnouncedInterfacesLANOnly(t *testing.T) {
+	cfg := newIPv6TestConfig(t)
+	svc := newIPv6TestService(t, cfg)
+
+	got, err := svc.AnnouncedInterfaces()
+	if err != nil {
+		t.Fatalf("announced: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 entry, got %d: %+v", len(got), got)
+	}
+	if got[0].Device != "eth1" || got[0].SLAID != 0 {
+		t.Errorf("expected eth1/0, got %+v", got[0])
+	}
+}
+
+func TestIPv6AnnouncedInterfacesWithVLANs(t *testing.T) {
+	cfg := newIPv6TestConfig(t)
+	cfg.VLANs = []config.VLANConfig{
+		{ID: "guest", Parent: "lan", VID: 13, Role: "guest"},
+		{ID: "iot", Parent: "lan", VID: 20, Role: "iot"},
+	}
+	svc := newIPv6TestService(t, cfg)
+
+	got, err := svc.AnnouncedInterfaces()
+	if err != nil {
+		t.Fatalf("announced: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected LAN + 2 VLANs = 3 entries, got %d: %+v", len(got), got)
+	}
+	wantDevices := []string{"eth1", "eth1.13", "eth1.20"}
+	for i, want := range wantDevices {
+		if got[i].Device != want {
+			t.Errorf("entry %d: expected device %q, got %q", i, want, got[i].Device)
+		}
+	}
+}
+
+func TestIPv6AnnouncedInterfacesDisabled(t *testing.T) {
+	cfg := newIPv6TestConfig(t)
+	cfg.IPv6.Enabled = "off"
+	svc := newIPv6TestService(t, cfg)
+
+	got, err := svc.AnnouncedInterfaces()
+	if err != nil {
+		t.Fatalf("announced: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil when disabled, got %+v", got)
+	}
+}
+
 func TestIPv6IsDisabledRendersStub(t *testing.T) {
 	cfg := newIPv6TestConfig(t)
 	cfg.IPv6.Enabled = "off"
