@@ -2609,6 +2609,13 @@ v0.1.0 (2026-05-06) ile yukarıdaki 11 faz tamamlandı. Aşağıdaki başlıklar
 
 - WireGuard UI'da peer-to-peer site-to-site tek-tıklık kurulum sihirbazı.
 - Backup snapshot scheduling (cron-bazlı otomatik dışa aktarım + S3/SFTP retention).
-- Per-client (per-MAC) bandwidth grafiği (CAKE class statistics → SSE).
 - DNS-over-HTTPS upstream (Unbound 1.18+ ile native).
 - Metrik export endpoint (Prometheus formatı `/metrics`, sadece LAN-only).
+
+### Tamamlananlar
+
+- Per-client (per-MAC) bandwidth grafiği — `lankeeper_qos` nftables
+  tablosuyla per-MAC counter çiftleri, `/events/qos` SSE kanalı,
+  `/qos` sayfasında canlı tablo + sparkline. CAKE class stats yerine
+  nftables forward sayaçları kullanıldı (CAKE per-host stats
+  netlink-only; pretty-print yok).

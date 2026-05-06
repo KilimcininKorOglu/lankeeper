@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **(qos) Per-client bandwidth visibility**: `/qos` now ships a live
+  table that lists every DHCP-known client with its hostname, MAC,
+  current download/upload throughput, cumulative byte counters and a
+  60-sample sparkline trend. Backed by a dedicated `lankeeper_qos`
+  nftables table whose forward chain hooks at priority -200 with one
+  `ether saddr/daddr` counter pair per MAC; `nft -j list table inet
+  lankeeper_qos` is sampled every 2 seconds and broadcast on a new
+  `/events/qos` SSE channel separate from the dashboard stream. The
+  sampler resyncs the counter set from the lease file every minute,
+  caps tracked clients at 64 to bound rule growth, and ships zero new
+  JS dependencies (extends the existing in-tree canvas helper).
 - **(ipv6) Drag-and-drop SLA-ID reassignment**: the `/ipv6` Announced
   card now lets the operator reorder VLANs to control which sub-/64
   each one receives from the delegated prefix. The primary LAN is
