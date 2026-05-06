@@ -4,12 +4,27 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/template"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 )
+
+// allowedTLSDirs is the prefix allowlist for syslog TLS material.
+// rsyslog runs as root and dereferences these paths directly, so a
+// path-traversal write into the config (e.g. /etc/shadow) would
+// surface that file's content via PEM-parse error logs visible on
+// the /syslog page. Restricting to canonical TLS storage roots
+// closes that exfiltration channel without breaking legitimate
+// operator workflows. (BUG-067)
+var allowedTLSDirs = []string{
+	"/etc/ssl/",
+	"/etc/pki/",
+	"/etc/lankeeper/",
+	"/etc/rsyslog.d/",
+}
 
 type SyslogService struct {
 	cfg *config.Config
@@ -65,17 +80,63 @@ func (s *SyslogService) GetConfig() config.SyslogConfig {
 }
 
 // SaveServerConfig replaces the server-side syslog config (listening as a
-// remote sink for other devices) and persists.
+// remote sink for other devices) and persists. TLS cert/key/CA paths
+// are validated against allowedTLSDirs so an authenticated operator
+// cannot coerce rsyslog (running as root) into reading arbitrary
+// files like /etc/shadow.
 func (s *SyslogService) SaveServerConfig(cfg config.SyslogServerConfig) error {
+	if err := validateTLSPath("tls_cert_file", cfg.TLSCertFile); err != nil {
+		return err
+	}
+	if err := validateTLSPath("tls_key_file", cfg.TLSKeyFile); err != nil {
+		return err
+	}
+	if err := validateTLSPath("tls_ca_file", cfg.TLSCAFile); err != nil {
+		return err
+	}
 	s.cfg.Syslog.Server = cfg
 	return s.cfg.SaveToFile()
 }
 
 // SaveClientConfig replaces the client-side syslog config (forwarding our
-// logs to a remote collector) and persists.
+// logs to a remote collector) and persists. The CA path goes through
+// the same allowlist as the server-side material.
 func (s *SyslogService) SaveClientConfig(cfg config.SyslogClientConfig) error {
+	if err := validateTLSPath("tls_ca_file", cfg.TLSCAFile); err != nil {
+		return err
+	}
 	s.cfg.Syslog.Client = cfg
 	return s.cfg.SaveToFile()
+}
+
+// validateTLSPath enforces that a syslog TLS path is empty (operator
+// cleared the field), absolute, free of traversal segments after
+// Clean, and rooted under one of allowedTLSDirs. Symlinks at the
+// path are NOT resolved here — rsyslog itself follows symlinks at
+// load time, so an operator-owned symlink in /etc/lankeeper pointing
+// to /etc/shadow would still be a problem. The agent's file-write
+// whitelist is the second layer that prevents lankeeper from
+// CREATING such a symlink; this validator is the first layer that
+// prevents the config from REFERENCING a path outside the allowlist.
+func validateTLSPath(field, p string) error {
+	if p == "" {
+		// Empty value disables the field — rsyslog template emits a
+		// commented-out directive, no file is opened.
+		return nil
+	}
+	if !filepath.IsAbs(p) {
+		return fmt.Errorf("syslog %s must be an absolute path, got %q", field, p)
+	}
+	clean := filepath.Clean(p)
+	if clean != p {
+		return fmt.Errorf("syslog %s contains traversal segments; expected %q, got %q", field, clean, p)
+	}
+	for _, dir := range allowedTLSDirs {
+		if strings.HasPrefix(clean+"/", dir) || strings.HasPrefix(clean, dir) {
+			return nil
+		}
+	}
+	return fmt.Errorf("syslog %s %q must live under one of %v", field, p, allowedTLSDirs)
 }
 
 // AddFacility appends a syslog facility name to the client forwarding list.
