@@ -120,22 +120,47 @@ xorriso -osirrox on -indev "$DEBIAN_ISO" -extract / "$BUILD_DIR/iso" 2>/dev/null
 chmod -R +w "$BUILD_DIR/iso"
 
 echo "[2/7] Downloading required $ARCH packages with dependencies..."
-URI_LOOKUP_DIR="$BUILD_DIR/apt-uri-lookup"
-mkdir -p "$URI_LOOKUP_DIR"
 pushd "$PACKAGE_REPO_DIR" >/dev/null
 
-ALL_DEPS=$(apt-cache depends --recurse --no-recommends --no-suggests \
-    --no-conflicts --no-breaks --no-replaces --no-enhances \
-    "${PACKAGES[@]}" 2>/dev/null \
-    | grep "^\w" | sort -u | grep -v "^<")
+# Cache the recursive apt-cache depends output. apt-cache --recurse over
+# ~84 packages takes 30-60s and the answer only changes when the input
+# package list, the apt sources, or apt-cache's own data change. Hash
+# the inputs and skip the resolve when the hash matches a saved
+# manifest. Falls through to a fresh resolve on any mismatch.
+DEPS_INPUT_HASH=$(printf '%s\n' "${PACKAGES[@]}" | sort | sha256sum | awk '{print $1}')
+APT_SIGNATURE=$( { stat -c '%Y' /var/lib/apt/lists/* 2>/dev/null; cat /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null; } | sha256sum | awk '{print $1}')
+DEPS_CACHE_FILE="$PACKAGE_REPO_DIR/.deps.$DEPS_INPUT_HASH.$APT_SIGNATURE.txt"
 
-echo "  Resolving dependencies: $(echo "$ALL_DEPS" | wc -w) packages"
+if [[ -s "$DEPS_CACHE_FILE" ]]; then
+    ALL_DEPS=$(cat "$DEPS_CACHE_FILE")
+    echo "  Resolving dependencies: $(echo "$ALL_DEPS" | wc -w) packages (cache hit)"
+else
+    # Drop stale cache files for older input/apt signatures.
+    find "$PACKAGE_REPO_DIR" -maxdepth 1 -name '.deps.*.txt' -delete 2>/dev/null || true
+    ALL_DEPS=$(apt-cache depends --recurse --no-recommends --no-suggests \
+        --no-conflicts --no-breaks --no-replaces --no-enhances \
+        "${PACKAGES[@]}" 2>/dev/null \
+        | grep "^\w" | sort -u | grep -v "^<")
+    printf '%s\n' "$ALL_DEPS" > "$DEPS_CACHE_FILE"
+    echo "  Resolving dependencies: $(echo "$ALL_DEPS" | wc -w) packages (resolved)"
+fi
+
+# Per-package `apt-get --print-uris` loops were ~30s of pure APT init
+# overhead with no real I/O. Instead, just intersect the dependency
+# list with the .deb filenames already in the cache directory.
+shopt -s nullglob
+declare -A DEB_BY_PKG=()
+for deb in "$PACKAGE_REPO_DIR"/*.deb; do
+    name="$(basename "$deb")"
+    pkg="${name%%_*}"
+    DEB_BY_PKG[$pkg]="$deb"
+done
+shopt -u nullglob
 
 MISSING_DEPS=()
 CACHED_COUNT=0
 for pkg in $ALL_DEPS; do
-    deb_name="$(cd "$URI_LOOKUP_DIR" && apt-get --print-uris download "$pkg" 2>/dev/null | awk '/^'\''/ {print $2; exit}')"
-    if [[ -n "$deb_name" && -f "$deb_name" ]]; then
+    if [[ -n "${DEB_BY_PKG[$pkg]:-}" ]]; then
         CACHED_COUNT=$((CACHED_COUNT + 1))
     else
         MISSING_DEPS+=( "$pkg" )
@@ -158,8 +183,12 @@ popd >/dev/null
 
 echo "[3/7] Creating local package repository..."
 pushd "$PACKAGE_REPO_DIR" >/dev/null
-dpkg-scanpackages . /dev/null 2>/dev/null | gzip > Packages.gz
-dpkg-scanpackages . /dev/null 2>/dev/null > Packages
+# dpkg-scanpackages used to run twice (once for Packages, once piped
+# through gzip for Packages.gz). The scan dominates this step, so run
+# it once and tee the output into both targets.
+dpkg-scanpackages . /dev/null 2>/dev/null \
+    | tee Packages \
+    | gzip > Packages.gz
 popd >/dev/null
 mkdir -p "$BUILD_DIR/iso/pool/extra"
 cp "$PACKAGE_REPO_DIR"/*.deb "$BUILD_DIR/iso/pool/extra/"

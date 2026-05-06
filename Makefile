@@ -77,7 +77,14 @@ iso-arm64: cross-arm64 docker-builder-arm64
 		-v $(CURDIR)/$(DEBIAN_ARM64_ISO):/debian.iso:ro \
 		$(ISO_BUILDER_ARM64) /debian.iso /build/$(ARM64_BINARY) arm64 /build/$(ARM64_ISO) $(VERSION)
 
-iso-all: iso-amd64 iso-arm64
+# iso-amd64 and iso-arm64 are independent: separate Docker images,
+# separate ARCH-suffixed BUILD_DIR (/tmp/lankeeper-iso-build-$ARCH),
+# separate dist/packages/{arch}/ caches, and they write to different
+# output filenames in dist/. Build them concurrently to roughly halve
+# wall time on multi-core hosts. -j 2 is forced on the recursive make
+# so users who invoke `make iso-all` without -j still get parallelism.
+iso-all:
+	$(MAKE) -j 2 iso-amd64 iso-arm64
 
 release: release-archives
 
@@ -98,7 +105,15 @@ release-arm64: cross-arm64
 	tar czf dist/$(BINARY)-$(VERSION)-linux-arm64.tar.gz -C $(ARM64_RELEASE_DIR) $(BINARY)
 	@echo "Release archive: dist/$(BINARY)-$(VERSION)-linux-arm64.tar.gz"
 
-release-all: release-amd64 release-arm64 iso-all
+release-all:
+	# Single sub-make so the prerequisite graph is deduped (cross-amd64
+	# and cross-arm64 are each built exactly once even though both
+	# release-{arch} and iso-{arch} need them). iso-all is expanded
+	# here as iso-amd64 + iso-arm64 to avoid spawning a nested make
+	# that would re-trigger the phony cross- targets. -j 4 covers the
+	# four leaf pipelines; checksums runs last because it hashes
+	# every artifact produced above.
+	$(MAKE) -j 4 release-amd64 release-arm64 iso-amd64 iso-arm64
 	$(MAKE) checksums VERSION=$(VERSION)
 
 checksums:
