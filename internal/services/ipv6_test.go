@@ -32,6 +32,17 @@ STATE_FILE="{{ .StatePath }}"
 echo "lease event"
 `
 
+const testDnsmasqRATmpl = `enable-ra
+{{ range .Interfaces }}
+interface={{ .Device }}
+dhcp-range=set:ra-{{ .Device }},::,constructor:{{ .Device }},ra-names,slaac,64,{{ $.LeaseTime }}
+ra-param={{ .Device }},{{ $.RAInterval }},0,0
+{{ end }}
+{{- if .ULAPrefix }}
+dhcp-range={{ .ULAPrefix }},ra-only,64,{{ .LeaseTime }}
+{{- end }}
+`
+
 func newIPv6TestConfig(t *testing.T) *config.Config {
 	t.Helper()
 	cfg := config.DefaultConfig()
@@ -45,7 +56,7 @@ func newIPv6TestConfig(t *testing.T) *config.Config {
 
 func newIPv6TestService(t *testing.T, cfg *config.Config) *services.IPv6Service {
 	t.Helper()
-	return services.NewIPv6ServiceFromFS(cfg, testDhcp6cConfTmpl, testDhcp6cScriptTmpl)
+	return services.NewIPv6ServiceFromFS(cfg, testDhcp6cConfTmpl, testDhcp6cScriptTmpl, testDnsmasqRATmpl)
 }
 
 func TestNewIPv6Service(t *testing.T) {
@@ -245,6 +256,116 @@ func TestIPv6RenderConfigSlash64NoVLANs(t *testing.T) {
 	}
 	if strings.Contains(out, "eth1.13") {
 		t.Errorf("VLAN entry must be skipped on /64 delegation, got:\n%s", out)
+	}
+}
+
+func TestIPv6RenderRAConfigLANOnly(t *testing.T) {
+	cfg := newIPv6TestConfig(t)
+	svc := newIPv6TestService(t, cfg)
+
+	out, err := svc.RenderRAConfig()
+	if err != nil {
+		t.Fatalf("render RA: %v", err)
+	}
+	if !strings.Contains(out, "enable-ra") {
+		t.Errorf("expected enable-ra directive, got:\n%s", out)
+	}
+	if !strings.Contains(out, "interface=eth1") {
+		t.Errorf("expected interface=eth1 (primary LAN), got:\n%s", out)
+	}
+	if !strings.Contains(out, "constructor:eth1") {
+		t.Errorf("expected constructor:eth1, got:\n%s", out)
+	}
+	if !strings.Contains(out, "ra-names,slaac,64") {
+		t.Errorf("expected ra-names,slaac,64 mode, got:\n%s", out)
+	}
+}
+
+func TestIPv6RenderRAConfigVLANs(t *testing.T) {
+	cfg := newIPv6TestConfig(t)
+	cfg.VLANs = []config.VLANConfig{
+		{ID: "guest", Parent: "lan", VID: 13, Role: "guest"},
+		{ID: "iot", Parent: "lan", VID: 20, Role: "iot"},
+	}
+	svc := newIPv6TestService(t, cfg)
+
+	out, err := svc.RenderRAConfig()
+	if err != nil {
+		t.Fatalf("render RA: %v", err)
+	}
+	for _, want := range []string{
+		"interface=eth1\n",
+		"interface=eth1.13\n",
+		"interface=eth1.20\n",
+		"constructor:eth1.13",
+		"constructor:eth1.20",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in RA config, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestIPv6RenderRAConfigSlash64SkipsVLANs(t *testing.T) {
+	cfg := newIPv6TestConfig(t)
+	cfg.IPv6.WAN.PrefixHint = "/64"
+	cfg.VLANs = []config.VLANConfig{
+		{ID: "guest", Parent: "lan", VID: 13, Role: "guest"},
+	}
+	svc := newIPv6TestService(t, cfg)
+
+	out, err := svc.RenderRAConfig()
+	if err != nil {
+		t.Fatalf("render RA: %v", err)
+	}
+	if !strings.Contains(out, "interface=eth1\n") {
+		t.Errorf("expected primary LAN interface, got:\n%s", out)
+	}
+	if strings.Contains(out, "eth1.13") {
+		t.Errorf("VLAN must be skipped on /64 delegation, got:\n%s", out)
+	}
+}
+
+func TestIPv6RenderRAConfigDisabled(t *testing.T) {
+	cfg := newIPv6TestConfig(t)
+	cfg.IPv6.Enabled = "off"
+	svc := newIPv6TestService(t, cfg)
+
+	out, err := svc.RenderRAConfig()
+	if err != nil {
+		t.Fatalf("render RA: %v", err)
+	}
+	if out != "" {
+		t.Errorf("expected empty RA config when IPv6 disabled, got:\n%s", out)
+	}
+}
+
+func TestIPv6RenderRAConfigCustomInterval(t *testing.T) {
+	cfg := newIPv6TestConfig(t)
+	cfg.IPv6.LAN.RAInterval = 60
+	svc := newIPv6TestService(t, cfg)
+
+	out, err := svc.RenderRAConfig()
+	if err != nil {
+		t.Fatalf("render RA: %v", err)
+	}
+	if !strings.Contains(out, "ra-param=eth1,60,") {
+		t.Errorf("expected custom RA interval 60, got:\n%s", out)
+	}
+}
+
+func TestIPv6RenderRAConfigULA(t *testing.T) {
+	cfg := newIPv6TestConfig(t)
+	cfg.IPv6.LAN.ULA.Enabled = true
+	cfg.IPv6.LAN.ULA.Prefix = "fd00:abcd:1234::/48"
+	svc := newIPv6TestService(t, cfg)
+
+	out, err := svc.RenderRAConfig()
+	if err != nil {
+		t.Fatalf("render RA: %v", err)
+	}
+	if !strings.Contains(out, "fd00:abcd:1234::/48") {
+		t.Errorf("expected ULA prefix in RA config, got:\n%s", out)
 	}
 }
 

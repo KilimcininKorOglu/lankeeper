@@ -1,0 +1,20 @@
+# dnsmasq IPv6 Router Advertisement drop-in — managed by LANKeeper.
+# Do not edit by hand; rewritten by the IPv6 service on every apply.
+#
+# wide-dhcpv6's prefix-interface mechanism assigns a /64 sub-prefix to
+# every device listed below (LAN bridge plus each VLAN). dnsmasq then
+# advertises the same /64 to clients via SLAAC so they auto-configure
+# global IPv6 addresses.
+
+enable-ra
+{{ range .Interfaces }}
+# RA on {{ .Device }} (sla-id {{ .SLAID }})
+interface={{ .Device }}
+dhcp-range=set:ra-{{ .Device }},::,constructor:{{ .Device }},ra-names,slaac,64,{{ $.LeaseTime }}
+ra-param={{ .Device }},{{ $.RAInterval }},0,0
+{{ end }}
+{{- if .ULAPrefix }}
+# Unique Local Address fallback so LAN clients still get IPv6 even when
+# the ISP delegation is gone. Advertised on the primary LAN bridge only.
+dhcp-range={{ .ULAPrefix }},ra-only,64,{{ .LeaseTime }}
+{{- end }}

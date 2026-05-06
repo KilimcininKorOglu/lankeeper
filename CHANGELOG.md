@@ -4,6 +4,22 @@ All notable changes to LANKeeper are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **dnsmasq IPv6 RA per VLAN**: a new dnsmasq drop-in
+  (`/etc/dnsmasq.d/lankeeper-ipv6-ra.conf`) is rewritten by the IPv6
+  service on every apply. wide-dhcpv6 already assigns a /64 sub-prefix
+  to the LAN bridge and each VLAN; dnsmasq now advertises that sub-prefix
+  to clients via SLAAC so they finally auto-configure global IPv6
+  addresses. The drop-in honours `cfg.IPv6.LAN.RAInterval` and the ULA
+  prefix when enabled.
+- `IPv6Service.RenderRAConfig` / wired into `RenderToDisk`+`ApplyConfig`
+  so install-time and runtime apply both produce the drop-in.
+- `dnsmasq.conf.tmpl` gains `conf-dir=/etc/dnsmasq.d,*.conf` so the
+  primary config picks up the drop-in without a separate include.
+
 ## [0.2.0] - 2026-05-06
 
 DHCPv6 Prefix Delegation: LANKeeper now requests an IPv6 prefix

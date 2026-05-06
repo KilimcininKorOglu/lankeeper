@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -32,6 +33,14 @@ const (
 	dhcp6cScriptPath = "/etc/wide-dhcpv6/dhcp6c-script"
 	ipv6StatePath    = "/var/lib/lankeeper/state/ipv6-prefix.json"
 	dhcp6cUnitName   = "lankeeper-dhcp6c.service"
+	// dnsmasqRAConfPath is the drop-in dnsmasq.conf-dir file that owns
+	// every Router Advertisement directive. Owning a separate file
+	// keeps the IPv6 RA layer decoupled from DHCPv4 — the DHCP service
+	// rewrites /etc/dnsmasq.conf, the IPv6 service rewrites this drop-in.
+	dnsmasqRAConfPath = "/etc/dnsmasq.d/lankeeper-ipv6-ra.conf"
+	// defaultRAInterval matches the value historically embedded in
+	// dnsmasq.conf.tmpl. Surfaced as a constant so tests can assert it.
+	defaultRAInterval = 30
 )
 
 // PrefixState is the parsed view of the JSON document the dhcp6c hook
@@ -69,6 +78,7 @@ type IPv6Service struct {
 	// these strings directly. Mirrors the pattern used by FirewallService.
 	confTmpl   string
 	scriptTmpl string
+	raTmpl     string
 }
 
 func NewIPv6Service(cfg *config.Config) *IPv6Service {
@@ -77,8 +87,9 @@ func NewIPv6Service(cfg *config.Config) *IPv6Service {
 
 // NewIPv6ServiceFromFS creates a service that uses the given template
 // strings instead of reading them off disk. Intended for unit tests.
-func NewIPv6ServiceFromFS(cfg *config.Config, confTmpl, scriptTmpl string) *IPv6Service {
-	return &IPv6Service{cfg: cfg, confTmpl: confTmpl, scriptTmpl: scriptTmpl}
+// raTmpl may be empty when the caller does not exercise RA rendering.
+func NewIPv6ServiceFromFS(cfg *config.Config, confTmpl, scriptTmpl, raTmpl string) *IPv6Service {
+	return &IPv6Service{cfg: cfg, confTmpl: confTmpl, scriptTmpl: scriptTmpl, raTmpl: raTmpl}
 }
 
 type dhcp6cTemplateData struct {
@@ -103,6 +114,90 @@ type prefixInterface struct {
 
 type dhcp6cScriptTemplateData struct {
 	StatePath string
+}
+
+// dnsmasqRATemplateData carries the values rendered into the dnsmasq
+// IPv6 RA drop-in. One Interfaces entry per LAN/VLAN that received a
+// /64 sub-prefix from wide-dhcpv6.
+type dnsmasqRATemplateData struct {
+	Interfaces []prefixInterface
+	LeaseTime  string
+	RAInterval int
+	ULAPrefix  string
+}
+
+// RenderRAConfig returns the dnsmasq drop-in that announces every
+// delegated /64 to its downstream interface. Pure computation — no I/O.
+func (s *IPv6Service) RenderRAConfig() (string, error) {
+	if s.cfg.IPv6.Enabled == "off" {
+		return "", nil
+	}
+
+	_, lan, err := s.resolveInterfaces()
+	if err != nil {
+		return "", err
+	}
+
+	hint := s.cfg.IPv6.WAN.PrefixHint
+	if hint == "" {
+		hint = "/56"
+	}
+	delegatedLen, err := parsePrefixHint(hint)
+	if err != nil {
+		return "", err
+	}
+	slaLen := 64 - delegatedLen
+	if slaLen < 0 {
+		slaLen = 0
+	}
+
+	raInterval := s.cfg.IPv6.LAN.RAInterval
+	if raInterval <= 0 {
+		raInterval = defaultRAInterval
+	}
+	data := dnsmasqRATemplateData{
+		Interfaces: s.buildPrefixInterfaces(lan, slaLen),
+		LeaseTime:  s.dhcpLeaseTime(),
+		RAInterval: raInterval,
+	}
+	if s.cfg.IPv6.LAN.ULA.Enabled {
+		data.ULAPrefix = s.cfg.IPv6.LAN.ULA.Prefix
+	}
+
+	tmpl, err := s.parseRATemplate()
+	if err != nil {
+		return "", err
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("render dnsmasq RA: %w", err)
+	}
+	return buf.String(), nil
+}
+
+// dhcpLeaseTime returns the DHCP lease time string from config or a
+// sensible default. RA lifetimes track the DHCPv4 lease so clients
+// re-confirm both stacks at the same cadence.
+func (s *IPv6Service) dhcpLeaseTime() string {
+	if lt := s.cfg.DHCP.LeaseTime; lt != "" {
+		return lt
+	}
+	return "12h"
+}
+
+func (s *IPv6Service) parseRATemplate() (*template.Template, error) {
+	if s.raTmpl != "" {
+		t, err := template.New("dnsmasq-ipv6-ra.conf.tmpl").Parse(s.raTmpl)
+		if err != nil {
+			return nil, fmt.Errorf("parse inline dnsmasq RA template: %w", err)
+		}
+		return t, nil
+	}
+	t, err := template.New("dnsmasq-ipv6-ra.conf.tmpl").ParseFiles("configs/sysconf/dnsmasq-ipv6-ra.conf.tmpl")
+	if err != nil {
+		return nil, fmt.Errorf("parse dnsmasq RA template: %w", err)
+	}
+	return t, nil
 }
 
 // RenderConfig returns the rendered dhcp6c.conf as a string. Pure
@@ -188,14 +283,21 @@ func (s *IPv6Service) parseScriptTemplate() (*template.Template, error) {
 	return t, nil
 }
 
-// RenderToDisk writes both the daemon config and the hook script to
-// /etc/wide-dhcpv6/. Suitable for install-time invocation. The state
-// directory is created so the hook script does not fail on first run.
+// RenderToDisk writes the dhcp6c daemon config + hook script and the
+// dnsmasq RA drop-in. Suitable for install-time invocation. State
+// directory is pre-created so the hook script does not fail on first run.
 func (s *IPv6Service) RenderToDisk(ctx context.Context) error {
 	if s.cfg.IPv6.Enabled == "off" || !s.cfg.IPv6.WAN.RequestPrefix {
 		// Caller asked for IPv6 off or PD disabled — nothing to render
 		// but make sure stale config does not linger.
-		_ = netutil.WriteFile(dhcp6cConfPath, []byte("# IPv6 PD disabled by LANKeeper config.\n"), 0o644)
+		if err := netutil.WriteFile(dhcp6cConfPath, []byte("# IPv6 PD disabled by LANKeeper config.\n"), 0o644); err != nil {
+			return fmt.Errorf("write disabled stub: %w", err)
+		}
+		// Empty drop-in keeps dnsmasq quiet about RA without removing
+		// the file (which would race with conf-dir scanning).
+		if err := netutil.WriteFile(dnsmasqRAConfPath, []byte("# IPv6 RA disabled by LANKeeper config.\n"), 0o644); err != nil {
+			return fmt.Errorf("write disabled RA stub: %w", err)
+		}
 		return nil
 	}
 
@@ -207,11 +309,18 @@ func (s *IPv6Service) RenderToDisk(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	raConf, err := s.RenderRAConfig()
+	if err != nil {
+		return err
+	}
 	if err := netutil.MkdirAll(filepath.Dir(dhcp6cConfPath), 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(dhcp6cConfPath), err)
 	}
 	if err := netutil.MkdirAll(filepath.Dir(ipv6StatePath), 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(ipv6StatePath), err)
+	}
+	if err := netutil.MkdirAll(filepath.Dir(dnsmasqRAConfPath), 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(dnsmasqRAConfPath), err)
 	}
 	if err := netutil.WriteFile(dhcp6cConfPath, []byte(conf), 0o644); err != nil {
 		return fmt.Errorf("write dhcp6c.conf: %w", err)
@@ -219,11 +328,14 @@ func (s *IPv6Service) RenderToDisk(ctx context.Context) error {
 	if err := netutil.WriteFile(dhcp6cScriptPath, []byte(script), 0o755); err != nil {
 		return fmt.Errorf("write dhcp6c-script: %w", err)
 	}
+	if err := netutil.WriteFile(dnsmasqRAConfPath, []byte(raConf), 0o644); err != nil {
+		return fmt.Errorf("write dnsmasq RA drop-in: %w", err)
+	}
 	return nil
 }
 
-// ApplyConfig renders to disk and restarts the dhcp6c unit so the new
-// settings take effect immediately.
+// ApplyConfig renders to disk, restarts dhcp6c, and asks dnsmasq to
+// re-read its config so the freshly rendered RA drop-in takes effect.
 func (s *IPv6Service) ApplyConfig(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -231,10 +343,26 @@ func (s *IPv6Service) ApplyConfig(ctx context.Context) error {
 	if err := s.RenderToDisk(ctx); err != nil {
 		return err
 	}
+	if err := s.reloadDnsmasqLocked(ctx); err != nil {
+		// Reload failure must not block the dhcp6c lifecycle: log and
+		// keep going so the operator still gets the prefix even if RA
+		// is briefly stale.
+		log.Printf("ipv6: dnsmasq reload after RA rewrite: %v", err)
+	}
 	if s.cfg.IPv6.Enabled == "off" || !s.cfg.IPv6.WAN.RequestPrefix {
 		return s.stopUnitLocked(ctx)
 	}
 	return s.restartUnitLocked(ctx)
+}
+
+// reloadDnsmasqLocked sends SIGHUP to dnsmasq via systemctl. Best-effort:
+// dnsmasq may not be installed yet in tests / first-boot flows.
+func (s *IPv6Service) reloadDnsmasqLocked(ctx context.Context) error {
+	_, err := netutil.Run(ctx, "systemctl", "reload-or-restart", "dnsmasq")
+	if err != nil {
+		return fmt.Errorf("reload dnsmasq: %w", err)
+	}
+	return nil
 }
 
 // Start enables and starts the dhcp6c unit. Idempotent.

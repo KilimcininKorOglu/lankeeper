@@ -2,6 +2,9 @@ port=0
 interface={{ .LANDevice }}
 bind-interfaces
 
+# Drop-ins managed by other LANKeeper services (IPv6 RA per VLAN, etc.)
+conf-dir=/etc/dnsmasq.d,*.conf
+
 dhcp-range={{ .RangeStart }},{{ .RangeEnd }},{{ .LeaseTime }}
 dhcp-option=option:router,{{ .Gateway }}
 dhcp-option=option:dns-server,{{ .DNSServer }}
