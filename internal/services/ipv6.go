@@ -125,8 +125,9 @@ type IPv6Service struct {
 	// (firewall, DNS) refresh their derived state without polling.
 	// Errors are logged; never block the watcher loop.
 	onLease     func(ctx context.Context, state PrefixState) error
-	watcherStop chan struct{}
-	watcherWG   sync.WaitGroup
+	watcherStop     chan struct{}
+	watcherWG       sync.WaitGroup
+	watcherDebounce *time.Timer
 	// lastLeaseHash tracks the digest of the last state we dispatched
 	// so duplicate fsnotify events (atomic mv writes 1+ events) do not
 	// trigger duplicate firewall reloads.
@@ -811,13 +812,21 @@ func (s *IPv6Service) StartLeaseWatcher(ctx context.Context) error {
 }
 
 // StopLeaseWatcher signals the watcher goroutine to exit and waits
-// for it to drain. Safe to call when no watcher is running.
+// for it to drain. Safe to call when no watcher is running. Also
+// stops any pending debounce timer so a stray dispatchLeaseLocked
+// cannot fire after Stop returns — important for tests that swap
+// agent clients or tear down the config in t.Cleanup.
 func (s *IPv6Service) StopLeaseWatcher() {
 	s.mu.Lock()
 	stopCh := s.watcherStop
 	s.watcherStop = nil
+	debounce := s.watcherDebounce
+	s.watcherDebounce = nil
 	s.mu.Unlock()
 
+	if debounce != nil {
+		debounce.Stop()
+	}
 	if stopCh == nil {
 		return
 	}
@@ -837,8 +846,8 @@ func (s *IPv6Service) runLeaseWatcher(ctx context.Context, watcher *fsnotify.Wat
 	stateName := filepath.Base(statePath)
 	// fsnotify can fire 2-3 events per atomic mv (Create + Rename +
 	// Chmod). Debounce with a short timer so we only call the
-	// callback once per logical update.
-	var debounce *time.Timer
+	// callback once per logical update. The timer is stored on the
+	// struct so StopLeaseWatcher can cancel any pending dispatch.
 	for {
 		select {
 		case <-stopCh:
@@ -855,12 +864,14 @@ func (s *IPv6Service) runLeaseWatcher(ctx context.Context, watcher *fsnotify.Wat
 			if ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Rename|fsnotify.Chmod) == 0 {
 				continue
 			}
-			if debounce != nil {
-				debounce.Stop()
+			s.mu.Lock()
+			if s.watcherDebounce != nil {
+				s.watcherDebounce.Stop()
 			}
-			debounce = time.AfterFunc(150*time.Millisecond, func() {
+			s.watcherDebounce = time.AfterFunc(150*time.Millisecond, func() {
 				s.dispatchLeaseLocked(ctx)
 			})
+			s.mu.Unlock()
 		case err, ok := <-watcher.Errors:
 			if !ok {
 				return
