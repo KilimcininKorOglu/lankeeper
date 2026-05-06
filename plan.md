@@ -2539,3 +2539,76 @@ firewallSvc.Apply(rules)
 | 11    | Deployment — install.sh + Preseed ISO                  | 3   | 52        |
 
 **Toplam: ~52 geliştirme günü** (tek geliştirici, her gün 4-6 saat efektif çalışma varsayımı)
+
+---
+
+## Roadmap — Post-v0.1.0
+
+v0.1.0 (2026-05-06) ile yukarıdaki 11 faz tamamlandı. Aşağıdaki başlıklar ilerleyen sürümlere planlanmıştır.
+
+### v0.2.0: IPv6 Operator Visibility
+
+#### DHCPv6 Prefix Delegation UI
+
+**Mevcut durum:** `wide-dhcpv6-client` (`dhcp6c` daemon) WAN'da çalışıyor. ISP prefix delege ediyor, kernel routing tablosu güncelleniyor, LAN cihazları SLAAC üzerinden global IPv6 alıyor. Ancak hiçbir şey web UI'da görünmüyor; tüm konfigürasyon `dhcp6c.conf` dosyası üzerinden, status `ip -6 addr` ve `ip -6 route` çıktısından okunuyor.
+
+**Hedefler:**
+
+| Alan | Eklenecek |
+|---|---|
+| Status | Mevcut delegated prefix, yenilenme süresi (T1/T2), ISP DUID, prefix değişim geçmişi (son 10 olay) |
+| Konfigürasyon | İstenen prefix length (`/48`, `/56`, `/60`, `/64`), Information-Refresh-Time, Stateful vs SLAAC tercihi |
+| Dağıtım haritası | Hangi LAN/VLAN'ın hangi sub-prefix'i (`::/64`) aldığını gösteren tablo + drag-and-drop yeniden atama |
+| Lifecycle | Manuel renew/release butonları, prefix değiştiğinde nftables ruleset re-render trigger'ı |
+| Alert | ISP prefix lease-time'ı dolmadan refresh başarısız olursa SSE üzerinden uyarı |
+
+**Çalışma noktaları:**
+
+1. `internal/services/ipv6.go` (yeni) — `dhcp6c` config render + status parse + RA settings (radvd değil; native kernel RA via `iproute2`).
+2. `configs/sysconf/dhcp6c.conf.tmpl` (yeni) — şu anki manual config'in template'lenmiş hali.
+3. `internal/web/handlers/ipv6.go` (yeni) — `/ipv6/*` rotaları.
+4. `web/templates/pages/ipv6.html` (yeni) — Status, Config, Subnet Map, History sekmeleri.
+5. `internal/services/firewall.go` — IPv6 prefix değişiminde rules re-render hook.
+6. Locale: `tr.json` + `en.json` ipv6.* anahtarları.
+
+**Kabul kriterleri:**
+
+- ISP prefix değiştiğinde LAN cihazları en geç 30 sn içinde yeni adresleri alır (RA interval).
+- Web UI'da "current /56" gerçek zamanlı görünür ve tablo `dhcp6c` lease dosyasıyla senkron.
+- Config form değişikliği `AtomicChange` üzerinden uygulanır; başarısız olursa 30 sn watchdog rollback.
+
+#### 6in4 Tunneling
+
+**Mevcut durum:** Hiç yok. ISP IPv6 vermiyorsa kullanıcı IPv6 alamaz.
+
+**Hedefler:**
+
+| Alan | Eklenecek |
+|---|---|
+| Tunnel broker desteği | Hurricane Electric (HE.net), tunnelbroker.net statik tunnel |
+| Konfigürasyon | Tunnel server IPv4, client IPv4 (otomatik mevcut WAN), client IPv6 (`/64` POP-side), routed `/48` veya `/64` |
+| Lifecycle | Tunnel UP/DOWN durumu (ICMPv6 echo ile probe), reconnect logic, MTU 1480 default |
+| Auth | HE.net'in update API'si için username/password (`https://ipv4.tunnelbroker.net/nic/update`) — dynamic IPv4 değişiminde otomatik update |
+| Routing | Tunnel `sit0` üzerinden default IPv6 route, prefix LAN'a SLAAC ile dağıtım (DHCPv6-PD UI ile aynı backend) |
+
+**Çalışma noktaları:**
+
+1. `internal/services/sixinfour.go` (yeni) — `ip tunnel add ... mode sit ...` orchestration, MTU/MSS clamp.
+2. Agent whitelist'e `ip tunnel` zaten dahil (`ip` komutuyla); ek izin gerekmiyor.
+3. UI: ipv6.html içinde "Tunnel" sekmesi (DHCPv6-PD ile aynı sayfa, mutually exclusive).
+4. Failover: WAN IPv4 değiştiğinde tunnel re-establish + HE.net update API çağrısı.
+5. IPv6 firewall: tunnel interface'i dış zone olarak işaretle (`iifname sit1 ...`).
+
+**Kabul kriterleri:**
+
+- HE.net free tier ile IPv6 trafiği akar, `curl -6 ifconfig.co` cevap verir.
+- WAN IPv4 yeniden alındığında tunnel 60 sn içinde yeniden aktif.
+- DHCPv6-PD ve 6in4 aynı anda etkin değil — UI form-level mutex.
+
+### Sonraki adaylar (önceliksiz)
+
+- WireGuard UI'da peer-to-peer site-to-site tek-tıklık kurulum sihirbazı.
+- Backup snapshot scheduling (cron-bazlı otomatik dışa aktarım + S3/SFTP retention).
+- Per-client (per-MAC) bandwidth grafiği (CAKE class statistics → SSE).
+- DNS-over-HTTPS upstream (Unbound 1.18+ ile native).
+- Metrik export endpoint (Prometheus formatı `/metrics`, sadece LAN-only).
