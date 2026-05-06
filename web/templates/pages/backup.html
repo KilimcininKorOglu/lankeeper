@@ -1,0 +1,225 @@
+{{ define "content" }}
+<div class="content-header">
+    <h1>{{ t .Lang "backup.title" }}</h1>
+</div>
+<div class="content-body">
+    {{ with .Data }}
+
+    <div class="card" style="margin-bottom:var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "backup.schedule.title" }}</span>
+        </div>
+        <form method="POST" action="/backup/schedule" hx-post="/backup/schedule" hx-swap="none" style="padding:var(--space-md);">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-md);">
+                <label class="input-label">
+                    {{ t $.Lang "backup.schedule.enabled" }}
+                    <input type="checkbox" name="enabled" {{ if .Backup.Enabled }}checked{{ end }}>
+                </label>
+                <label class="input-label">
+                    {{ t $.Lang "backup.schedule.cron" }}
+                    <input class="input" name="schedule" type="text" placeholder="@daily" value="{{ .Backup.Schedule }}">
+                </label>
+                <label class="input-label">
+                    {{ t $.Lang "backup.schedule.retention" }}
+                    <input class="input" name="retention" type="number" min="1" max="365" value="{{ if .Backup.Retention }}{{ .Backup.Retention }}{{ else }}7{{ end }}">
+                </label>
+                <label class="input-label">
+                    {{ t $.Lang "backup.schedule.passphrase" }}
+                    <input class="input" name="passphrase" type="password" placeholder="{{ if .HasPass }}{{ t $.Lang "backup.schedule.passphraseKeep" }}{{ else }}{{ t $.Lang "backup.schedule.passphraseSet" }}{{ end }}">
+                </label>
+            </div>
+            <div style="margin-top:var(--space-md); display:flex; gap:var(--space-sm);">
+                <button class="btn btn-primary" type="submit">{{ t $.Lang "common.save" }}</button>
+                <button class="btn" type="button" hx-post="/backup/run" hx-swap="none">{{ t $.Lang "backup.runNow" }}</button>
+            </div>
+            <p style="color:var(--text-secondary); margin-top:var(--space-sm); font-size:var(--font-sm);">
+                {{ t $.Lang "backup.schedule.help" }}
+            </p>
+        </form>
+    </div>
+
+    <div class="card" style="margin-bottom:var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "backup.targets.title" }}</span>
+        </div>
+        <div style="padding:var(--space-md);">
+            {{ if .Targets }}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>{{ t $.Lang "backup.targets.name" }}</th>
+                        <th>{{ t $.Lang "backup.targets.type" }}</th>
+                        <th>{{ t $.Lang "backup.targets.detail" }}</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                {{ range .Targets }}
+                    <tr>
+                        <td>{{ .Name }}</td>
+                        <td><span class="badge">{{ .Type }}</span></td>
+                        <td style="color:var(--text-secondary); font-family:var(--font-mono);">
+                            {{ if eq .Type "local" }}{{ .Path }}{{ end }}
+                            {{ if eq .Type "s3" }}{{ .Bucket }}{{ if .Prefix }}/{{ .Prefix }}{{ end }} ({{ .Region }}){{ end }}
+                            {{ if eq .Type "sftp" }}{{ .User }}@{{ .Host }}:{{ if .Port }}{{ .Port }}{{ else }}22{{ end }}{{ if .RemoteDir }} {{ .RemoteDir }}{{ end }}{{ end }}
+                        </td>
+                        <td>
+                            <button class="btn btn-danger" hx-delete="/backup/target/{{ .Name }}" hx-confirm="{{ t $.Lang "backup.targets.deleteConfirm" }}" hx-swap="none">
+                                {{ t $.Lang "common.delete" }}
+                            </button>
+                        </td>
+                    </tr>
+                {{ end }}
+                </tbody>
+            </table>
+            {{ else }}
+            <p style="color:var(--text-secondary);">{{ t $.Lang "backup.targets.empty" }}</p>
+            {{ end }}
+
+            <details style="margin-top:var(--space-md);">
+                <summary style="cursor:pointer;">{{ t $.Lang "backup.targets.add" }}</summary>
+                <form method="POST" action="/backup/target" hx-post="/backup/target" hx-swap="none" style="margin-top:var(--space-md); display:grid; gap:var(--space-md);">
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-md);">
+                        <label class="input-label">
+                            {{ t $.Lang "backup.targets.type" }}
+                            <select class="input" name="type" id="backup-target-type" onchange="lankeeperBackupTargetType(this.value)">
+                                <option value="local">local</option>
+                                <option value="s3">s3</option>
+                                <option value="sftp">sftp</option>
+                            </select>
+                        </label>
+                        <label class="input-label">
+                            {{ t $.Lang "backup.targets.name" }}
+                            <input class="input" name="name" type="text" required>
+                        </label>
+                    </div>
+
+                    <div data-target-section="local">
+                        <label class="input-label">
+                            {{ t $.Lang "backup.targets.local.path" }}
+                            <input class="input" name="path" type="text" placeholder="/var/lib/lankeeper/backups/">
+                        </label>
+                    </div>
+
+                    <div data-target-section="s3" style="display:none;">
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-md);">
+                            <label class="input-label">
+                                {{ t $.Lang "backup.targets.s3.endpoint" }}
+                                <input class="input" name="endpoint" type="text" placeholder="https://s3.us-east-1.amazonaws.com">
+                            </label>
+                            <label class="input-label">
+                                {{ t $.Lang "backup.targets.s3.region" }}
+                                <input class="input" name="region" type="text" placeholder="us-east-1">
+                            </label>
+                            <label class="input-label">
+                                {{ t $.Lang "backup.targets.s3.bucket" }}
+                                <input class="input" name="bucket" type="text">
+                            </label>
+                            <label class="input-label">
+                                {{ t $.Lang "backup.targets.s3.prefix" }}
+                                <input class="input" name="prefix" type="text" placeholder="lankeeper/">
+                            </label>
+                            <label class="input-label">
+                                {{ t $.Lang "backup.targets.s3.accessKey" }}
+                                <input class="input" name="accessKeyId" type="text">
+                            </label>
+                            <label class="input-label">
+                                {{ t $.Lang "backup.targets.s3.secretKey" }}
+                                <input class="input" name="secretAccessKey" type="password">
+                            </label>
+                            <label class="input-label">
+                                <input type="checkbox" name="usePathStyle">
+                                {{ t $.Lang "backup.targets.s3.pathStyle" }}
+                            </label>
+                        </div>
+                    </div>
+
+                    <div data-target-section="sftp" style="display:none;">
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-md);">
+                            <label class="input-label">
+                                {{ t $.Lang "backup.targets.sftp.host" }}
+                                <input class="input" name="host" type="text">
+                            </label>
+                            <label class="input-label">
+                                {{ t $.Lang "backup.targets.sftp.port" }}
+                                <input class="input" name="port" type="number" placeholder="22">
+                            </label>
+                            <label class="input-label">
+                                {{ t $.Lang "backup.targets.sftp.user" }}
+                                <input class="input" name="user" type="text">
+                            </label>
+                            <label class="input-label">
+                                {{ t $.Lang "backup.targets.sftp.password" }}
+                                <input class="input" name="password" type="password">
+                            </label>
+                            <label class="input-label">
+                                {{ t $.Lang "backup.targets.sftp.keyPath" }}
+                                <input class="input" name="keyPath" type="text" placeholder="/etc/lankeeper/backup.key">
+                            </label>
+                            <label class="input-label">
+                                {{ t $.Lang "backup.targets.sftp.remoteDir" }}
+                                <input class="input" name="remoteDir" type="text" placeholder="/backups">
+                            </label>
+                        </div>
+                    </div>
+
+                    <div>
+                        <button class="btn btn-primary" type="submit">{{ t $.Lang "common.add" }}</button>
+                    </div>
+                </form>
+            </details>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "backup.history.title" }}</span>
+        </div>
+        <div style="padding:var(--space-md);">
+            {{ if .History }}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>{{ t $.Lang "backup.history.startedAt" }}</th>
+                        <th>{{ t $.Lang "backup.history.status" }}</th>
+                        <th>{{ t $.Lang "backup.history.size" }}</th>
+                        <th>{{ t $.Lang "backup.history.targets" }}</th>
+                        <th>{{ t $.Lang "backup.history.message" }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {{ range .History }}
+                    <tr>
+                        <td style="font-family:var(--font-mono);">{{ .StartedAt.Format "2006-01-02 15:04:05" }}</td>
+                        <td>
+                            {{ if eq .Status "ok" }}<span class="badge badge-success">{{ .Status }}</span>{{ end }}
+                            {{ if eq .Status "partial" }}<span class="badge badge-warning">{{ .Status }}</span>{{ end }}
+                            {{ if eq .Status "error" }}<span class="badge badge-danger">{{ .Status }}</span>{{ end }}
+                        </td>
+                        <td style="font-family:var(--font-mono);">{{ .Bytes }} B</td>
+                        <td style="color:var(--text-secondary);">
+                            {{ range $i, $t := .Targets }}{{ if $i }}, {{ end }}{{ $t }}{{ end }}
+                        </td>
+                        <td style="color:var(--text-secondary); font-size:var(--font-sm);">{{ .Message }}</td>
+                    </tr>
+                {{ end }}
+                </tbody>
+            </table>
+            {{ else }}
+            <p style="color:var(--text-secondary);">{{ t $.Lang "backup.history.empty" }}</p>
+            {{ end }}
+        </div>
+    </div>
+
+    {{ end }}
+</div>
+
+<script>
+function lankeeperBackupTargetType(value) {
+    var sections = document.querySelectorAll('[data-target-section]');
+    sections.forEach(function (s) {
+        s.style.display = (s.getAttribute('data-target-section') === value) ? '' : 'none';
+    });
+}
+</script>
+{{ end }}
