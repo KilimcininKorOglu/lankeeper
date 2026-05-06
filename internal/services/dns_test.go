@@ -100,6 +100,35 @@ func TestSaveDNSSettingsRejectsSSRFTargets(t *testing.T) {
 	}
 }
 
+// TestSaveDNSSettingsRejectsUnboundConfInjection blocks payloads
+// crafted to break out of the `forward-addr:` line and inject
+// sibling directives like `forward-tls-upstream: no` or extra
+// forward-addr targets. Real DoT upstreams only need alphanumerics,
+// `.-:@#`. (BUG-070)
+func TestSaveDNSSettingsRejectsUnboundConfInjection(t *testing.T) {
+	cases := []struct {
+		name     string
+		upstream string
+	}{
+		{"newline injection", "1.1.1.1#cloudflare-dns.com\nforward-tls-upstream: no"},
+		{"CR injection", "1.1.1.1#cloudflare-dns.com\rforward-addr: 6.6.6.6"},
+		{"space in spec", "1.1.1.1 evil#cloudflare-dns.com"},
+		{"NUL byte", "1.1.1.1\x00#cloudflare-dns.com"},
+		{"quote in SNI", "1.1.1.1#cloudflare\"-dns.com"},
+		{"tab in spec", "1.1.1.1\t#cloudflare-dns.com"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.DefaultConfig()
+			cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
+			svc := services.NewDNSService(cfg)
+			if err := svc.SaveDNSSettings(true, tc.upstream); err == nil {
+				t.Fatalf("expected error for upstream %q, got nil", tc.upstream)
+			}
+		})
+	}
+}
+
 // TestSaveDNSSettingsAllowsAnyUpstreamWhenDoTDisabled keeps the
 // validator scoped to the "enabled" path so operators can stash a
 // draft upstream while DoT is off. (BUG-059)

@@ -440,6 +440,14 @@ func parseDoTSpec(spec string) (host, port, sni string) {
 // only chain validation and silently MITMs every query (BUG-059);
 // without IP-range guarding the probe acts as an SSRF oracle (BUG-066).
 func parseAndValidateDoTSpec(spec string) (host, port, sni string, err error) {
+	// Reject any character that could break out of the unbound.conf
+	// `forward-addr:` line and inject a sibling directive. Real DoT
+	// upstreams only need alphanumerics, dots, hyphens, `:` (IPv6),
+	// `@` (port separator), and `#` (SNI separator). Whitespace,
+	// newlines, NULs, `"`, and shell metacharacters are out. (BUG-070)
+	if !hasOnlyDoTSpecChars(spec) {
+		return "", "", "", fmt.Errorf("DoT upstream contains characters that could inject unbound.conf directives")
+	}
 	host, port, sni = parseDoTSpec(spec)
 	if host == "" {
 		return "", "", "", fmt.Errorf("empty or invalid upstream")
@@ -456,6 +464,23 @@ func parseAndValidateDoTSpec(spec string) (host, port, sni string, err error) {
 		return "", "", "", err
 	}
 	return host, port, sni, nil
+}
+
+// dotSpecChars is the conservative byte allowlist for the entire
+// unbound DoT upstream string: alphanumerics, dots, hyphens, colon
+// (for IPv6 literals), `@` (port separator), `#` (SNI separator).
+const dotSpecChars = "abcdefghijklmnopqrstuvwxyz" +
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
+	"0123456789" +
+	".-:@#"
+
+func hasOnlyDoTSpecChars(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if !strings.ContainsRune(dotSpecChars, rune(s[i])) {
+			return false
+		}
+	}
+	return true
 }
 
 // validateDoTHostNotInternal rejects DoT upstream hosts that point at
