@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-07
+
 ### Added
 
 - **(monitoring) Prometheus `/metrics` endpoint**: LAN-only,
