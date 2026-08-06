@@ -45,6 +45,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(healthcheck) WAN auto-recovery now actually runs**: the health check
+  service was fully implemented, enabled in the shipped defaults, and
+  wired to a card on the network page, but the one function that seeds
+  the result map and spawns the probe goroutines was never called from
+  production code. The service was created as a local variable in
+  `NewServer`, handed to two handlers as a read dependency, and then
+  dropped. Nothing monitored the WAN, the health-check card never
+  rendered because its result map was always empty, and the reset
+  endpoint was a silent no-op against a record that did not exist. The
+  `enabled` setting was not read by production code at all, so toggling
+  it changed nothing in either direction. `Serve` now starts the checks
+  alongside the other background workers, and `enabled` is enforced
+  inside the service so it genuinely gates the probes and their recovery
+  actions. Shutdown drains the goroutines through the existing context,
+  so no new stop path was needed.
+
 - **(firewall) Pending-change rollback now survives a restart**: the
   anti-lockout watchdog kept the previous ruleset and its 30 s deadline
   only in process memory, and `FirewallService` tracked the pending

@@ -44,6 +44,10 @@ type Server struct {
 	pppoe     *handlers.PPPoEHandler
 	ipv6      *handlers.IPv6Handler
 	health    *handlers.HealthCheckHandler
+	// healthSvc is retained so Serve can start the check goroutines.
+	// The handler above only reads results; nothing fills them until
+	// Start runs.
+	healthSvc *services.HealthCheckService
 	metricsh  *handlers.MetricsHandler
 	sse       *SSEBroker
 	// qosSse is dedicated to per-client bandwidth events. Kept
@@ -230,6 +234,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 		pppoe:     pppoeHandler,
 		ipv6:      ipv6Handler,
 		health:    healthHandler,
+		healthSvc: healthSvc,
 		metricsh:  metricsHandler,
 		storageh:  storageHandler,
 		syslogh:   syslogHandler,
@@ -315,6 +320,11 @@ func (s *Server) Serve(ctx context.Context) error {
 	// Backup scheduler: ticks every 30s, fires runOnce when the
 	// configured cron schedule next matches. No-op when disabled.
 	s.backupSvc.StartScheduler(ctx, s.backupOrch.SnapshotProvider())
+
+	// WAN health checks and their recovery actions. Derives its own
+	// context from ctx, so shutdown drains the goroutines without an
+	// explicit Stop. No-op when disabled.
+	s.healthSvc.Start(ctx)
 
 	go func() {
 		<-ctx.Done()

@@ -36,7 +36,17 @@ func NewHealthCheckService(cfg *config.Config) *HealthCheckService {
 	}
 }
 
+// Start seeds the result map and spawns one goroutine per configured
+// check. Remediation actions bring interfaces down and restart pppd, so
+// the enabled flag is enforced here rather than at the call site: the
+// service owns the config section, and a future caller cannot skip the
+// gate by forgetting to test it.
 func (s *HealthCheckService) Start(ctx context.Context) {
+	if !s.cfg.HealthCheck.Enabled {
+		log.Print("health check disabled by configuration")
+		return
+	}
+
 	ctx, s.cancel = context.WithCancel(ctx)
 
 	for _, check := range s.cfg.HealthCheck.Checks {

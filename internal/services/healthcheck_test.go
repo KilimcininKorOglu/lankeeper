@@ -87,9 +87,66 @@ func TestHealthCheckStartStop(t *testing.T) {
 	svc.Stop()
 }
 
+// TestHealthCheckEnabledGatesStart pins the meaning of the enabled
+// flag. Before the flag was honoured, nothing in production read it, so
+// toggling it had no observable effect in either direction.
+//
+// Both halves use a 1h interval so no probe ever fires: the assertion
+// is on the result map Start seeds synchronously, which makes the test
+// deterministic and independent of whether ping works in the sandbox.
+func TestHealthCheckEnabledGatesStart(t *testing.T) {
+	newCfg := func(enabled bool) *config.Config {
+		cfg := &config.Config{}
+		cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
+		cfg.HealthCheck.Enabled = enabled
+		cfg.HealthCheck.Checks = []config.HealthCheckEntry{
+			{
+				Name:     "wan-internet",
+				Interval: "1h",
+				Targets: []config.HealthCheckTarget{
+					{Type: "ping", Host: "127.0.0.1"},
+				},
+			},
+		}
+		return cfg
+	}
+
+	t.Run("disabled", func(t *testing.T) {
+		svc := services.NewHealthCheckService(newCfg(false))
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		svc.Start(ctx)
+
+		if results := svc.GetResults(); len(results) != 0 {
+			t.Errorf("disabled service seeded %d results, want 0", len(results))
+		}
+		if svc.GetResult("wan-internet") != nil {
+			t.Error("disabled service produced a result for the configured check")
+		}
+	})
+
+	t.Run("enabled", func(t *testing.T) {
+		svc := services.NewHealthCheckService(newCfg(true))
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		svc.Start(ctx)
+
+		result := svc.GetResult("wan-internet")
+		if result == nil {
+			t.Fatal("enabled service did not seed the configured check")
+		}
+		if result.Status != "unknown" {
+			t.Errorf("freshly seeded status = %q, want %q", result.Status, "unknown")
+		}
+	})
+}
+
 func TestHealthCheckResetCounter(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
+	cfg.HealthCheck.Enabled = true
 	cfg.HealthCheck.Checks = []config.HealthCheckEntry{
 		{Name: "test", Interval: "1h"},
 	}
