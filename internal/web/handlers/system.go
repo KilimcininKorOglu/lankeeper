@@ -28,6 +28,18 @@ type SystemHandler struct {
 	dhcp     *services.DHCPService
 	backup   *services.BackupService
 	update   *services.UpdateService
+	// passwordSink hands a newly generated hash back to the auth
+	// object, which caches it by value. A callback rather than a
+	// direct reference because Auth lives in the parent web package,
+	// which already imports this one. May be nil.
+	passwordSink func(hash string)
+}
+
+// SetPasswordSink wires the callback that refreshes the live password
+// hash, following the same injection pattern as SetDNSService and
+// SetRunner elsewhere in the tree.
+func (h *SystemHandler) SetPasswordSink(fn func(hash string)) {
+	h.passwordSink = fn
 }
 
 func NewSystemHandler(renderer *tmpl.Renderer, cfg *config.Config, loc *i18n.I18n, dhcp *services.DHCPService, backup *services.BackupService, update *services.UpdateService) *SystemHandler {
@@ -83,6 +95,13 @@ func (h *SystemHandler) HandleChangeWebPassword(w http.ResponseWriter, r *http.R
 	if err := h.cfg.SaveToFile(); err != nil {
 		http.Error(w, "save failed", http.StatusInternalServerError)
 		return
+	}
+
+	// Persisting alone is not enough: the auth object holds its own
+	// copy, so without this the old password would keep working until
+	// the process restarted.
+	if h.passwordSink != nil {
+		h.passwordSink(string(hashBytes))
 	}
 	log.Println("web UI admin password changed")
 

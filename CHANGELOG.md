@@ -94,6 +94,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(auth) Changing the admin password now takes effect immediately**:
+  `Auth` captured the bcrypt hash by value when the server was
+  constructed and exposed no way to replace it. The change handler
+  generated a new hash, wrote it to the config, persisted it, and
+  reported success, but never told the auth object. Login therefore
+  kept comparing against the startup value: the old password went on
+  working and the new one did not, until `lankeeper serve` restarted.
+  That defeats the main reason to rotate a password, since an operator
+  who changes it because they believe it leaked leaves the holder of
+  the old one with full access. The handler now hands the new hash back
+  to the authenticator, which guards it with a lock because a change
+  can land while a login is reading it.
+
 - **(agent) JSON-RPC frames are size-bounded and time-bounded**:
   `handleConn` attached a decoder straight to the connection and looped
   forever with no frame cap and no read deadline. `Request.Params` is a

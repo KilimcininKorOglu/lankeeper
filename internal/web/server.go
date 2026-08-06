@@ -199,6 +199,10 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	monitorSvc := services.NewMonitorService()
 	dashboardHandler := handlers.NewDashboardHandler(renderer, monitorSvc, pppoeSvc, dhcpSvc)
 	settingsHandler := handlers.NewSystemHandler(renderer, cfg, loc, dhcpSvc, backupSvc, updateSvc)
+	// Without this the auth object keeps verifying against the hash it
+	// captured at startup, so a password change would report success
+	// while the old credential still worked.
+	settingsHandler.SetPasswordSink(auth.SetPasswordHash)
 	backupHandler := handlers.NewBackupHandler(renderer, cfg, loc, backupSvc)
 	// MetricsService composes runtime state from every domain
 	// service into a single Prometheus-shaped snapshot. We wire
@@ -305,6 +309,13 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 // re-created one.
 func (s *Server) Handler() http.Handler {
 	return s.http.Handler
+}
+
+// Auth exposes the live authenticator so a test can assert which
+// credential the running server actually accepts, rather than what the
+// config file happens to hold.
+func (s *Server) Auth() *Auth {
+	return s.auth
 }
 
 func (s *Server) Serve(ctx context.Context) error {

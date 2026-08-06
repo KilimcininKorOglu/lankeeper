@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"sync"
 
 	"github.com/gorilla/sessions"
 	"golang.org/x/crypto/bcrypt"
@@ -13,7 +14,10 @@ const (
 )
 
 type Auth struct {
-	store        sessions.Store
+	store sessions.Store
+	// mu guards passwordHash, which a password change rewrites while
+	// login requests are reading it.
+	mu           sync.RWMutex
 	passwordHash string
 }
 
@@ -32,8 +36,22 @@ func NewAuth(secret, passwordHash string) *Auth {
 	}
 }
 
+// SetPasswordHash swaps in a newly generated hash. Auth caches the hash
+// by value rather than reading the live config, so without this the
+// credential accepted at login stayed whatever it was at startup and a
+// password change only took effect on the next restart.
+func (a *Auth) SetPasswordHash(hash string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.passwordHash = hash
+}
+
 func (a *Auth) VerifyPassword(password string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(a.passwordHash), []byte(password))
+	a.mu.RLock()
+	hash := a.passwordHash
+	a.mu.RUnlock()
+
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 	return err == nil
 }
 
