@@ -20,6 +20,33 @@ var ifaceNameRegex = regexp.MustCompile(`^[A-Za-z0-9_.@-]+$`)
 // the statement separator, and anything that could start a new line.
 var ruleNameRegex = regexp.MustCompile(`^[A-Za-z0-9 _.:/()-]*$`)
 
+// fsPathRegex is the character allowlist for a filesystem path that
+// ends up inside a rendered config file. Space is allowed because share
+// paths legitimately contain it; control characters, quotes, and
+// statement separators are not.
+var fsPathRegex = regexp.MustCompile(`^[A-Za-z0-9/._+~ -]+$`)
+
+// ValidateFilesystemPath checks an operator-supplied path before it is
+// normalised or prefix-checked.
+//
+// filepath.Clean collapses separators and dot segments but preserves
+// control characters, and a prefix allowlist says nothing about the rest
+// of the string. A path carrying a newline therefore survives both and
+// can terminate the directive it is rendered into, so the character set
+// has to be checked on the raw value.
+func ValidateFilesystemPath(s string) error {
+	if s == "" {
+		return fmt.Errorf("path is empty")
+	}
+	if len(s) > 4096 {
+		return fmt.Errorf("path is longer than 4096 characters")
+	}
+	if !fsPathRegex.MatchString(s) {
+		return fmt.Errorf("path contains characters that are not allowed: %q", s)
+	}
+	return nil
+}
+
 // ValidateInterfaceName checks a network device name. IFNAMSIZ caps the
 // kernel's own limit at 16 bytes including the terminator, so 15 is the
 // longest usable name.

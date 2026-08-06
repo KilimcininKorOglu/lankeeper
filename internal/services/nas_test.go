@@ -2,6 +2,7 @@ package services_test
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
@@ -154,5 +155,127 @@ func TestM3UStatus(t *testing.T) {
 	status := svc.GetM3UStatus()
 	if status.Running {
 		t.Error("should not be running by default")
+	}
+}
+
+// testSMBTemplate mirrors the share stanza of the real smb.conf
+// template: text/template with unquoted directive values.
+const testSMBTemplate = `[global]
+    workgroup = WORKGROUP
+{{ range .Shares }}
+[{{ .Name }}]
+    path = {{ .Path }}
+    browseable = yes
+{{- if .ValidUsers }}
+    valid users = {{ join .ValidUsers ", " }}
+{{- end }}
+{{ end }}
+`
+
+// TestNASRenderRejectsDirectiveInjection is the regression test for a
+// share path carrying a newline. smbd runs as root and Samba executes
+// root preexec on client connect, so a path that terminates its own
+// directive turns an unauthenticated SMB connection into root command
+// execution.
+func TestNASRenderRejectsDirectiveInjection(t *testing.T) {
+	cases := []struct {
+		name  string
+		share config.ShareConfig
+	}{
+		{
+			name: "newline in path",
+			share: config.ShareConfig{
+				Name: "media",
+				Path: "/srv/media\n    root preexec = /bin/sh -c id",
+			},
+		},
+		{
+			name: "carriage return in path",
+			share: config.ShareConfig{
+				Name: "media",
+				Path: "/srv/media\r    root preexec = /bin/sh -c id",
+			},
+		},
+		{
+			name: "newline in share name",
+			share: config.ShareConfig{
+				Name: "media]\n    root preexec = /bin/sh -c id\n[x",
+				Path: "/srv/media",
+			},
+		},
+		{
+			name: "newline in valid users",
+			share: config.ShareConfig{
+				Name:       "media",
+				Path:       "/srv/media",
+				ValidUsers: []string{"bob\n    root preexec = /bin/sh -c id"},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.NAS.Shares = []config.ShareConfig{tc.share}
+
+			svc := services.NewNASServiceFromFS(cfg, testSMBTemplate)
+			out, err := svc.RenderConfig()
+			if err != nil {
+				t.Fatalf("render: %v", err)
+			}
+			if strings.Contains(out, "root preexec") {
+				t.Errorf("injected directive reached smb.conf\n---\n%s", out)
+			}
+		})
+	}
+}
+
+// TestNASRenderKeepsLegitimateShare guards against the validator being
+// so strict it drops ordinary shares, including paths with a space.
+func TestNASRenderKeepsLegitimateShare(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.NAS.Shares = []config.ShareConfig{
+		{Name: "media", Path: "/srv/media", ValidUsers: []string{"bob", "alice.j"}},
+		{Name: "my-backups_2", Path: "/mnt/disk1/My Backups"},
+	}
+
+	svc := services.NewNASServiceFromFS(cfg, testSMBTemplate)
+	out, err := svc.RenderConfig()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	for _, want := range []string{
+		"[media]",
+		"path = /srv/media",
+		"valid users = bob, alice.j",
+		"[my-backups_2]",
+		"path = /mnt/disk1/My Backups",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("legitimate share content missing %q\n---\n%s", want, out)
+		}
+	}
+}
+
+// TestNASRenderDropsOnlyTheBadShare confirms one poisoned entry does not
+// take the rest of the configuration with it.
+func TestNASRenderDropsOnlyTheBadShare(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.NAS.Shares = []config.ShareConfig{
+		{Name: "good", Path: "/srv/good"},
+		{Name: "bad", Path: "/srv/bad\n    root preexec = /bin/sh -c id"},
+	}
+
+	svc := services.NewNASServiceFromFS(cfg, testSMBTemplate)
+	out, err := svc.RenderConfig()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(out, "[good]") {
+		t.Error("valid share was dropped alongside the invalid one")
+	}
+	if strings.Contains(out, "[bad]") || strings.Contains(out, "root preexec") {
+		t.Errorf("invalid share rendered\n---\n%s", out)
 	}
 }

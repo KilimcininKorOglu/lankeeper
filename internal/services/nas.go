@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -18,14 +19,33 @@ import (
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 )
 
+// Share fields are rendered into smb.conf, which has no escaping, so
+// they are constrained to sets that cannot terminate a directive. These
+// mirror the intake checks in the NAS handler.
+var (
+	nasShareNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
+	nasShareUserPattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,64}$`)
+)
+
 type NASService struct {
-	cfg    *config.Config
-	mu     sync.RWMutex
-	cancel context.CancelFunc
+	cfg *config.Config
+	// tmplContent, when set, is used instead of reading the template
+	// from disk. Only the FromFS constructor sets it.
+	tmplContent string
+	mu          sync.RWMutex
+	cancel      context.CancelFunc
 }
 
 func NewNASService(cfg *config.Config) *NASService {
 	return &NASService{cfg: cfg}
+}
+
+// NewNASServiceFromFS injects the smb.conf template as a string instead
+// of reading it relative to the working directory. Tests run with the
+// package directory as CWD, where ParseFiles against a project-root path
+// cannot resolve.
+func NewNASServiceFromFS(cfg *config.Config, tmplContent string) *NASService {
+	return &NASService{cfg: cfg, tmplContent: tmplContent}
 }
 
 type M3USyncStatus struct {
@@ -75,9 +95,17 @@ func (s *NASService) RenderConfig() (string, error) {
 	// instead of an empty placeholder. Previously `New("smb")` produced
 	// an empty root template and Execute hit "incomplete or empty
 	// template".
-	tmpl, err := template.New("smb.conf.tmpl").Funcs(template.FuncMap{
+	root := template.New("smb.conf.tmpl").Funcs(template.FuncMap{
 		"join": strings.Join,
-	}).ParseFiles("configs/sysconf/smb.conf.tmpl")
+	})
+
+	var tmpl *template.Template
+	var err error
+	if s.tmplContent != "" {
+		tmpl, err = root.Parse(s.tmplContent)
+	} else {
+		tmpl, err = root.ParseFiles("configs/sysconf/smb.conf.tmpl")
+	}
 	if err != nil {
 		return "", fmt.Errorf("parse smb template: %w", err)
 	}
@@ -87,10 +115,47 @@ func (s *NASService) RenderConfig() (string, error) {
 	s.mu.RUnlock()
 
 	var buf strings.Builder
-	if err := tmpl.Execute(&buf, map[string]any{"Shares": shares}); err != nil {
+	if err := tmpl.Execute(&buf, map[string]any{"Shares": safeShares(shares)}); err != nil {
 		return "", fmt.Errorf("execute smb template: %w", err)
 	}
 	return buf.String(), nil
+}
+
+// safeShares drops any share whose fields cannot be written into
+// smb.conf verbatim.
+//
+// The template is text/template with no escaping and the directives are
+// unquoted, so a control character in a value ends the directive and
+// begins another inside the same stanza. smbd runs as root and Samba
+// implements directives that execute commands, so this has to hold on
+// the render path itself, not only at the HTTP handler: a share can
+// arrive from hand-edited YAML, a restored backup, or a config written
+// by a release that predates handler validation.
+func safeShares(shares []config.ShareConfig) []config.ShareConfig {
+	out := make([]config.ShareConfig, 0, len(shares))
+	for _, sh := range shares {
+		if err := validateShare(sh); err != nil {
+			log.Printf("nas: skipping share %q: %v", sh.Name, err)
+			continue
+		}
+		out = append(out, sh)
+	}
+	return out
+}
+
+func validateShare(sh config.ShareConfig) error {
+	if !nasShareNamePattern.MatchString(sh.Name) {
+		return fmt.Errorf("invalid share name")
+	}
+	if err := netutil.ValidateFilesystemPath(sh.Path); err != nil {
+		return err
+	}
+	for _, u := range sh.ValidUsers {
+		if !nasShareUserPattern.MatchString(u) {
+			return fmt.Errorf("invalid user %q", u)
+		}
+	}
+	return nil
 }
 
 // RenderToDisk renders /etc/samba/smb.conf without reloading. Suitable for

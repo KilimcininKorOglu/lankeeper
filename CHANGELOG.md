@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(nas) Share path can no longer inject Samba directives**: the share
+  path was checked only with `filepath.Clean` and a `/srv/` or `/mnt/`
+  prefix test. Neither rejects an embedded newline, which an ordinary
+  form POST can carry as `%0A`, and `Clean` preserves control characters
+  outright. The value was rendered through `text/template`, which
+  performs no escaping, into the unquoted `path =` line of the share
+  stanza, so a newline ended that directive and began another inside the
+  same block. `smbd` runs as root and Samba implements `root preexec`
+  and similar directives that execute commands, so an injected rule ran
+  as root when a client connected - and because the same form sets
+  `guest ok`, the trigger was an unauthenticated LAN SMB connection.
+  Paths are now checked against a character allowlist on the raw value,
+  before normalisation. Share name, path, and valid-users entries are
+  re-validated at render time as well, so an entry from hand-edited
+  YAML or a restored backup cannot reach `smb.conf` either; an invalid
+  share is skipped and logged, leaving the rest of the configuration
+  intact.
+
 - **(agent) Agent socket no longer grants root to every local account**:
   the privileged agent chmod'ed its Unix socket to `0666` and performed
   no authentication on connect - no peer-credential check, no token, no

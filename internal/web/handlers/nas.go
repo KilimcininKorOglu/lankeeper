@@ -12,6 +12,7 @@ import (
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/i18n"
+	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 	"github.com/KilimcininKorOglu/lankeeper/internal/services"
 	"github.com/KilimcininKorOglu/lankeeper/internal/tmpl"
 )
@@ -61,11 +62,21 @@ func (h *NASHandler) HandleAddShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path := filepath.Clean(r.FormValue("path"))
-	if path == "" {
+	rawPath := r.FormValue("path")
+	if rawPath == "" {
 		http.Error(w, "path required", http.StatusBadRequest)
 		return
 	}
+	// Check the character set on the raw value, before Clean. The path is
+	// rendered into an unquoted smb.conf directive, and Clean preserves
+	// control characters, so a newline here would start a new directive
+	// inside the share stanza.
+	if netutil.ValidateFilesystemPath(rawPath) != nil {
+		http.Error(w, "path contains characters that are not allowed", http.StatusBadRequest)
+		return
+	}
+
+	path := filepath.Clean(rawPath)
 	if !strings.HasPrefix(path, "/srv/") && !strings.HasPrefix(path, "/mnt/") {
 		http.Error(w, "path must start with /srv/ or /mnt/", http.StatusBadRequest)
 		return
