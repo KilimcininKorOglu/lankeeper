@@ -10,6 +10,46 @@ import (
 
 var macRegex = regexp.MustCompile(`^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$`)
 
+// ifaceNameRegex matches what the kernel accepts for a network device
+// name. Anything outside this set would break out of the quoted string
+// it is interpolated into when rendering nftables rules.
+var ifaceNameRegex = regexp.MustCompile(`^[A-Za-z0-9_.@-]+$`)
+
+// ruleNameRegex allows a readable label while excluding every character
+// that carries meaning in an nftables file: quotes, the comment marker,
+// the statement separator, and anything that could start a new line.
+var ruleNameRegex = regexp.MustCompile(`^[A-Za-z0-9 _.:/()-]*$`)
+
+// ValidateInterfaceName checks a network device name. IFNAMSIZ caps the
+// kernel's own limit at 16 bytes including the terminator, so 15 is the
+// longest usable name.
+func ValidateInterfaceName(s string) error {
+	if s == "" {
+		return fmt.Errorf("interface name is empty")
+	}
+	if len(s) > 15 {
+		return fmt.Errorf("invalid interface name: %q (longer than 15 characters)", s)
+	}
+	if !ifaceNameRegex.MatchString(s) {
+		return fmt.Errorf("invalid interface name: %q", s)
+	}
+	return nil
+}
+
+// ValidateRuleName checks an operator-supplied label that ends up inside
+// a rendered config file. An empty name is allowed; the label is
+// cosmetic. A name carrying a newline or a quote is not, because the
+// renderer writes it verbatim into nftables syntax.
+func ValidateRuleName(s string) error {
+	if len(s) > 64 {
+		return fmt.Errorf("rule name is longer than 64 characters")
+	}
+	if !ruleNameRegex.MatchString(s) {
+		return fmt.Errorf("rule name contains characters that are not allowed: %q", s)
+	}
+	return nil
+}
+
 func ValidateIP(s string) error {
 	if net.ParseIP(s) == nil {
 		return fmt.Errorf("invalid IP address: %s", s)

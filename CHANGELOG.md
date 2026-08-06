@@ -27,6 +27,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(firewall) Custom rules now reach the live ruleset**: the UI offered
+  a full add/remove/toggle flow with an Enabled badge, and the generator
+  that turns those rules into nftables text existed, but nothing ever
+  called it - the only occurrence of `GenerateCustomNftRules` in the
+  tree was its own definition. The template had no placeholder and the
+  template data had no field, so a rule shown as Enabled changed
+  nothing. This failed open: an operator adding a drop rule to block a
+  device was told it was active while the packet filter was untouched.
+  Rules are now compiled per chain and rendered. They are placed after
+  the conntrack lines but ahead of the built-in accepts, so an explicit
+  rule wins and a new drop rule actually blocks new connections;
+  appending them at the end would have left drop rules inert for traffic
+  the built-ins already accepted. The rule's `chain` field is honoured,
+  which the original generator ignored. Rule name and interface are now
+  validated both at intake and at render time, since the nftables file
+  has no escaping and a rule from hand-edited YAML or a restored backup
+  could otherwise inject arbitrary statements. Rules carrying no match
+  condition are skipped rather than rendered as an unconditional accept
+  or drop for the whole chain.
+
 - **(backup) Factory Reset now works on every install**: the reset
   derived its source directory from the config directory's parent,
   which resolved to `/etc/configs/defaults` - a path no installer

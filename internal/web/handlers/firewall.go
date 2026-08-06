@@ -202,15 +202,29 @@ func (h *FirewallHandler) HandleAddRule(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Both values are written verbatim into the nftables file: the
+	// interface into a quoted match, the name into a trailing comment.
+	// Neither may carry a quote or a newline.
+	name := r.FormValue("name")
+	if err := netutil.ValidateRuleName(name); err != nil {
+		http.Error(w, "invalid rule name", http.StatusBadRequest)
+		return
+	}
+	iface := r.FormValue("interface")
+	if iface != "" && netutil.ValidateInterfaceName(iface) != nil {
+		http.Error(w, "invalid interface", http.StatusBadRequest)
+		return
+	}
+
 	rule := config.FirewallRule{
-		Name:      r.FormValue("name"),
+		Name:      name,
 		Chain:     chain,
 		Action:    action,
 		SrcIP:     srcIP,
 		DstIP:     dstIP,
 		Protocol:  protocol,
 		Port:      port,
-		Interface: r.FormValue("interface"),
+		Interface: iface,
 		Direction: direction,
 		Enabled:   true,
 	}

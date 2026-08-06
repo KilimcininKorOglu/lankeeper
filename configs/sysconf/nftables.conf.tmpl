@@ -10,6 +10,13 @@ table inet filter {
         ct state established,related accept
         ct state invalid drop
 
+        # Custom operator rules run before the built-in accepts so an
+        # explicit rule wins. Placed after the conntrack lines, so a new
+        # drop rule stops new connections without cutting existing ones.
+{{- range .CustomInputRules }}
+{{ . }}
+{{- end }}
+
         # Loopback
         iifname "lo" accept
 
@@ -65,6 +72,12 @@ table inet filter {
 
         ct state established,related accept
         ct state invalid drop
+
+        # Custom operator rules — see the input chain for the ordering
+        # rationale.
+{{- range .CustomForwardRules }}
+{{ . }}
+{{- end }}
 
         # LAN → WAN (IPv4 + IPv6)
 {{- range .LANInterfaces }}
@@ -135,6 +148,12 @@ table inet filter {
 
     chain output {
         type filter hook output priority 0; policy accept;
+
+        # Custom operator rules. The policy is accept, so only drop and
+        # reject rules change anything here.
+{{- range .CustomOutputRules }}
+{{ . }}
+{{- end }}
     }
 }
 

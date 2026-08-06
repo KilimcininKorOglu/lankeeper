@@ -34,6 +34,13 @@ type nftTemplateData struct {
 	VLANDevice        string
 	PortForwards      []config.PortForward
 	RateLimits        map[string]string
+	// Custom operator rules, already rendered and validated, grouped by
+	// the chain they belong to. Placed ahead of the built-in accepts so
+	// an explicit rule wins; a drop rule appended after them would never
+	// match traffic the built-ins already accepted.
+	CustomInputRules   []string
+	CustomForwardRules []string
+	CustomOutputRules  []string
 	WebPort           int
 	IPv6Enabled       bool
 	// SixInFourEnabled gates the protocol-41 input rule. Set when
@@ -228,47 +235,126 @@ func (s *FirewallService) GetCustomRules() []config.FirewallRule {
 	return s.cfg.Firewall.Rules
 }
 
-func (s *FirewallService) GenerateCustomNftRules() string {
-	var sb strings.Builder
+// customRules holds the rendered custom rule lines, split by the chain
+// each one targets.
+type customRules struct {
+	Input   []string
+	Forward []string
+	Output  []string
+}
+
+// buildCustomRules compiles cfg.Firewall.Rules into nftables lines,
+// grouped by chain.
+//
+// Every field that reaches the output is validated here rather than
+// only at the HTTP handler. The rendered file is plain text with no
+// escaping, so a rule that arrived through hand-edited YAML, a restored
+// backup, or a release that predates handler validation would otherwise
+// be able to inject arbitrary nftables statements. An invalid rule is
+// dropped and logged rather than silently rendered.
+func (s *FirewallService) buildCustomRules() customRules {
+	var out customRules
 
 	for _, r := range s.cfg.Firewall.Rules {
 		if !r.Enabled {
 			continue
 		}
 
-		var conditions []string
-
-		if r.Interface != "" {
-			if r.Direction == "in" {
-				conditions = append(conditions, fmt.Sprintf("iifname \"%s\"", r.Interface))
-			} else {
-				conditions = append(conditions, fmt.Sprintf("oifname \"%s\"", r.Interface))
-			}
+		line, err := renderCustomRule(r)
+		if err != nil {
+			log.Printf("firewall: skipping custom rule %q: %v", r.Name, err)
+			continue
 		}
-		if r.SrcIP != "" {
-			conditions = append(conditions, fmt.Sprintf("ip saddr %s", r.SrcIP))
-		}
-		if r.DstIP != "" {
-			conditions = append(conditions, fmt.Sprintf("ip daddr %s", r.DstIP))
-		}
-		if r.Protocol != "" && r.Port > 0 {
-			conditions = append(conditions, fmt.Sprintf("%s dport %d", r.Protocol, r.Port))
-		} else if r.Protocol != "" {
-			conditions = append(conditions, fmt.Sprintf("meta l4proto %s", r.Protocol))
+		if line == "" {
+			continue
 		}
 
-		action := r.Action
-		if action == "" {
-			action = "accept"
-		}
-
-		if len(conditions) > 0 {
-			fmt.Fprintf(&sb, "        %s %s # %s\n",
-				strings.Join(conditions, " "), action, r.Name)
+		switch r.Chain {
+		case "forward":
+			out.Forward = append(out.Forward, line)
+		case "output":
+			out.Output = append(out.Output, line)
+		default:
+			out.Input = append(out.Input, line)
 		}
 	}
 
-	return sb.String()
+	return out
+}
+
+// renderCustomRule turns one rule into an nftables statement. It returns
+// an empty string when the rule carries no match conditions, which would
+// otherwise render as an unconditional accept or drop for the chain.
+func renderCustomRule(r config.FirewallRule) (string, error) {
+	if err := netutil.ValidateRuleName(r.Name); err != nil {
+		return "", err
+	}
+
+	var conditions []string
+
+	if r.Interface != "" {
+		if err := netutil.ValidateInterfaceName(r.Interface); err != nil {
+			return "", err
+		}
+		if r.Direction == "in" {
+			conditions = append(conditions, fmt.Sprintf("iifname %q", r.Interface))
+		} else {
+			conditions = append(conditions, fmt.Sprintf("oifname %q", r.Interface))
+		}
+	}
+	if r.SrcIP != "" {
+		if err := validateAddressOrCIDR(r.SrcIP); err != nil {
+			return "", fmt.Errorf("source: %w", err)
+		}
+		conditions = append(conditions, fmt.Sprintf("ip saddr %s", r.SrcIP))
+	}
+	if r.DstIP != "" {
+		if err := validateAddressOrCIDR(r.DstIP); err != nil {
+			return "", fmt.Errorf("destination: %w", err)
+		}
+		conditions = append(conditions, fmt.Sprintf("ip daddr %s", r.DstIP))
+	}
+	if r.Protocol != "" {
+		if r.Protocol != "tcp" && r.Protocol != "udp" && r.Protocol != "icmp" {
+			return "", fmt.Errorf("unsupported protocol %q", r.Protocol)
+		}
+		if r.Port > 0 {
+			if err := netutil.ValidatePort(r.Port); err != nil {
+				return "", err
+			}
+			conditions = append(conditions, fmt.Sprintf("%s dport %d", r.Protocol, r.Port))
+		} else {
+			conditions = append(conditions, fmt.Sprintf("meta l4proto %s", r.Protocol))
+		}
+	}
+
+	action := r.Action
+	if action == "" {
+		action = "accept"
+	}
+	if action != "accept" && action != "drop" && action != "reject" {
+		return "", fmt.Errorf("unsupported action %q", action)
+	}
+
+	if len(conditions) == 0 {
+		return "", nil
+	}
+
+	line := fmt.Sprintf("        %s %s", strings.Join(conditions, " "), action)
+	if r.Name != "" {
+		line += " # " + r.Name
+	}
+	return line, nil
+}
+
+func validateAddressOrCIDR(s string) error {
+	if netutil.ValidateCIDR(s) == nil {
+		return nil
+	}
+	if netutil.ValidateIP(s) == nil {
+		return nil
+	}
+	return fmt.Errorf("invalid address %q", s)
 }
 
 func (s *FirewallService) HasPendingChange() bool {
@@ -290,6 +376,11 @@ func (s *FirewallService) buildTemplateData() *nftTemplateData {
 	if data.TTLFixValue == 0 {
 		data.TTLFixValue = 64
 	}
+
+	custom := s.buildCustomRules()
+	data.CustomInputRules = custom.Input
+	data.CustomForwardRules = custom.Forward
+	data.CustomOutputRules = custom.Output
 
 	// 6in4 wiring: when the operator selected mode "6in4" and provided
 	// at least the ServerIPv4 + a tunnel device, expose the sit
