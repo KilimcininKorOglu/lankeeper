@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(update) A release without a checksum asset no longer installs**:
+  `verifyChecksum` failed open. When the release carried no
+  `SHA256SUMS` or `checksums.txt` asset it logged one line and returned
+  success, which `ApplyUpdate` could not tell apart from a real
+  verification, so it went on to extract the archive and overwrite
+  `/usr/local/bin/lankeeper` through the root agent. Any release
+  published without the asset, whether from a partial CI run, an edited
+  asset list, or an actor holding only upload rights, installed an
+  unverified binary that then ran as root. The absent-checksum case is
+  now a hard error. `make release` always publishes `SHA256SUMS`, so
+  legitimate releases are unaffected. Note that the checksum file is
+  still fetched from the same source as the binary and carries no
+  maintainer signature, so it proves the archive matches what that
+  endpoint serves, not who produced it.
+
 - **(backup) SFTP host keys are now verified against a pinned
   fingerprint**: every SFTP backup connection used
   `ssh.InsecureIgnoreHostKey`, with no condition and no setting that

@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -525,9 +526,14 @@ func CompareSemver(a, b string) int {
 }
 
 func (s *UpdateService) verifyChecksum(ctx context.Context, info *UpdateInfo, archivePath string) error {
+	// Fail closed. This is the only integrity check between a GitHub
+	// asset and an executable installed over /usr/local/bin/lankeeper
+	// as root, so a release without SHA256SUMS is refused rather than
+	// trusted. `make release` always publishes the file; its absence
+	// means a partial CI run or an edited asset list, neither of which
+	// should reach the install path.
 	if info.ChecksumURL == "" {
-		log.Println("update: no checksum file in release, skipping verification")
-		return nil
+		return errors.New("release has no SHA256SUMS or checksums.txt asset, refusing to install an unverified binary")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", info.ChecksumURL, nil)
