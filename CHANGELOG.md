@@ -292,6 +292,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(update) The OTA download and extraction are bounded**: both copies
+  ran unbounded. The download used a plain `io.Copy` from the response
+  body, and the asset size the GitHub API publishes was parsed into the
+  release info and then never compared against anything. Extraction then
+  copied the archive entry out with no cap either, so the declared entry
+  size and the gzip expansion ratio were both under the archive's own
+  control. A corrupted or hostile asset could therefore write an
+  unbounded number of bytes into `/tmp`, compressed and again
+  decompressed, on a router with a single root filesystem, and the
+  download half happens before verification finishes. Both copies now
+  stop at a ceiling an order of magnitude above a real release, the
+  declared asset size is refused before a byte is fetched when it
+  exceeds that ceiling, a body that disagrees with the published size is
+  rejected, and a refused extraction no longer leaves a partial binary
+  behind. This is about quantity, not trust: the checksum gate is
+  separate and unchanged.
+
 - **(ci) The shipped cross-compile is gated on every change**: CI built
   only for the runner's own platform, with cgo enabled and no ldflags,
   while release artifacts are produced with `CGO_ENABLED=0`, an explicit

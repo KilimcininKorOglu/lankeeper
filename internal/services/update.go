@@ -213,7 +213,7 @@ func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error
 	}
 
 	tmpArchive := filepath.Join("/tmp", safeUpdateFileName(info.AssetName))
-	if err := s.downloadFile(ctx, info.DownloadURL, tmpArchive); err != nil {
+	if err := s.downloadFile(ctx, info.DownloadURL, tmpArchive, info.AssetSize); err != nil {
 		return fmt.Errorf("download: %w", err)
 	}
 	defer func() { _ = os.Remove(tmpArchive) }()
@@ -470,7 +470,45 @@ func safeUpdateFileName(name string) string {
 	return name
 }
 
-func (s *UpdateService) downloadFile(ctx context.Context, url, dest string) error {
+// The release archive holds one static binary; both shipped
+// architectures compress to well under 20 MB. These ceilings sit an
+// order of magnitude above that, so a legitimate release never
+// approaches them, while a corrupted or hostile asset cannot write an
+// unbounded number of bytes into /tmp. Both matter: the download and
+// the extraction each land on the root filesystem, and the extraction
+// happens after checksum verification but is still bounded only by the
+// gzip expansion ratio, which the archive itself controls.
+const (
+	maxUpdateArchiveBytes = 256 << 20
+	maxUpdateBinaryBytes  = 512 << 20
+)
+
+// errUpdateTooLarge marks a size-cap rejection so callers can tell it
+// apart from a transport failure.
+var errUpdateTooLarge = errors.New("update payload exceeds the size limit")
+
+// copyCapped writes at most limit bytes from src to dst and reports a
+// distinct error when src had more to give. Reads one byte past the
+// limit so an exactly-at-the-limit payload is not falsely rejected.
+func copyCapped(dst io.Writer, src io.Reader, limit int64) (int64, error) {
+	n, err := io.Copy(dst, io.LimitReader(src, limit+1))
+	if err != nil {
+		return n, err
+	}
+	if n > limit {
+		return n, fmt.Errorf("%w (%d bytes)", errUpdateTooLarge, limit)
+	}
+	return n, nil
+}
+
+func (s *UpdateService) downloadFile(ctx context.Context, url, dest string, declaredSize int64) error {
+	// The API tells us the asset size before we spend a byte on it, so
+	// an oversized release is refused without touching the disk.
+	if declaredSize > maxUpdateArchiveBytes {
+		return fmt.Errorf("%w: asset declares %d bytes, limit is %d",
+			errUpdateTooLarge, declaredSize, int64(maxUpdateArchiveBytes))
+	}
+
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return err
@@ -494,8 +532,17 @@ func (s *UpdateService) downloadFile(ctx context.Context, url, dest string) erro
 	}
 	defer func() { _ = f.Close() }()
 
-	_, err = io.Copy(f, resp.Body)
-	return err
+	written, err := copyCapped(f, resp.Body, maxUpdateArchiveBytes)
+	if err != nil {
+		return err
+	}
+	// A body that disagrees with the size the API published means the
+	// two sources describe different artifacts. Cheap to check here and
+	// it fails before the archive is opened.
+	if declaredSize > 0 && written != declaredSize {
+		return fmt.Errorf("downloaded %d bytes, asset declares %d", written, declaredSize)
+	}
+	return nil
 }
 
 func (s *UpdateService) extractBinary(archivePath, destPath string) error {
@@ -522,12 +569,20 @@ func (s *UpdateService) extractBinary(archivePath, destPath string) error {
 		}
 
 		if filepath.Base(header.Name) == "lankeeper" && header.Typeflag == tar.TypeReg {
+			// The header size is written by whoever built the archive,
+			// so it is checked but not trusted: the copy below is capped
+			// independently in case the header understates the entry.
+			if header.Size > maxUpdateBinaryBytes {
+				return fmt.Errorf("%w: archive entry declares %d bytes, limit is %d",
+					errUpdateTooLarge, header.Size, int64(maxUpdateBinaryBytes))
+			}
 			out, err := os.Create(destPath)
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(out, tr); err != nil {
+			if _, err := copyCapped(out, tr, maxUpdateBinaryBytes); err != nil {
 				_ = out.Close()
+				_ = os.Remove(destPath)
 				return err
 			}
 			if err := out.Close(); err != nil {
