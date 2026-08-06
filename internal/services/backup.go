@@ -113,6 +113,54 @@ func (s *BackupService) Export(ctx context.Context, outputPath, passphrase strin
 	return nil
 }
 
+// restoreRoots maps an archive's top-level directory name back to the
+// path it was taken from.
+//
+// Export passes each source as its own "-C parent name" pair, so members
+// are stored under a plain top-level name: lankeeper/..., unbound/...,
+// openvpn/.... The table is derived from the same two inputs Export
+// uses, so the two halves of the feature cannot drift apart again.
+func restoreRoots(configDir string, extraDirs []string) map[string]string {
+	roots := map[string]string{
+		filepath.Base(configDir): configDir,
+	}
+	for _, dir := range extraDirs {
+		roots[filepath.Base(dir)] = dir
+	}
+	return roots
+}
+
+// resolveRestoreTarget turns a cleaned archive member name into the
+// absolute path it restores to, or reports that its top-level directory
+// is not one this binary restores.
+//
+// The containment check is re-applied against the member's own root, not
+// a single shared one, so a member cannot be written outside the
+// directory its prefix claims.
+func resolveRestoreTarget(roots map[string]string, clean string) (string, bool) {
+	top := clean
+	if i := strings.IndexRune(clean, os.PathSeparator); i >= 0 {
+		top = clean[:i]
+	}
+
+	root, ok := roots[top]
+	if !ok {
+		return "", false
+	}
+
+	rest := strings.TrimPrefix(clean, top)
+	rest = strings.TrimPrefix(rest, string(os.PathSeparator))
+
+	target := root
+	if rest != "" {
+		target = filepath.Join(root, rest)
+	}
+	if target != root && !strings.HasPrefix(target, root+string(os.PathSeparator)) {
+		return "", false
+	}
+	return target, true
+}
+
 func (s *BackupService) Import(ctx context.Context, archivePath, passphrase string) error {
 	data, err := os.ReadFile(archivePath)
 	if err != nil {
@@ -141,7 +189,7 @@ func (s *BackupService) Import(ctx context.Context, archivePath, passphrase stri
 	}
 	defer func() { _ = gz.Close() }()
 
-	destRoot := s.configDir
+	roots := restoreRoots(s.configDir, backupExtraDirs)
 	tr := tar.NewReader(gz)
 
 	for {
@@ -158,9 +206,14 @@ func (s *BackupService) Import(ctx context.Context, archivePath, passphrase stri
 			return fmt.Errorf("unsafe tar member rejected: %s", hdr.Name)
 		}
 
-		target := filepath.Join(destRoot, clean)
-		if !strings.HasPrefix(target, destRoot+string(os.PathSeparator)) && target != destRoot {
-			return fmt.Errorf("tar member escapes destination: %s", hdr.Name)
+		target, ok := resolveRestoreTarget(roots, clean)
+		if !ok {
+			// An archive from a newer release may carry a directory this
+			// binary knows nothing about. Skipping leaves it unwritten,
+			// which is harmless, whereas failing would make that archive
+			// entirely unrestorable here.
+			log.Printf("backup: skipping unknown archive entry %s", hdr.Name)
+			continue
 		}
 
 		switch hdr.Typeflag {

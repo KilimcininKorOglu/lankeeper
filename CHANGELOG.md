@@ -45,6 +45,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(backup) Restore now writes each directory back where it came from**:
+  `Export` stores members under plain top-level names (`lankeeper/...`,
+  `unbound/...`, `openvpn/...`) because each source is passed as its own
+  `-C parent name` pair, but `Import` joined every member onto the config
+  directory. Nothing mapped a member back to its origin, so
+  `lankeeper/router.yaml` landed at `/etc/lankeeper/lankeeper/router.yaml`
+  and the DNS configuration landed inside the config directory. The live
+  `router.yaml` was never overwritten and the daemons never saw their
+  files, while the UI reported the restore had succeeded. Import now
+  resolves each member's top-level directory to the path it was archived
+  from, using the same list `Export` builds from, and re-applies the
+  containment check against that member's own root. The archive format is
+  unchanged, so backups taken by earlier releases restore correctly too.
+  An entry whose top-level directory this build does not recognise is
+  skipped and logged instead of failing the whole restore, so an archive
+  from a newer release stays usable for the parts this build understands.
+
 - **(backup) Archives now include the OpenVPN PKI**: `Export` built its
   archive from the config directory plus `/etc/unbound` and
   `/etc/dnsmasq.d` only. The easy-rsa PKI under `/etc/openvpn` was left
