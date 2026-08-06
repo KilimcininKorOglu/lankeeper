@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(nas, dns, healthcheck) Outbound fetches refuse internal destinations**:
+  three fetch-a-URL paths issued their requests through the default HTTP
+  client with no address check. The web-reachable one is the M3U
+  discover-groups form, which validated only the scheme, so an
+  authenticated admin, or an admin targeted by CSRF, could make the
+  router GET its own loopback services, other LAN hosts, or reachable
+  VPN and VLAN segments, and the parser reflected group and title text
+  from the response back to the caller. The blocklist download and the
+  HTTP health-check probe shared the defect but need file access to
+  reach. All three now use a shared client that rejects loopback,
+  link-local, unique-local, unspecified and RFC-1918 addresses, and
+  refuse any scheme other than http and https. The check runs in the
+  dialer rather than as a pre-flight resolve of the URL host, so it also
+  covers a redirect to an internal host and a name that resolves to a
+  public address when checked and an internal one when dialled.
+
 - **(web) Request paths can no longer forge log lines**: `RequestLogger`
   wrote `r.URL.Path` straight into the application log. `net/url`
   percent-decodes the request target, so `GET /foo%0d%0a...` reached the

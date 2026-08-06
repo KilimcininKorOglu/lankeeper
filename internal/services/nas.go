@@ -278,12 +278,16 @@ type M3UItem struct {
 }
 
 func downloadAndParseM3U(ctx context.Context, url string) ([]M3UItem, error) {
+	if err := validateOutboundURL(url); err != nil {
+		return nil, err
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := outboundFetchClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

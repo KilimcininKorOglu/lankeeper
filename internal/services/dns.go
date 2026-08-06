@@ -270,12 +270,16 @@ func (s *DNSService) UpdateBlocklist(ctx context.Context) error {
 }
 
 func downloadBlocklist(ctx context.Context, url string) ([]string, error) {
+	if err := validateOutboundURL(url); err != nil {
+		return nil, err
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := outboundFetchClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

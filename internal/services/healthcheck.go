@@ -193,13 +193,17 @@ func httpProbe(ctx context.Context, url string, expectStatus int) bool {
 		expectStatus = 204
 	}
 
+	if err := validateOutboundURL(url); err != nil {
+		log.Printf("health check: rejecting probe URL %q: %v", url, err)
+		return false
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return false
 	}
 
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := outboundProbeClient.Do(req)
 	if err != nil {
 		return false
 	}
