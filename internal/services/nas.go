@@ -296,7 +296,8 @@ func downloadAndParseM3U(ctx context.Context, url string) ([]M3UItem, error) {
 	var items []M3UItem
 	var currentGroup, currentTitle string
 
-	scanner := bufio.NewScanner(resp.Body)
+	body := newLimitedBody(resp.Body)
+	scanner := bufio.NewScanner(body)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 
@@ -335,7 +336,13 @@ func downloadAndParseM3U(ctx context.Context, url string) ([]M3UItem, error) {
 		}
 	}
 
-	return items, scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	if body.overflowed() {
+		return nil, errFetchTooLarge
+	}
+	return items, nil
 }
 
 func ParseM3UData(data string) []M3UItem {

@@ -286,7 +286,8 @@ func downloadBlocklist(ctx context.Context, url string) ([]string, error) {
 	defer func() { _ = resp.Body.Close() }()
 
 	var domains []string
-	scanner := bufio.NewScanner(resp.Body)
+	body := newLimitedBody(resp.Body)
+	scanner := bufio.NewScanner(body)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -301,7 +302,13 @@ func downloadBlocklist(ctx context.Context, url string) ([]string, error) {
 		}
 	}
 
-	return domains, scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	if body.overflowed() {
+		return nil, errFetchTooLarge
+	}
+	return domains, nil
 }
 
 var queryLogRegex = regexp.MustCompile(`\[(\d+)\]\s+\S+\s+info:\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)`)

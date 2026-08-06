@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -74,6 +75,41 @@ func refuseInternalAddress(network, address string, _ syscall.RawConn) error {
 	}
 	return nil
 }
+
+// maxFetchBytes bounds a downloaded blocklist or playlist. Both are
+// parsed line by line into an in-memory slice, so a body that never
+// ends, or simply one far larger than the operator expected, would grow
+// this process until the appliance runs out of memory. The ceiling sits
+// well above any real file: a hosts-format blocklist this size holds
+// roughly a million entries.
+const maxFetchBytes = 32 << 20
+
+// limitedBody caps how much of a response a parser can consume and
+// remembers whether the server still had more to send. A truncated
+// blocklist or playlist must be reported, not quietly accepted: half a
+// blocklist looks like a working one.
+type limitedBody struct {
+	r io.Reader
+	n int64
+}
+
+func newLimitedBody(r io.Reader) *limitedBody {
+	// One byte past the cap, so reaching it proves there was more.
+	return &limitedBody{r: io.LimitReader(r, maxFetchBytes+1)}
+}
+
+func (l *limitedBody) Read(p []byte) (int, error) {
+	n, err := l.r.Read(p)
+	l.n += int64(n)
+	return n, err
+}
+
+func (l *limitedBody) overflowed() bool {
+	return l.n > maxFetchBytes
+}
+
+// errFetchTooLarge is returned when a response exceeds maxFetchBytes.
+var errFetchTooLarge = fmt.Errorf("response exceeds the %d byte limit", maxFetchBytes)
 
 // validateOutboundURL rejects the schemes the transport should never be
 // asked to handle. The destination itself is checked at dial time.

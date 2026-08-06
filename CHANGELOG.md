@@ -247,6 +247,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(nas, dns) Downloaded playlists and blocklists are size-capped**:
+  both fetches streamed the response straight into a scanner and
+  appended every parsed line to a slice, with no `io.LimitReader` and no
+  ceiling on the result. The URLs are operator-supplied, so a body that
+  never ends, or simply one far larger than expected, grew this process
+  until the appliance ran out of memory. Both now stop at 32 MiB, well
+  above any real file, and a response that exceeds it is reported as an
+  error rather than parsed as a shorter list: half a blocklist looks
+  exactly like a working one. The missing timeout the same finding
+  described was already closed when these two moved onto the guarded
+  outbound client.
+
 - **(ipv6) Stopping the lease watcher now waits for the dispatch it
   started**: the debounced lease dispatch ran from a `time.AfterFunc`,
   a goroutine the watcher's WaitGroup never covered, and stopping a
