@@ -247,6 +247,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(handlers) The backup import endpoint bounds its upload**: the
+  handler went straight to `FormFile` and copied the body into the temp
+  directory in full before anything inspected it, with no
+  `MaxBytesReader`, no explicit multipart memory limit, and no
+  `MaxHeaderBytes` on the server. A holder of the single admin session
+  could therefore fill the router's disk, or its RAM where `TMPDIR` is
+  tmpfs-backed, simply by uploading. The body is now capped at 64 MiB,
+  far above a real archive, and an oversized upload gets 413 without
+  reaching disk; the multipart parser keeps at most 4 MiB in memory and
+  its scratch files are removed. The server also sets `MaxHeaderBytes`,
+  which nothing did before.
+
 - **(nas, dns) Downloaded playlists and blocklists are size-capped**:
   both fetches streamed the response straight into a scanner and
   appended every parsed line to a slice, with no `io.LimitReader` and no

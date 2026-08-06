@@ -19,32 +19,32 @@ import (
 )
 
 type Server struct {
-	cfg      *config.Config
-	auth     *Auth
-	renderer *tmpl.Renderer
-	loc      *i18n.I18n
-	http     *http.Server
-	network  *handlers.NetworkHandler
-	firewall *handlers.FirewallHandler
-	dns       *handlers.DNSHandler
-	dhcp      *handlers.DHCPHandler
-	dashboard *handlers.DashboardHandler
-	settings  *handlers.SystemHandler
-	backuph   *handlers.BackupHandler
-	backupSvc *services.BackupService
+	cfg        *config.Config
+	auth       *Auth
+	renderer   *tmpl.Renderer
+	loc        *i18n.I18n
+	http       *http.Server
+	network    *handlers.NetworkHandler
+	firewall   *handlers.FirewallHandler
+	dns        *handlers.DNSHandler
+	dhcp       *handlers.DHCPHandler
+	dashboard  *handlers.DashboardHandler
+	settings   *handlers.SystemHandler
+	backuph    *handlers.BackupHandler
+	backupSvc  *services.BackupService
 	backupOrch *services.BackupOrchestrator
-	qos       *handlers.QoSHandler
-	vpn       *handlers.VPNHandler
-	ovpn      *handlers.OpenVPNHandler
-	routing   *handlers.RoutingHandler
-	nas       *handlers.NASHandler
-	storageh  *handlers.StorageHandler
-	syslogh   *handlers.SyslogHandler
-	ntph      *handlers.NTPHandler
-	vlan      *handlers.VLANHandler
-	pppoe     *handlers.PPPoEHandler
-	ipv6      *handlers.IPv6Handler
-	health    *handlers.HealthCheckHandler
+	qos        *handlers.QoSHandler
+	vpn        *handlers.VPNHandler
+	ovpn       *handlers.OpenVPNHandler
+	routing    *handlers.RoutingHandler
+	nas        *handlers.NASHandler
+	storageh   *handlers.StorageHandler
+	syslogh    *handlers.SyslogHandler
+	ntph       *handlers.NTPHandler
+	vlan       *handlers.VLANHandler
+	pppoe      *handlers.PPPoEHandler
+	ipv6       *handlers.IPv6Handler
+	health     *handlers.HealthCheckHandler
 	// healthSvc is retained so Serve can start the check goroutines.
 	// The handler above only reads results; nothing fills them until
 	// Start runs.
@@ -54,12 +54,12 @@ type Server struct {
 	// qosSse is dedicated to per-client bandwidth events. Kept
 	// separate from sse so consumers of /events/stats are not
 	// flooded with qos-clients payloads they will not render.
-	qosSse    *SSEBroker
-	qosSvc    *services.QoSService
-	vpnSvc    *services.VPNService
-	monitor   *services.MonitorService
-	dhcpSvc   *services.DHCPService
-	ipv6Svc   *services.IPv6Service
+	qosSse  *SSEBroker
+	qosSvc  *services.QoSService
+	vpnSvc  *services.VPNService
+	monitor *services.MonitorService
+	dhcpSvc *services.DHCPService
+	ipv6Svc *services.IPv6Service
 	// dotProbeLimiter throttles `POST /dns/dot/probe` to a tight
 	// per-client budget. ProbeDoT performs a synchronous TLS dial
 	// with a 5-second outer timeout; without this limiter an
@@ -216,40 +216,40 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	qosBroker := NewSSEBroker()
 
 	s := &Server{
-		cfg:       cfg,
-		auth:      auth,
-		renderer:  renderer,
-		loc:       loc,
-		network:   networkHandler,
-		firewall:  firewallHandler,
-		dns:       dnsHandler,
-		dhcp:      dhcpHandler,
-		dhcpSvc:   dhcpSvc,
-		dashboard: dashboardHandler,
-		settings:  settingsHandler,
-		backuph:   backupHandler,
-		backupSvc: backupSvc,
+		cfg:        cfg,
+		auth:       auth,
+		renderer:   renderer,
+		loc:        loc,
+		network:    networkHandler,
+		firewall:   firewallHandler,
+		dns:        dnsHandler,
+		dhcp:       dhcpHandler,
+		dhcpSvc:    dhcpSvc,
+		dashboard:  dashboardHandler,
+		settings:   settingsHandler,
+		backuph:    backupHandler,
+		backupSvc:  backupSvc,
 		backupOrch: backupOrch,
-		qos:       qosHandler,
-		vpn:       vpnHandler,
-		ovpn:      ovpnHandler,
-		routing:   routingHandler,
-		nas:       nasHandler,
-		vlan:      vlanHandler,
-		pppoe:     pppoeHandler,
-		ipv6:      ipv6Handler,
-		health:    healthHandler,
-		healthSvc: healthSvc,
-		metricsh:  metricsHandler,
-		storageh:  storageHandler,
-		syslogh:   syslogHandler,
-		ntph:      ntpHandler,
-		sse:       sseBroker,
-		qosSse:    qosBroker,
-		qosSvc:    qosSvc,
-		vpnSvc:    vpnSvc,
-		monitor:   monitorSvc,
-		ipv6Svc:   ipv6Svc,
+		qos:        qosHandler,
+		vpn:        vpnHandler,
+		ovpn:       ovpnHandler,
+		routing:    routingHandler,
+		nas:        nasHandler,
+		vlan:       vlanHandler,
+		pppoe:      pppoeHandler,
+		ipv6:       ipv6Handler,
+		health:     healthHandler,
+		healthSvc:  healthSvc,
+		metricsh:   metricsHandler,
+		storageh:   storageHandler,
+		syslogh:    syslogHandler,
+		ntph:       ntpHandler,
+		sse:        sseBroker,
+		qosSse:     qosBroker,
+		qosSvc:     qosSvc,
+		vpnSvc:     vpnSvc,
+		monitor:    monitorSvc,
+		ipv6Svc:    ipv6Svc,
 		// 1 probe/sec, burst 2 — comfortable for a single admin
 		// clicking the Test button in the UI, well below the 5s
 		// per-request blocking budget required to amplify into a
@@ -295,6 +295,10 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
+		// Bound request headers too. The default is 1 MB; nothing this
+		// server serves needs more than a fraction of that, and the
+		// smaller ceiling costs an attacker more per connection.
+		MaxHeaderBytes: 64 << 10,
 		TLSConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
 		},

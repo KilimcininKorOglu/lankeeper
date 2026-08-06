@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -272,7 +273,31 @@ func (h *SystemHandler) HandleExport(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, outputPath)
 }
 
+// maxBackupUploadBytes caps an imported archive. A real backup holds
+// router.yaml plus the Unbound, dnsmasq and OpenVPN directories, so it
+// is measured in megabytes; this leaves a wide margin. Without a cap the
+// upload was copied into the temp directory in full before anything
+// looked at it, so a single admin session could fill the router's disk,
+// or its RAM where TMPDIR is tmpfs-backed.
+const maxBackupUploadBytes = 64 << 20
+
+// maxBackupFormMemory bounds what the multipart parser keeps in memory;
+// the rest spills to temp files, themselves bounded by the reader above.
+const maxBackupFormMemory = 4 << 20
+
 func (h *SystemHandler) HandleImport(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBackupUploadBytes)
+	if err := r.ParseMultipartForm(maxBackupFormMemory); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			http.Error(w, "backup archive is too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "backup file required", http.StatusBadRequest)
+		return
+	}
+	defer func() { _ = r.MultipartForm.RemoveAll() }()
+
 	file, _, err := r.FormFile("backup")
 	if err != nil {
 		http.Error(w, "backup file required", http.StatusBadRequest)
@@ -289,6 +314,11 @@ func (h *SystemHandler) HandleImport(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := io.Copy(tmpFile, file); err != nil {
 		_ = tmpFile.Close()
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			http.Error(w, "backup archive is too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "failed to save uploaded file", http.StatusInternalServerError)
 		return
 	}
