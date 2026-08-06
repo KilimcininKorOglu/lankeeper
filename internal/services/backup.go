@@ -50,18 +50,47 @@ func (s *BackupService) SetRunner(fn func(context.Context) error) {
 	s.runner = fn
 }
 
+// backupExtraDirs are the system directories archived alongside the
+// config directory.
+//
+// /etc/openvpn holds the easy-rsa PKI: the CA key and certificate, the
+// server certificate, every issued client certificate, and ta.key. None
+// of that is mirrored into router.yaml, which stores only names, ports,
+// ciphers, and per-client metadata, so a restore without this directory
+// leaves the OpenVPN server unable to start and forces every client
+// certificate to be reissued. WireGuard needs no entry here because its
+// private keys do live in router.yaml.
+var backupExtraDirs = []string{
+	"/etc/unbound",
+	"/etc/dnsmasq.d",
+	"/etc/openvpn",
+}
+
+// buildExportArgs assembles the tar argument list for an export. A
+// directory that does not exist is skipped and logged: a subsystem that
+// was never configured has no directory, and tar would fail the whole
+// archive over one missing path.
+func buildExportArgs(outputPath, configDir string, extraDirs []string) []string {
+	args := []string{"czf", outputPath,
+		"-C", filepath.Dir(configDir), filepath.Base(configDir),
+	}
+	for _, dir := range extraDirs {
+		if _, err := os.Stat(dir); err != nil {
+			log.Printf("backup: skipping %s: %v", dir, err)
+			continue
+		}
+		args = append(args, "-C", filepath.Dir(dir), filepath.Base(dir))
+	}
+	return args
+}
+
 func (s *BackupService) Export(ctx context.Context, outputPath, passphrase string) error {
 	if outputPath == "" {
 		outputPath = fmt.Sprintf("/tmp/lankeeper-backup-%s.tar.gz",
 			time.Now().Format("20060102-150405"))
 	}
 
-	_, err := netutil.Run(ctx, "tar", "czf", outputPath,
-		"-C", filepath.Dir(s.configDir), filepath.Base(s.configDir),
-		"-C", "/etc", "unbound",
-		"-C", "/etc", "dnsmasq.d",
-	)
-	if err != nil {
+	if _, err := netutil.Run(ctx, "tar", buildExportArgs(outputPath, s.configDir, backupExtraDirs)...); err != nil {
 		return fmt.Errorf("create backup: %w", err)
 	}
 

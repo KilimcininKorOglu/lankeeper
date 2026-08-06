@@ -45,6 +45,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(backup) Archives now include the OpenVPN PKI**: `Export` built its
+  archive from the config directory plus `/etc/unbound` and
+  `/etc/dnsmasq.d` only. The easy-rsa PKI under `/etc/openvpn` was left
+  out, and none of that material is mirrored into `router.yaml`, which
+  stores only names, ports, ciphers, and per-client metadata. Restoring
+  such an archive left the OpenVPN server unable to start, and
+  regenerating the CA invalidated every previously issued client
+  certificate, so every road-warrior and site-to-site peer had to be
+  re-provisioned by hand. WireGuard was unaffected because its private
+  keys do live in `router.yaml`. A directory that does not exist is now
+  skipped and logged rather than failing the whole archive, so an
+  appliance with no OpenVPN configured still backs up.
+
 - **(dns) Default Unbound cache size no longer exceeds the hardware**:
   the shipped default was `cacheSize: 50000`. The field carries no unit
   and the Unbound template appends `m` to it across three directives,
