@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(deps) x/crypto and x/net bumped past their reachable advisories**:
+  `golang.org/x/crypto v0.50.0` carried five `crypto/ssh` advisories
+  that `govulncheck` reports as reachable from the SFTP backup target,
+  all through the handshake `dialSFTP` performs before any credential
+  is sent: an infinite loop on large channel writes, a bypassed
+  physical-interaction check for hardware keys, denial of service on
+  pathological RSA and DSA parameters, a deadlock on an unexpected
+  response, and a panic from byte-arithmetic underflow. The realistic
+  outcome is the backup subsystem hanging or crashing on every
+  scheduled run while the operator believes backups are still
+  happening. `golang.org/x/net v0.53.0` carried a sixth, a panic
+  parsing a malformed SVCB or HTTPS record, reachable where the DoH
+  probe unpacks an upstream response. Both are now on releases that
+  carry the fixes: x/crypto v0.54.0 and x/net v0.56.0. The two moved
+  together because the new x/crypto requires the new x/net, so pinning
+  them apart is not something the module graph allows. `go mod tidy`
+  also moved `pkg/sftp` and `fsnotify` into the direct require block,
+  where they belonged: both are imported by production code and were
+  mislabelled `// indirect`. `govulncheck ./...` now reports no
+  reachable vulnerabilities.
+
 - **(deploy) The ISO package cache is re-resolved by version and hash**:
   the build keyed its persistent package cache on the package name
   alone, stripping everything after the first underscore, and treated a
