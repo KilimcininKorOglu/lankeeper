@@ -228,6 +228,15 @@ func TestIPv6LeaseTriggersFirewallApply(t *testing.T) {
 		t.Fatalf("expected callback to fire after lease write, got %d hits", callbackHits.Load())
 	}
 
+	// callbackHits is incremented at the top of the callback, so seeing
+	// it says the dispatch started, not that it finished. Reading the
+	// agent's logs while fw.Apply is still issuing nft commands is a
+	// race, and it reports zero invocations whenever it loses. Stop the
+	// watcher first: it waits for the dispatch to complete, so
+	// everything below observes a settled state. Idempotent, so the
+	// deferred stop above stays harmless.
+	ipv6.StopLeaseWatcher()
+
 	// dnsmasq RA drop-in must have been written and a reload issued.
 	if !agent.wroteFile("/etc/dnsmasq.d/lankeeper-ipv6-ra.conf") {
 		t.Errorf("expected dnsmasq RA drop-in write, write log: %+v", agent.writeLog)

@@ -247,6 +247,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(ipv6) Stopping the lease watcher now waits for the dispatch it
+  started**: the debounced lease dispatch ran from a `time.AfterFunc`,
+  a goroutine the watcher's WaitGroup never covered, and stopping a
+  timer that has already fired does not unschedule its callback. So
+  `StopLeaseWatcher` could return while a dispatch was still rendering
+  the dnsmasq RA drop-in, reloading dnsmasq and re-applying the firewall
+  through the agent, leaving that work running against state the caller
+  was already tearing down. The dispatch now runs on the watcher
+  goroutine itself, so `StopLeaseWatcher` blocks until nothing is in
+  flight and a debounce that has not fired is simply dropped with the
+  goroutine. The package's own integration test also read the agent's
+  command log while the dispatch was mid-flight, because the counter it
+  waited on is incremented at the top of the callback rather than at the
+  end; it now stops the watcher before asserting. Measured over repeated
+  full-package runs: 3 of 12 and 1 of 20 failing before, 1 of 25 with
+  only the test corrected, and 0 of 25 with both.
+
 - **(metrics) A scrape no longer forks privileged subprocesses per
   request**: `Snapshot` collected live on every call, so each request to
   the unauthenticated `/metrics` endpoint ran `unbound-control

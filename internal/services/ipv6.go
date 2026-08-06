@@ -125,9 +125,8 @@ type IPv6Service struct {
 	// (firewall, DNS) refresh their derived state without polling.
 	// Errors are logged; never block the watcher loop.
 	onLease     func(ctx context.Context, state PrefixState) error
-	watcherStop     chan struct{}
-	watcherWG       sync.WaitGroup
-	watcherDebounce *time.Timer
+	watcherStop chan struct{}
+	watcherWG   sync.WaitGroup
 	// lastLeaseHash tracks the digest of the last state we dispatched
 	// so duplicate fsnotify events (atomic mv writes 1+ events) do not
 	// trigger duplicate firewall reloads.
@@ -899,6 +898,10 @@ func (s *IPv6Service) SetOnLeaseChange(fn func(ctx context.Context, state Prefix
 //
 // Idempotent: subsequent calls are no-ops while the watcher is running.
 // Stop() tears it down.
+// leaseDebounceWindow collapses the two or three fsnotify events a
+// single atomic lease write produces into one dispatch.
+const leaseDebounceWindow = 150 * time.Millisecond
+
 func (s *IPv6Service) StartLeaseWatcher(ctx context.Context) error {
 	s.mu.Lock()
 	if s.watcherStop != nil {
@@ -938,17 +941,14 @@ func (s *IPv6Service) StopLeaseWatcher() {
 	s.mu.Lock()
 	stopCh := s.watcherStop
 	s.watcherStop = nil
-	debounce := s.watcherDebounce
-	s.watcherDebounce = nil
 	s.mu.Unlock()
 
-	if debounce != nil {
-		debounce.Stop()
-	}
 	if stopCh == nil {
 		return
 	}
 	close(stopCh)
+	// The watcher goroutine owns the debounce timer, so waiting here is
+	// enough: once it returns, no dispatch is running or scheduled.
 	s.watcherWG.Wait()
 }
 
@@ -962,16 +962,36 @@ func (s *IPv6Service) runLeaseWatcher(ctx context.Context, watcher *fsnotify.Wat
 	s.dispatchLeaseLocked(ctx)
 
 	stateName := filepath.Base(statePath)
+
 	// fsnotify can fire 2-3 events per atomic mv (Create + Rename +
-	// Chmod). Debounce with a short timer so we only call the
-	// callback once per logical update. The timer is stored on the
-	// struct so StopLeaseWatcher can cancel any pending dispatch.
+	// Chmod). Debounce with a short timer so the callback runs once per
+	// logical update.
+	//
+	// The timer fires into this loop rather than into its own goroutine.
+	// It used to be a time.AfterFunc, which is not covered by
+	// watcherWG, and stopping a timer that has already fired does not
+	// unschedule its callback, so a dispatch could still be running
+	// after StopLeaseWatcher returned. That dispatch writes config files
+	// and reloads daemons through the agent, so it outlived whatever set
+	// the agent up. Dispatching from the tracked goroutine makes
+	// watcherWG.Wait() mean what it says.
+	var debounce *time.Timer
+	var debounceC <-chan time.Time
+	defer func() {
+		if debounce != nil {
+			debounce.Stop()
+		}
+	}()
+
 	for {
 		select {
 		case <-stopCh:
 			return
 		case <-ctx.Done():
 			return
+		case <-debounceC:
+			debounceC = nil
+			s.dispatchLeaseLocked(ctx)
 		case ev, ok := <-watcher.Events:
 			if !ok {
 				return
@@ -982,14 +1002,15 @@ func (s *IPv6Service) runLeaseWatcher(ctx context.Context, watcher *fsnotify.Wat
 			if ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Rename|fsnotify.Chmod) == 0 {
 				continue
 			}
-			s.mu.Lock()
-			if s.watcherDebounce != nil {
-				s.watcherDebounce.Stop()
+			// Go 1.23 onwards, a stopped or reset timer never delivers a
+			// stale value, so no drain is needed here.
+			if debounce == nil {
+				debounce = time.NewTimer(leaseDebounceWindow)
+			} else {
+				debounce.Stop()
+				debounce.Reset(leaseDebounceWindow)
 			}
-			s.watcherDebounce = time.AfterFunc(150*time.Millisecond, func() {
-				s.dispatchLeaseLocked(ctx)
-			})
-			s.mu.Unlock()
+			debounceC = debounce.C
 		case err, ok := <-watcher.Errors:
 			if !ok {
 				return
