@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- **(agent) Agent socket no longer grants root to every local account**:
+  the privileged agent chmod'ed its Unix socket to `0666` and performed
+  no authentication on connect - no peer-credential check, no token, no
+  UID comparison. Any local process, under any user, could invoke
+  `exec.run` against the root agent. The command whitelist constrains
+  command names but not arguments and includes `chpasswd`, `usermod`,
+  `cp`, `chmod`, `rm`, and `mount`, so a single call was enough to take
+  the machine. This nullified the two-process privilege separation the
+  product is built around. The socket is now owned by `root` and the
+  service group with mode `0660`, and on Linux the agent additionally
+  verifies the peer's UID through `SO_PEERCRED`, accepting only root and
+  the service account. If the service group cannot be resolved the
+  socket stays owner-only and the agent logs why, so a misconfigured
+  install fails closed instead of falling back to a permissive mode.
+  The socket path and the service user/group are settable with
+  `-socket`, `-service-user`, and `-service-group`.
+
 ### Fixed
 
 - **(backup) Factory Reset now works on every install**: the reset

@@ -3,11 +3,14 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"sync"
 )
 
@@ -32,17 +35,38 @@ type RPCError struct {
 
 type Handler func(ctx context.Context, params json.RawMessage) (any, error)
 
+// defaultServiceIdentity is the account deploy/install.sh creates for
+// the unprivileged serve process. It is the only peer allowed to reach
+// the agent besides root.
+const defaultServiceIdentity = "lankeeper"
+
+// errPeerCredUnsupported marks platforms where the kernel does not
+// expose the peer's credentials to us. Returned by peerUID on non-Linux
+// builds.
+var errPeerCredUnsupported = errors.New("peer credentials unsupported on this platform")
+
 type Server struct {
-	socketPath string
-	listener   net.Listener
-	mu         sync.RWMutex
-	handlers   map[string]Handler
+	socketPath   string
+	serviceUser  string
+	serviceGroup string
+	listener     net.Listener
+	mu           sync.RWMutex
+	handlers     map[string]Handler
 }
 
 func NewServer(socketPath string) *Server {
+	return NewServerWithIdentity(socketPath, defaultServiceIdentity, defaultServiceIdentity)
+}
+
+// NewServerWithIdentity sets the account and group permitted to use the
+// socket. The agent runs as root and executes whitelisted commands on
+// behalf of the caller, so this pair is the privilege boundary.
+func NewServerWithIdentity(socketPath, serviceUser, serviceGroup string) *Server {
 	return &Server{
-		socketPath: socketPath,
-		handlers:   make(map[string]Handler),
+		socketPath:   socketPath,
+		serviceUser:  serviceUser,
+		serviceGroup: serviceGroup,
+		handlers:     make(map[string]Handler),
 	}
 }
 
@@ -71,8 +95,8 @@ func (s *Server) Serve(ctx context.Context) error {
 		return fmt.Errorf("listen unix: %w", err)
 	}
 
-	if err := os.Chmod(s.socketPath, 0o666); err != nil {
-		return fmt.Errorf("chmod socket: %w", err)
+	if err := s.restrictSocket(); err != nil {
+		return err
 	}
 
 	log.Printf("agent listening on %s", s.socketPath)
@@ -97,6 +121,73 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 }
 
+// restrictSocket confines the socket to root and the service group.
+//
+// The agent executes whitelisted commands as root on behalf of whoever
+// connects, so the socket mode is the privilege boundary itself. When
+// the service group cannot be resolved, or the agent is not running as
+// root and therefore cannot hand the socket to that group, the socket
+// is left owner-only. That fails closed: the serve process cannot
+// connect and says so, which is recoverable, whereas a permissive mode
+// silently hands root to every local account.
+func (s *Server) restrictSocket() error {
+	gid, err := lookupGID(s.serviceGroup)
+	if err == nil && os.Geteuid() == 0 {
+		if err := os.Chown(s.socketPath, 0, gid); err != nil {
+			return fmt.Errorf("chown socket to group %s: %w", s.serviceGroup, err)
+		}
+		if err := os.Chmod(s.socketPath, 0o660); err != nil {
+			return fmt.Errorf("chmod socket: %w", err)
+		}
+		return nil
+	}
+
+	if err != nil {
+		log.Printf("agent: group %q not found (%v); socket restricted to its owner, "+
+			"the serve process will not be able to connect", s.serviceGroup, err)
+	} else {
+		log.Printf("agent: not running as root; socket restricted to its owner")
+	}
+	if err := os.Chmod(s.socketPath, 0o600); err != nil {
+		return fmt.Errorf("chmod socket: %w", err)
+	}
+	return nil
+}
+
+// lookupGID resolves a group name to its numeric ID.
+func lookupGID(name string) (int, error) {
+	g, err := user.LookupGroup(name)
+	if err != nil {
+		return 0, err
+	}
+	gid, err := strconv.Atoi(g.Gid)
+	if err != nil {
+		return 0, fmt.Errorf("parse gid %q: %w", g.Gid, err)
+	}
+	return gid, nil
+}
+
+// authorizePeer reports whether the connected process may drive the
+// agent. Root and the service account are allowed; everything else is
+// refused. On platforms without peer-credential support the socket mode
+// set by restrictSocket remains the only control.
+func (s *Server) authorizePeer(conn net.Conn) error {
+	uid, err := peerUID(conn)
+	if errors.Is(err, errPeerCredUnsupported) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read peer credentials: %w", err)
+	}
+	if uid == 0 {
+		return nil
+	}
+	if u, lookupErr := user.Lookup(s.serviceUser); lookupErr == nil && u.Uid == strconv.FormatUint(uint64(uid), 10) {
+		return nil
+	}
+	return fmt.Errorf("uid %d is neither root nor %s", uid, s.serviceUser)
+}
+
 func (s *Server) Close() {
 	if s.listener != nil {
 		_ = s.listener.Close()
@@ -106,6 +197,11 @@ func (s *Server) Close() {
 
 func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 	defer func() { _ = conn.Close() }()
+
+	if err := s.authorizePeer(conn); err != nil {
+		log.Printf("agent: rejected connection: %v", err)
+		return
+	}
 
 	dec := json.NewDecoder(conn)
 	enc := json.NewEncoder(conn)

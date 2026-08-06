@@ -16,6 +16,8 @@ import (
 func runAgent() error {
 	fs := flag.NewFlagSet("agent", flag.ExitOnError)
 	socketPath := fs.String("socket", "/run/lankeeper/agent.sock", "UDS listen path")
+	serviceUser := fs.String("service-user", "lankeeper", "account allowed to use the socket")
+	serviceGroup := fs.String("service-group", "lankeeper", "group given access to the socket")
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		return err
 	}
@@ -31,10 +33,10 @@ func runAgent() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	srv := agent.NewServer(*socketPath)
+	srv := agent.NewServerWithIdentity(*socketPath, *serviceUser, *serviceGroup)
 	agent.RegisterBuiltinOps(srv)
 
-	log.Printf("lankeeper agent starting (socket=%s)", *socketPath)
+	log.Printf("lankeeper agent starting (socket=%s, service-user=%s)", *socketPath, *serviceUser)
 
 	errCh := make(chan error, 1)
 	go func() {
