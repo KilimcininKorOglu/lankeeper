@@ -76,7 +76,7 @@ sudo bash deploy/install.sh ./lankeeper
 git clone https://github.com/KilimcininKorOglu/lankeeper.git
 cd lankeeper
 make build                       # local dev binary -> dist/lankeeper
-make install                     # cross-compile + install on this host
+make install                     # build for this host's architecture + install
 ```
 
 ### Building Installer ISOs

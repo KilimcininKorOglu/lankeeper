@@ -292,6 +292,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(deploy) `make install` builds for the host it runs on**: the target
+  was wired to the single-architecture cross build, so it always
+  produced amd64 with no host detection anywhere in the chain, while the
+  README described it as host-aware and ARM64 is a documented target. It
+  then handed the installer `dist/lankeeper`, a path that chain never
+  writes: on a clean tree the install aborted, and on a tree where a dev
+  build had run it installed that binary instead, which on a non-Linux
+  workstation is not even the right OS. The target now detects the host
+  architecture, builds the matching binary and installs that one, and
+  refuses an architecture it has no mapping for. The installer
+  independently checks the binary against the host before it changes
+  anything, because the mismatch previously surfaced only at the first
+  exec, as a generic password-hashing failure, long after the service
+  user, directories, sysctl rules, udev rules and bootstrap firewall
+  were in place.
+
 - **(ipv6) The lease watcher stops with the server**: it was started
   with `context.Background()` instead of the shutdown context, so the
   `ctx.Done()` branch written as its graceful-stop path could never

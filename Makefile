@@ -15,6 +15,18 @@ AMD64_RELEASE_DIR := $(DIST_DIR)/release-amd64
 ARM64_RELEASE_DIR := $(DIST_DIR)/release-arm64
 DEBIAN_AMD64_ISO ?= source_iso/debian-12.10.0-amd64-netinst.iso
 DEBIAN_ARM64_ISO ?= source_iso/debian-12.10.0-arm64-netinst.iso
+# install builds and installs on the machine it runs on, so the binary
+# has to match that machine rather than a fixed target.
+HOST_ARCH := $(shell uname -m)
+ifeq ($(HOST_ARCH),x86_64)
+HOST_GOARCH := amd64
+else ifeq ($(HOST_ARCH),aarch64)
+HOST_GOARCH := arm64
+else ifeq ($(HOST_ARCH),arm64)
+HOST_GOARCH := arm64
+else
+HOST_GOARCH :=
+endif
 DOCKER ?= docker
 ISO_BUILDER_AMD64 ?= lankeeper-iso-builder-amd64
 ISO_BUILDER_ARM64 ?= lankeeper-iso-builder-arm64
@@ -50,8 +62,13 @@ cross-arm64:
 
 cross-all: cross-amd64 cross-arm64
 
-install: cross
-	sudo bash deploy/install.sh $(DIST_DIR)/$(BINARY)
+install:
+	@if [ -z "$(HOST_GOARCH)" ]; then \
+		echo "unsupported host architecture: $(HOST_ARCH) (supported: x86_64, aarch64, arm64)" >&2; \
+		exit 1; \
+	fi
+	$(MAKE) cross-$(HOST_GOARCH)
+	sudo bash deploy/install.sh $(DIST_DIR)/$(BINARY)-linux-$(HOST_GOARCH)
 
 docker-builder-amd64:
 	$(DOCKER) build --platform linux/amd64 -t $(ISO_BUILDER_AMD64) -f deploy/iso/Dockerfile.build .

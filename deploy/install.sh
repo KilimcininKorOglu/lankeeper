@@ -77,6 +77,42 @@ create_user() {
     log_info "Created system user: $SERVICE_USER"
 }
 
+# Refuse a binary built for another architecture before anything is
+# changed on the system. Without this the mismatch surfaces much later,
+# at the first exec of the installed binary, as a generic hashing
+# failure, by which point the user, directories, sysctl and udev rules
+# and the bootstrap firewall are already in place.
+check_binary_arch() {
+    local binary_path="$1"
+    local host_arch want
+    host_arch=$(uname -m)
+
+    case "$host_arch" in
+        x86_64)          want='x86-64' ;;
+        aarch64|arm64)   want='aarch64' ;;
+        *)
+            log_warn "Unknown host architecture $host_arch, skipping binary architecture check"
+            return
+            ;;
+    esac
+
+    # file(1) is not in the base install on every Debian image, so treat
+    # its absence as "cannot check" rather than as a failure.
+    if ! command -v file >/dev/null 2>&1; then
+        log_warn "file(1) not available, skipping binary architecture check"
+        return
+    fi
+
+    local desc
+    desc=$(file -b "$binary_path")
+    if [[ "$desc" != *"$want"* ]]; then
+        log_error "Binary architecture does not match this host ($host_arch)"
+        log_error "  $binary_path: $desc"
+        log_error "  Build one for this host with: make cross-$([ "$want" = 'x86-64' ] && echo amd64 || echo arm64)"
+        exit 1
+    fi
+}
+
 install_binary() {
     local binary_path="$1"
 
@@ -578,6 +614,14 @@ main() {
     check_debian
 
     local binary_path="${1:-./lankeeper}"
+
+    # Validate the binary before touching the system, so a wrong-arch or
+    # missing build costs nothing to recover from.
+    if [[ ! -f "$binary_path" ]]; then
+        log_error "Binary not found: $binary_path"
+        exit 1
+    fi
+    check_binary_arch "$binary_path"
 
     install_dependencies
     create_user
