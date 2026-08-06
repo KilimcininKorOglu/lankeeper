@@ -17,6 +17,9 @@ import (
 // TempDir so persist() doesn't blow up on missing path.
 func newS2STestService(t *testing.T) *VPNService {
 	t.Helper()
+	// Token signing needs a key file, and the production path is under
+	// /var/lib where the test process cannot write.
+	useTempS2SKey(t)
 	cfg := config.DefaultConfig()
 	cfg.System.SessionSecret = "test-secret-32-bytes-or-thereabouts"
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))

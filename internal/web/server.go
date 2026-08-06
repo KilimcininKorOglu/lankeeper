@@ -551,6 +551,7 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	mux.Handle("POST /vpn/s2s/invite", authed(http.HandlerFunc(s.vpn.HandleS2SInvite)))
 	mux.Handle("POST /vpn/s2s/join", authed(http.HandlerFunc(s.vpn.HandleS2SJoin)))
 	mux.Handle("POST /vpn/s2s/finalize", authed(http.HandlerFunc(s.vpn.HandleS2SFinalize)))
+	mux.Handle("POST /vpn/s2s/rotate-key", authed(http.HandlerFunc(s.vpn.HandleS2SRotateKey)))
 	mux.Handle("DELETE /vpn/s2s/{name}", authed(http.HandlerFunc(s.vpn.HandleS2SCancel)))
 	mux.Handle("GET /vpn/s2s/{name}/health", authed(http.HandlerFunc(s.vpn.HandleS2SHealth)))
 	mux.Handle("POST /vpn/s2s/{name}/reachability", authed(http.HandlerFunc(s.vpn.HandleS2SReachability)))

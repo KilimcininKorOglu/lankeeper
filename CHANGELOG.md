@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(vpn) Site-to-site tokens no longer share the web session secret**:
+  invite and acknowledgement tokens were HMAC-signed with
+  `System.SessionSecret`, the same value that authenticates web session
+  cookies. Those are unrelated trust domains, and an invite token
+  carries a WireGuard preshared key, so one disclosed secret let an
+  attacker both forge session cookies and mint an invite that induces a
+  peer into establishing a rogue tunnel. Tokens are now signed with a
+  key generated for that purpose alone. It is stored beside the
+  credential encryption key rather than in `router.yaml`, so nothing
+  that copies or exports the config carries it along and it survives a
+  restart even where the config file itself is not writable. Rotation
+  had no path at all before, in either domain; the site-to-site page now
+  offers one, which is both the response to a suspected disclosure and
+  the way to revoke an invite already handed out. Established tunnels
+  authenticate with WireGuard keys and are unaffected by a rotation.
+
 - **(dns) DoT and DoH probes check the address they actually dial**: the
   upstream guard resolved the hostname once and rejected internal
   answers, but neither probe pinned that result. The DoH transport had no

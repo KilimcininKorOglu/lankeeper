@@ -184,6 +184,10 @@
     "vpn.s2s.pending.title": "Site peers",
     "vpn.s2s.pendingBadge": "Pending",
     "vpn.s2s.testButton": "Reachability Test",
+    "vpn.s2s.signingKey.title": "Token Signing Key",
+    "vpn.s2s.signingKey.description": "Invite and acknowledgement tokens are signed with a key held only by this router. Rotate it if you suspect the key was disclosed, or to revoke tokens you handed out and no longer want redeemed. Established tunnels are not affected.",
+    "vpn.s2s.signingKey.rotate": "Rotate Key",
+    "vpn.s2s.signingKey.confirm": "Rotate the signing key? Every outstanding invite and acknowledgement token stops working immediately.",
 
     "openvpn.title": "OpenVPN Management",
     "openvpn.server": "Server",

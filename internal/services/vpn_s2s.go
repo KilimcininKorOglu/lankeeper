@@ -8,7 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -47,7 +50,7 @@ const (
 // the joining side will route through the tunnel.
 //
 // PSK is sent in plaintext inside the token. The token itself is
-// HMAC-signed with the local SessionSecret to prevent tampering but
+// HMAC-signed with the local token signing key to prevent tampering but
 // is not encrypted; copy/paste it only over a trusted channel
 // (LAN-only TLS UI, signal/email between admins, etc.). Tokens
 // expire after inviteDefaultTTL by default.
@@ -70,11 +73,11 @@ type S2SInvite struct {
 // originator so the originator can fill in the peer's public key
 // and finalize the tunnel.
 type S2SAck struct {
-	Version    int       `json:"v"`
-	Kind       string    `json:"kind"`
-	Name       string    `json:"name"`     // matches the invite Name
-	PublicKey  string    `json:"publicKey"` // joining side's public key
-	CreatedAt  time.Time `json:"createdAt"`
+	Version   int       `json:"v"`
+	Kind      string    `json:"kind"`
+	Name      string    `json:"name"`      // matches the invite Name
+	PublicKey string    `json:"publicKey"` // joining side's public key
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // Errors returned by token validation. Wrapped with %w so callers
@@ -88,11 +91,101 @@ var (
 	ErrPeerSubnetConflict = errors.New("s2s peer subnet conflicts with a local subnet")
 )
 
-// signingKey returns the HMAC key used to sign tokens. We use the
-// same SessionSecret that protects web sessions; rotating it
-// invalidates outstanding invites, which is the desired behaviour.
-func (s *VPNService) signingKey() []byte {
-	return []byte(s.cfg.System.SessionSecret)
+// s2sKeyPath resolves the token signing key location. It lives beside
+// the credential encryption key rather than in router.yaml: the service
+// account can write there, so the key survives a restart even where the
+// config file itself is not writable, and nothing that copies or exports
+// the config carries it along.
+//
+// The environment override exists for tests, which cannot write under
+// /var/lib.
+func s2sKeyPath() string {
+	if p := os.Getenv("LANKEEPER_S2S_KEY"); p != "" {
+		return p
+	}
+	return "/var/lib/lankeeper/credentials/s2s-token.key"
+}
+
+// signingKey returns the HMAC key used to sign site-to-site tokens,
+// generating and persisting one on first use.
+//
+// This used to be System.SessionSecret, the same value that
+// authenticates web session cookies. Those are two unrelated trust
+// domains: an invite token carries a WireGuard preshared key, so one
+// disclosed secret let an attacker both forge session cookies and
+// induce a peer into establishing a rogue tunnel. They are now
+// independent, and either can be rotated without touching the other.
+//
+// A failure to read or create the key is returned rather than papered
+// over with a fallback: signing with a key nobody can reproduce would
+// mint tokens that never verify, and verifying with one would accept
+// nothing. Both are better reported than guessed at.
+func (s *VPNService) signingKey() ([]byte, error) {
+	s.keyMu.Lock()
+	defer s.keyMu.Unlock()
+
+	if len(s.s2sKey) > 0 {
+		return s.s2sKey, nil
+	}
+
+	path := s2sKeyPath()
+	key, err := config.LoadKey(path)
+	if err == nil {
+		s.s2sKey = key
+		return key, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("read s2s token key: %w", err)
+	}
+
+	key, err = config.GenerateKey()
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("create s2s key directory: %w", err)
+	}
+	if err := config.SaveKey(path, key); err != nil {
+		return nil, fmt.Errorf("write s2s token key: %w", err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return nil, fmt.Errorf("restrict s2s token key: %w", err)
+	}
+
+	log.Printf("vpn: generated a new site-to-site token signing key at %s", path)
+	s.s2sKey = key
+	return key, nil
+}
+
+// RotateS2SSigningKey replaces the token signing key, which is the
+// response to a suspected disclosure. Every outstanding invite and ack
+// token stops verifying immediately, so a rotation is also the way to
+// revoke tokens that were handed out and should not be redeemed.
+// Established tunnels are unaffected: they authenticate with WireGuard
+// keys, not with these tokens.
+func (s *VPNService) RotateS2SSigningKey() error {
+	key, err := config.GenerateKey()
+	if err != nil {
+		return err
+	}
+
+	path := s2sKeyPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create s2s key directory: %w", err)
+	}
+	if err := config.SaveKey(path, key); err != nil {
+		return fmt.Errorf("write s2s token key: %w", err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("restrict s2s token key: %w", err)
+	}
+
+	s.keyMu.Lock()
+	s.s2sKey = key
+	s.keyMu.Unlock()
+
+	log.Printf("vpn: rotated the site-to-site token signing key; outstanding tokens no longer verify")
+	return nil
 }
 
 // signToken serialises payload to JSON, HMAC-SHA256-signs it with
@@ -102,7 +195,11 @@ func (s *VPNService) signToken(payload any) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("marshal token: %w", err)
 	}
-	mac := hmac.New(sha256.New, s.signingKey())
+	key, err := s.signingKey()
+	if err != nil {
+		return "", err
+	}
+	mac := hmac.New(sha256.New, key)
 	mac.Write(body)
 	sig := mac.Sum(nil)
 
@@ -126,7 +223,11 @@ func (s *VPNService) verifyToken(token string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: sig decode: %v", ErrInviteMalformed, err)
 	}
-	mac := hmac.New(sha256.New, s.signingKey())
+	key, err := s.signingKey()
+	if err != nil {
+		return nil, err
+	}
+	mac := hmac.New(sha256.New, key)
 	mac.Write(body)
 	if !hmac.Equal(mac.Sum(nil), sig) {
 		return nil, ErrInviteSignature
@@ -542,12 +643,12 @@ func (s *VPNService) SyncWGServer(ctx context.Context) error {
 // S2SHealthInfo summarises the runtime state of one site-to-site
 // peer for the dashboard.
 type S2SHealthInfo struct {
-	Name              string
-	Online            bool
-	HandshakeAgeSec   int64 // -1 when never handshaken
-	RxBytes, TxBytes  uint64
-	Endpoint          string
-	RemoteSubnets     []string
+	Name             string
+	Online           bool
+	HandshakeAgeSec  int64 // -1 when never handshaken
+	RxBytes, TxBytes uint64
+	Endpoint         string
+	RemoteSubnets    []string
 }
 
 // S2SHealth queries `wg show wgs0 dump` and projects it onto the
@@ -641,5 +742,3 @@ func gatewayOfSubnet(cidr string) (string, error) {
 	gw[len(gw)-1] |= 1
 	return gw.String(), nil
 }
-
-

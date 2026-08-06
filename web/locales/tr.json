@@ -184,6 +184,10 @@
     "vpn.s2s.pending.title": "Site eşleri",
     "vpn.s2s.pendingBadge": "Beklemede",
     "vpn.s2s.testButton": "Erişilebilirlik Testi",
+    "vpn.s2s.signingKey.title": "Token İmzalama Anahtarı",
+    "vpn.s2s.signingKey.description": "Davet ve onay tokenları yalnızca bu yönlendiricide bulunan bir anahtarla imzalanır. Anahtarın ifşa olduğundan şüpheleniyorsanız veya dağıttığınız tokenların artık kullanılmasını istemiyorsanız anahtarı yenileyin. Kurulu tüneller etkilenmez.",
+    "vpn.s2s.signingKey.rotate": "Anahtarı Yenile",
+    "vpn.s2s.signingKey.confirm": "İmzalama anahtarı yenilensin mi? Bekleyen tüm davet ve onay tokenları anında geçersiz olur.",
 
     "openvpn.title": "OpenVPN Yönetimi",
     "openvpn.server": "Sunucu",

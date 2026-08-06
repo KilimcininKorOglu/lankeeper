@@ -23,6 +23,12 @@ type VPNService struct {
 	// (or two browser tabs) cannot drive `wg-quick up/down` in
 	// parallel and leave the kernel interface half-configured.
 	running bool
+	// s2sKey caches the site-to-site token signing key so every token
+	// operation does not re-read the key file. Guarded by keyMu, which
+	// is separate from mu because signing has nothing to do with the
+	// interface state mu protects.
+	keyMu  sync.Mutex
+	s2sKey []byte
 }
 
 func NewVPNService(cfg *config.Config) *VPNService {

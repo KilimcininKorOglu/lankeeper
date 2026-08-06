@@ -309,6 +309,24 @@ func (h *VPNHandler) HandleS2SCancel(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/vpn/s2s", http.StatusSeeOther)
 }
 
+// HandleS2SRotateKey replaces the token signing key. This is the
+// operator's response to a suspected disclosure, and also the way to
+// revoke invite tokens that were handed out and should not be redeemed:
+// every outstanding token stops verifying at once. Established tunnels
+// authenticate with WireGuard keys and are unaffected.
+func (h *VPNHandler) HandleS2SRotateKey(w http.ResponseWriter, r *http.Request) {
+	if err := h.vpn.RotateS2SSigningKey(); err != nil {
+		fail(w, r, http.StatusInternalServerError, err)
+		return
+	}
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Refresh", "true")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Redirect(w, r, "/vpn/s2s", http.StatusSeeOther)
+}
+
 // HandleS2SHealth returns the current handshake/transfer state
 // for one site-to-site peer.
 func (h *VPNHandler) HandleS2SHealth(w http.ResponseWriter, r *http.Request) {
