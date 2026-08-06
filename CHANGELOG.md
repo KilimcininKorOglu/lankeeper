@@ -94,6 +94,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(agent) JSON-RPC frames are size-bounded and time-bounded**:
+  `handleConn` attached a decoder straight to the connection and looped
+  forever with no frame cap and no read deadline. `Request.Params` is a
+  `json.RawMessage`, so the decoder buffers the whole value before
+  dispatch, inside the root process that owns firewall, DHCP, DNS, and
+  VPN state. A caller could force large heap allocations with one huge
+  value, or open connections that each send a partial frame and stall,
+  pinning a blocked goroutine apiece. A request is now capped at 1 MiB,
+  and a frame that has started arriving has a bounded window to finish.
+  The budget resets after each request and the deadline is armed only
+  while a frame is in flight, so the long-lived connection the client
+  keeps open between calls is unaffected: a plain limit reader would
+  have killed it after enough requests, and a plain idle deadline would
+  have turned quiet periods into failed calls.
+
 - **(server) Shutdown waits for background work to drain**: `Serve`
   launched the monitor, stats publisher, QoS sampler, invite GC, and
   backup scheduler as independent goroutines and waited for none of

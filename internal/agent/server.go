@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"time"
 )
 
 type Request struct {
@@ -45,6 +46,19 @@ const defaultServiceIdentity = "lankeeper"
 // builds.
 var errPeerCredUnsupported = errors.New("peer credentials unsupported on this platform")
 
+// defaultMaxFrameBytes bounds one JSON-RPC request. Request.Params is a
+// json.RawMessage, so the decoder buffers the whole value before
+// dispatch, inside the root process. The largest legitimate request is
+// a file.write of a rendered system config, which runs to kilobytes, so
+// a mebibyte is a comfortable ceiling.
+const defaultMaxFrameBytes int64 = 1 << 20
+
+// defaultFrameTimeout bounds how long a request may take to arrive once
+// its first byte has been read. It deliberately does not apply to an
+// idle connection: the client keeps one open between calls, and closing
+// it would surface as a failed call rather than a transparent redial.
+const defaultFrameTimeout = 30 * time.Second
+
 type Server struct {
 	socketPath   string
 	serviceUser  string
@@ -52,6 +66,11 @@ type Server struct {
 	listener     net.Listener
 	mu           sync.RWMutex
 	handlers     map[string]Handler
+
+	// Overridable so tests can drive the limits without sending a
+	// mebibyte or waiting half a minute.
+	maxFrameBytes int64
+	frameTimeout  time.Duration
 }
 
 func NewServer(socketPath string) *Server {
@@ -63,10 +82,12 @@ func NewServer(socketPath string) *Server {
 // behalf of the caller, so this pair is the privilege boundary.
 func NewServerWithIdentity(socketPath, serviceUser, serviceGroup string) *Server {
 	return &Server{
-		socketPath:   socketPath,
-		serviceUser:  serviceUser,
-		serviceGroup: serviceGroup,
-		handlers:     make(map[string]Handler),
+		socketPath:    socketPath,
+		serviceUser:   serviceUser,
+		serviceGroup:  serviceGroup,
+		handlers:      make(map[string]Handler),
+		maxFrameBytes: defaultMaxFrameBytes,
+		frameTimeout:  defaultFrameTimeout,
 	}
 }
 
@@ -203,20 +224,82 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	dec := json.NewDecoder(conn)
+	fr := &frameReader{
+		conn:    conn,
+		max:     s.maxFrameBytes,
+		timeout: s.frameTimeout,
+	}
+	dec := json.NewDecoder(fr)
 	enc := json.NewEncoder(conn)
 
 	for {
 		var req Request
 		if err := dec.Decode(&req); err != nil {
+			if errors.Is(err, errFrameTooLarge) {
+				log.Printf("agent: rejected oversized request frame (limit %d bytes)", s.maxFrameBytes)
+			}
 			return
 		}
+		fr.endFrame()
 
 		resp := s.dispatch(ctx, &req)
 		if err := enc.Encode(resp); err != nil {
 			log.Printf("encode response error: %v", err)
 			return
 		}
+	}
+}
+
+var errFrameTooLarge = errors.New("agent: request frame exceeds the size limit")
+
+// frameReader bounds a single JSON-RPC request without breaking the
+// long-lived connection the client keeps open between calls.
+//
+// A plain io.LimitReader would cap the connection's whole lifetime and
+// kill a healthy client after enough requests. A plain idle deadline
+// would close a connection that is merely waiting for the next call,
+// which the client surfaces as a failed call rather than redialling.
+//
+// So the budget resets after every decoded request, and the read
+// deadline is armed only once a frame has started arriving. An idle
+// connection carries no deadline at all; a half-sent one cannot hold
+// its goroutine past timeout.
+type frameReader struct {
+	conn    net.Conn
+	max     int64
+	timeout time.Duration
+	read    int64
+	armed   bool
+}
+
+func (f *frameReader) Read(p []byte) (int, error) {
+	if f.read >= f.max {
+		return 0, errFrameTooLarge
+	}
+	if remaining := f.max - f.read; int64(len(p)) > remaining {
+		p = p[:remaining]
+	}
+
+	n, err := f.conn.Read(p)
+	if n > 0 && !f.armed {
+		// First byte of a frame: give it a bounded window to finish.
+		f.armed = true
+		_ = f.conn.SetReadDeadline(time.Now().Add(f.timeout))
+	}
+	f.read += int64(n)
+	if f.read >= f.max && err == nil {
+		return n, errFrameTooLarge
+	}
+	return n, err
+}
+
+// endFrame is called after a request decodes. It returns the connection
+// to the idle state: full budget, no deadline.
+func (f *frameReader) endFrame() {
+	f.read = 0
+	if f.armed {
+		f.armed = false
+		_ = f.conn.SetReadDeadline(time.Time{})
 	}
 }
 
