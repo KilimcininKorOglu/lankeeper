@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -162,8 +163,24 @@ func (s *FirewallService) restorePendingChange() {
 // armWatchdog starts the revert timer and clears the persisted record
 // once the revert has run. Leaving the record behind would make the next
 // start believe a change is still pending that was already reverted.
+//
+// The callback takes the service lock before touching the change, so
+// both it and the Confirm/Rollback methods acquire s.mu ahead of the
+// change's own lock and cannot invert on each other.
 func (s *FirewallService) armWatchdog(ac *netutil.AtomicChange, timeout time.Duration) {
 	ac.StartWatchdog(timeout, func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		// Stopping a timer that has already fired does not unschedule
+		// the callback, so a Confirm racing the deadline can still land
+		// here. The service no longer pointing at this change is what
+		// says the change was already settled.
+		if s.change != ac {
+			return nil
+		}
+		s.change = nil
+
 		err := ac.Rollback(context.Background())
 		s.clearPendingState()
 		return err
@@ -202,9 +219,27 @@ func (s *FirewallService) clearPendingState() {
 	}
 }
 
+// ErrChangePending is returned when Apply is called while an earlier
+// ruleset is still waiting for the operator to confirm it.
+//
+// Refusing is deliberate, rather than superseding the pending change.
+// Apply renders from the live config, so a second apply reproduces the
+// operator's already-persisted edit; the background caller that follows
+// its apply with an immediate Confirm would therefore confirm that edit
+// on the operator's behalf. If the edit was what cut their access, the
+// watchdog was the only thing that would have brought it back.
+var ErrChangePending = errors.New("a firewall change is still awaiting confirmation")
+
 func (s *FirewallService) Apply(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// One watchdog at a time. A second apply would overwrite s.change
+	// and leave the previous timer armed against an older snapshot, so
+	// confirming the new change would still let the orphan revert both.
+	if s.change != nil {
+		return ErrChangePending
+	}
 
 	tmpFile, err := s.renderToFile()
 	if err != nil {

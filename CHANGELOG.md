@@ -110,6 +110,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(firewall) A background apply no longer orphans the operator's
+  rollback watchdog**: `Apply` never checked whether a change was
+  already pending. It built a fresh atomic change, overwrote the
+  service's reference and armed a second 30 second watchdog, leaving the
+  previous timer running against an older snapshot. The IPv6 lease hook
+  applies and confirms on every dhcp6c event, renewals included, so a
+  routine lease renewal during an operator's confirmation window
+  silently dropped that operator's change from the service while its
+  watchdog stayed armed. Thirty seconds later the orphan reverted both
+  the operator's edit and the confirmed lease-driven update, with no
+  error shown anywhere. `Apply` now refuses while a change is pending
+  and the web handler answers 409 rather than 500, since the operator
+  resolves it from the same page with Confirm or Rollback. Refusing was
+  chosen over superseding on purpose: `Apply` renders from the live
+  config, so a superseding apply would reproduce the operator's
+  already-persisted edit, and the background caller's immediate Confirm
+  would then confirm it on their behalf, which is precisely the case the
+  watchdog exists to undo. The watchdog callback also clears the pending
+  reference, so a change that rolls back on its own no longer blocks
+  every later apply, and it now verifies the service still points at its
+  own change before reverting, because stopping a timer that has already
+  fired does not unschedule the callback.
+
 - **(firewall) Open ports now reach the nftables input chain**: the
   open-ports CRUD, its routes and its UI badge were all in place, but
   the config slice was never carried into the template data and the

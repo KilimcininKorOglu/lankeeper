@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -51,7 +52,13 @@ func (h *FirewallHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 func (h *FirewallHandler) HandleApply(w http.ResponseWriter, r *http.Request) {
 	if err := h.firewall.Apply(r.Context()); err != nil {
 		log.Printf("apply firewall: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		// A pending change is a state the operator can resolve from
+		// this same page, not a server fault.
+		status := http.StatusInternalServerError
+		if errors.Is(err, services.ErrChangePending) {
+			status = http.StatusConflict
+		}
+		http.Error(w, err.Error(), status)
 		return
 	}
 
