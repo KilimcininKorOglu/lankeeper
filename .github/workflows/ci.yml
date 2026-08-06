@@ -1,9 +1,10 @@
 name: CI
 
 # Push/PR to main runs the same gates a developer would: compile, race
-# tests, golangci-lint, go vet, and govulncheck against vuln.go.dev.
+# tests, golangci-lint, go vet, govulncheck against vuln.go.dev, and the
+# cross-compile that produces the shipped artifacts.
 # Keep these aligned with the Makefile so contributors can reproduce
-# every failure locally with `make test lint`.
+# every failure locally with `make test lint cross-all`.
 
 on:
   push:
@@ -49,6 +50,68 @@ jobs:
 
       - name: go vet
         run: go vet ./...
+
+  cross-compile:
+    # The build job above compiles for the runner's own platform with
+    # cgo on and no ldflags. Release artifacts are built by the Makefile
+    # with CGO_ENABLED=0, an explicit GOARCH and the version ldflags, and
+    # nothing exercised that combination until release-cut time. Routers
+    # pull whatever lands on the latest release, so a cross-compile break
+    # discovered there lands directly on the step that ships to them.
+    name: cross-compile (amd64 + arm64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The ldflags read git describe --tags; without the full
+          # history the version string degrades to a bare SHA and the
+          # job stops resembling a real release build.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          # See build-test for why this is a range, not go.mod.
+          go-version: '1.26.x'
+          check-latest: true
+          cache: true
+
+      - name: Build shipped artifacts
+        run: make cross-all
+
+      - name: Verify both artifacts exist and target the right machine
+        # Guards against a recipe that succeeds without writing anything,
+        # or writes for the wrong GOARCH.
+        run: |
+          set -euo pipefail
+          for spec in "dist/lankeeper-linux-amd64:x86-64" "dist/lankeeper-linux-arm64:aarch64"; do
+            path="${spec%:*}"
+            want="${spec##*:}"
+            if [ ! -s "$path" ]; then
+              echo "missing or empty artifact: $path" >&2
+              exit 1
+            fi
+            desc=$(file -b "$path")
+            echo "$path: $desc"
+            case "$desc" in
+              *"$want"*) ;;
+              *) echo "expected $want in the description above" >&2; exit 1 ;;
+            esac
+          done
+
+      - name: Run the amd64 artifact and check its stamped version
+        # The runner is linux/amd64, so the shipped amd64 binary runs
+        # here directly. This proves the static build actually executes
+        # and that the -X ldflags landed: a dropped one leaves the binary
+        # reporting "dev", which is the string the updater compares
+        # releases against.
+        run: |
+          set -euo pipefail
+          out=$(./dist/lankeeper-linux-amd64 version)
+          echo "$out"
+          case "$out" in
+            *"lankeeper dev"*|*"commit: unknown"*)
+              echo "version ldflags were not applied" >&2; exit 1 ;;
+          esac
 
   lint:
     name: golangci-lint

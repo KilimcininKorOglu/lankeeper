@@ -292,6 +292,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(ci) The shipped cross-compile is gated on every change**: CI built
+  only for the runner's own platform, with cgo enabled and no ldflags,
+  while release artifacts are produced with `CGO_ENABLED=0`, an explicit
+  `GOARCH` and the version stamps. Nothing exercised that combination
+  until a release was cut by hand, so a change that broke the arm64 or
+  static build passed every gate and surfaced on the step that ships to
+  routers, which pull whatever lands on the latest release. A new job
+  builds both shipped artifacts with the Makefile recipes, checks each
+  one exists and targets the architecture it claims, and runs the amd64
+  binary on the runner to confirm the static build executes and the
+  version stamps were applied rather than silently dropped.
+
 - **(deploy) `make install` builds for the host it runs on**: the target
   was wired to the single-architecture cross build, so it always
   produced amd64 with no host detection anywhere in the chain, while the
