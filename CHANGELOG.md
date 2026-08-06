@@ -380,6 +380,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   wiring to `/routing/reorder` (never actually attached to a
   template) is gone.
 
+### Fixed
+
+- **(middleware) Content-Security-Policy gained `frame-ancestors
+  'none'`**, so the clickjacking protection no longer relied on
+  `X-Frame-Options` alone.
+
+- **(vpn) WireGuard and OpenVPN lifecycle calls are serialised**, which
+  removes the double-start race two concurrent requests could trigger.
+
+- **(dns) The DoT probe is rate-capped per client**, so it can no
+  longer be used to exhaust goroutines.
+
+- **(dns, ntp) Static DNS records, NTP sources, and allow-subnet lists
+  are size-capped**, bounding config growth from the UI.
+
+### Security
+
+These entries were reconstructed from the commit history after the
+release; they were omitted when 0.5.0 was cut.
+
+- **(dns) DoT upstream validation**: upstreams resolving to internal
+  addresses or to ports other than 853 are rejected, closing an SSRF
+  path. Upstreams must carry a `#hostname` SNI suffix, and characters
+  that could inject additional Unbound directives are refused.
+
+- **(syslog) rsyslog path and port validation**: TLS certificate, key,
+  and CA paths are restricted to an allowlist to block file-read
+  traversal; `log_path` is confined to `/var/log/` to block file-create
+  traversal; characters significant to RainerScript are rejected in
+  both TLS and log paths; and `imudp`/`imtcp` ports must be numeric, so
+  a port field cannot smuggle in script.
+
+- **(ntp) chrony directive injection**: NTP source hostnames are
+  validated before being rendered into `chrony.conf`, and `bindaddress`
+  requires a literal IP.
+
+- **(deploy) Install-time hardening**: `hash-password` reads its input
+  from stdin rather than argv, so the password no longer appears in the
+  process list; `admin-password.txt` is created mode 0600 and removed
+  on exit; the pool-extra APT manifest is verified against its SHA-256
+  before install; and the `lankeeper` binary's SHA-256 is verified from
+  the ISO before it is installed.
+
 ## [0.4.0] - 2026-05-06
 
 First-class 6in4 tunneling for operators whose ISP refuses to
