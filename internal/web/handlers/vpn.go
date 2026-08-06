@@ -90,8 +90,7 @@ func (h *VPNHandler) HandleAddPeer(w http.ResponseWriter, r *http.Request) {
 
 	confStr := h.vpn.GeneratePeerConfig(peer, privKey)
 
-	w.Header().Set("Content-Type", "text/plain")
-	w.Header().Set("Content-Disposition", "attachment; filename="+name+".conf")
+	setSecretDownloadHeaders(w, "text/plain", name+".conf")
 	_, _ = w.Write([]byte(confStr))
 }
 
@@ -394,7 +393,7 @@ func boolStr(b bool) string {
 	return "false"
 }
 
-func intStr(i int64) string  { return fmt.Sprintf("%d", i) }
+func intStr(i int64) string   { return fmt.Sprintf("%d", i) }
 func uintStr(u uint64) string { return fmt.Sprintf("%d", u) }
 
 func (h *VPNHandler) HandleDisconnectClient(w http.ResponseWriter, r *http.Request) {

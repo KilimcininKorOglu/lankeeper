@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"regexp"
@@ -140,8 +139,7 @@ func (h *OpenVPNHandler) HandleDownloadOVPN(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/x-openvpn-profile")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.ovpn"`, name))
+	setSecretDownloadHeaders(w, "application/x-openvpn-profile", name+".ovpn")
 	_, _ = w.Write([]byte(ovpnContent))
 }
 

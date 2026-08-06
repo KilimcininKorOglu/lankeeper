@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(handlers) Key-bearing downloads are no longer cacheable**: the
+  WireGuard client config, which carries a freshly generated private
+  key, the OpenVPN profile, which embeds a certificate and key, and the
+  config archive were all served with only `Content-Type` and
+  `Content-Disposition`. Neither header says anything about storage, and
+  no middleware set a cache directive, so a browser was free to write
+  the body to its on-disk cache and leave the key recoverable on a
+  shared administration workstation long after the session ended. All
+  three now send `Cache-Control: no-store` through one shared helper, so
+  a future download cannot set its own headers and quietly omit it.
+
 - **(ci) The govulncheck gate no longer measures a frozen standard
   library**: `go.mod` declared `go 1.26.2` and all three CI jobs
   selected their compiler with `go-version-file: go.mod`. A fully

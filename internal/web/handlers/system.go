@@ -268,8 +268,7 @@ func (h *SystemHandler) HandleExport(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = os.Remove(outputPath) }()
 
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filepath.Base(outputPath)))
+	setSecretDownloadHeaders(w, "application/octet-stream", filepath.Base(outputPath))
 	http.ServeFile(w, r, outputPath)
 }
 
