@@ -292,6 +292,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(web) Request log lines carry the response status**: the logger
+  handed the raw `ResponseWriter` to the next handler and observed
+  nothing it wrote, so every line recorded only method, path, client and
+  duration. A 200 and a 500 were indistinguishable in the journal, a
+  bare `http.Error` produced a line that looked like a success, and an
+  unmatched route logged nothing an operator could act on. That is the
+  first thing anyone reads when the UI misbehaves, and it was the one
+  field missing. The writer is now wrapped so the status is recorded,
+  including the implicit 200 a handler gets by writing a body without
+  calling `WriteHeader`. The wrapper forwards `Flush`, which the SSE
+  endpoint asserts on before it will stream, and `Unwrap`, which
+  `http.ResponseController` follows to reach the underlying writer.
+
 - **(dns) Turning DoH off no longer points Unbound at a closed port**:
   the handler applied the DoH plane and then the DNS plane in one fixed
   order. That is correct when enabling, where dnscrypt-proxy has to be

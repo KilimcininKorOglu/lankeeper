@@ -202,16 +202,66 @@ func SecurityHeaders(next http.Handler) http.Handler {
 	})
 }
 
+// statusRecorder remembers the status a handler wrote so the request log
+// can carry it.
+//
+// Flush is forwarded because the SSE endpoint asserts http.Flusher on
+// the writer it is handed; a wrapper without it would turn every event
+// stream into "streaming unsupported". Unwrap is there for
+// http.ResponseController, which reaches the underlying writer through
+// it.
+type statusRecorder struct {
+	http.ResponseWriter
+	status  int
+	written bool
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	if !s.written {
+		s.status = code
+		s.written = true
+	}
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusRecorder) Write(b []byte) (int, error) {
+	// A handler that writes a body without calling WriteHeader gets an
+	// implicit 200, and the log has to say so.
+	if !s.written {
+		s.status = http.StatusOK
+		s.written = true
+	}
+	return s.ResponseWriter.Write(b)
+}
+
+func (s *statusRecorder) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
+// statusOrDefault reports what net/http will have sent. A handler that
+// returns without writing anything still produces a 200.
+func (s *statusRecorder) statusOrDefault() int {
+	if !s.written {
+		return http.StatusOK
+	}
+	return s.status
+}
+
 func RequestLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		next.ServeHTTP(w, r)
+		rec := &statusRecorder{ResponseWriter: w}
+		next.ServeHTTP(rec, r)
 		// EscapedPath, not Path: net/url percent-decodes the target,
 		// so a request for /foo%0d%0a... hands Path a literal CR LF
 		// and any caller could forge extra lines in the appliance log.
 		// EscapedPath keeps the on-the-wire form, which cannot carry
 		// raw control bytes, and shows the operator what was actually
 		// requested.
-		log.Printf("%s %s %s %s", r.Method, r.URL.EscapedPath(), r.RemoteAddr, time.Since(start).Round(time.Millisecond))
+		log.Printf("%s %s %d %s %s", r.Method, r.URL.EscapedPath(), rec.statusOrDefault(), r.RemoteAddr, time.Since(start).Round(time.Millisecond))
 	})
 }
