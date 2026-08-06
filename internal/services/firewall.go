@@ -2,9 +2,11 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"text/template"
@@ -14,16 +16,33 @@ import (
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 )
 
+// firewallConfirmWindow is how long an applied ruleset waits for the
+// operator to confirm before the watchdog reverts it.
+const firewallConfirmWindow = 30 * time.Second
+
+const defaultFirewallStatePath = "/var/lib/lankeeper/firewall-pending.json"
+
+// firewallPendingState is the on-disk record of an applied but
+// unconfirmed ruleset. Without it the snapshot and the watchdog timer
+// live only in process memory, and the web unit runs Restart=always
+// with RestartSec=3, so a restart inside the window would strand a
+// ruleset the watchdog exists to revert.
+type firewallPendingState struct {
+	Snapshot  string    `json:"snapshot"`
+	AppliedAt time.Time `json:"appliedAt"`
+}
+
 type FirewallService struct {
-	cfg     *config.Config
-	mu      sync.RWMutex
-	change  *netutil.AtomicChange
-	tmpl    *template.Template
+	cfg       *config.Config
+	mu        sync.RWMutex
+	change    *netutil.AtomicChange
+	tmpl      *template.Template
+	statePath string
 }
 
 type nftTemplateData struct {
-	LANInterfaces   []nftIface
-	WANInterfaces   []nftIface
+	LANInterfaces []nftIface
+	WANInterfaces []nftIface
 	// IPv6WANInterfaces lists IPv6-only WAN devices (today: the 6in4
 	// sit interface). Forwarded for LAN ↔ tunnel traffic but
 	// excluded from the IPv4 MASQUERADE block — there is no NAT66.
@@ -41,8 +60,8 @@ type nftTemplateData struct {
 	CustomInputRules   []string
 	CustomForwardRules []string
 	CustomOutputRules  []string
-	WebPort           int
-	IPv6Enabled       bool
+	WebPort            int
+	IPv6Enabled        bool
 	// SixInFourEnabled gates the protocol-41 input rule. Set when
 	// cfg.IPv6.Mode == "6in4" and ServerIPv4 is non-empty.
 	SixInFourEnabled  bool
@@ -72,10 +91,7 @@ func NewFirewallService(cfg *config.Config) (*FirewallService, error) {
 		return nil, fmt.Errorf("parse nftables template: %w", err)
 	}
 
-	return &FirewallService{
-		cfg:  cfg,
-		tmpl: tmpl,
-	}, nil
+	return newFirewallService(cfg, tmpl), nil
 }
 
 func NewFirewallServiceFromFS(cfg *config.Config, tmplContent string) (*FirewallService, error) {
@@ -84,10 +100,102 @@ func NewFirewallServiceFromFS(cfg *config.Config, tmplContent string) (*Firewall
 		return nil, fmt.Errorf("parse nftables template: %w", err)
 	}
 
-	return &FirewallService{
-		cfg:  cfg,
-		tmpl: tmpl,
-	}, nil
+	return newFirewallService(cfg, tmpl), nil
+}
+
+func newFirewallService(cfg *config.Config, tmpl *template.Template) *FirewallService {
+	statePath := os.Getenv("LANKEEPER_FIREWALL_STATE")
+	if statePath == "" {
+		statePath = defaultFirewallStatePath
+	}
+
+	s := &FirewallService{
+		cfg:       cfg,
+		tmpl:      tmpl,
+		statePath: statePath,
+	}
+	s.restorePendingChange()
+	return s
+}
+
+// restorePendingChange re-arms the watchdog for a change this process
+// did not apply. Called from the constructor so a restart inside the
+// confirmation window still reverts an unconfirmed ruleset.
+//
+// The rollback runs from the timer goroutine, so the constructor returns
+// immediately even when the deadline has already passed.
+func (s *FirewallService) restorePendingChange() {
+	data, err := os.ReadFile(s.statePath)
+	if err != nil {
+		return
+	}
+
+	var state firewallPendingState
+	if err := json.Unmarshal(data, &state); err != nil {
+		log.Printf("firewall: ignoring invalid pending-change file: %v", err)
+		return
+	}
+	if state.Snapshot == "" {
+		// Without a snapshot there is nothing to roll back to, so the
+		// record is useless. Drop it rather than leaving it to be
+		// re-read on every start.
+		s.clearPendingState()
+		return
+	}
+
+	remaining := firewallConfirmWindow - time.Since(state.AppliedAt)
+	if remaining < 0 {
+		remaining = 0
+	}
+
+	ac := netutil.NewAtomicChangeWithSnapshot("firewall", state.Snapshot)
+	s.change = ac
+	s.armWatchdog(ac, remaining)
+
+	log.Printf("firewall: restored unconfirmed change, rollback in %s", remaining)
+}
+
+// armWatchdog starts the revert timer and clears the persisted record
+// once the revert has run. Leaving the record behind would make the next
+// start believe a change is still pending that was already reverted.
+func (s *FirewallService) armWatchdog(ac *netutil.AtomicChange, timeout time.Duration) {
+	ac.StartWatchdog(timeout, func() error {
+		err := ac.Rollback(context.Background())
+		s.clearPendingState()
+		return err
+	})
+}
+
+func (s *FirewallService) persistPendingState(snapshot string) {
+	if snapshot == "" {
+		// Apply logs its own warning when the snapshot could not be
+		// taken. Persisting an empty record would only produce a file
+		// that restore has to discard.
+		return
+	}
+
+	data, err := json.Marshal(firewallPendingState{
+		Snapshot:  snapshot,
+		AppliedAt: time.Now(),
+	})
+	if err != nil {
+		log.Printf("firewall: marshal pending state: %v", err)
+		return
+	}
+
+	if err := os.MkdirAll(filepath.Dir(s.statePath), 0o750); err != nil {
+		log.Printf("firewall: create state dir: %v", err)
+		return
+	}
+	if err := os.WriteFile(s.statePath, data, 0o600); err != nil {
+		log.Printf("firewall: write pending state: %v", err)
+	}
+}
+
+func (s *FirewallService) clearPendingState() {
+	if err := os.Remove(s.statePath); err != nil && !os.IsNotExist(err) {
+		log.Printf("firewall: remove pending state: %v", err)
+	}
 }
 
 func (s *FirewallService) Apply(ctx context.Context) error {
@@ -115,10 +223,8 @@ func (s *FirewallService) Apply(ctx context.Context) error {
 	}
 
 	s.change = ac
-
-	ac.StartWatchdog(30*time.Second, func() error {
-		return ac.Rollback(context.Background())
-	})
+	s.persistPendingState(ac.GetSnapshot())
+	s.armWatchdog(ac, firewallConfirmWindow)
 
 	log.Println("firewall rules applied — waiting for confirmation (30s)")
 	return nil
@@ -132,6 +238,7 @@ func (s *FirewallService) Confirm() {
 		s.change.Confirm()
 		s.change = nil
 	}
+	s.clearPendingState()
 }
 
 func (s *FirewallService) Rollback(ctx context.Context) error {
@@ -141,6 +248,7 @@ func (s *FirewallService) Rollback(ctx context.Context) error {
 	if s.change != nil {
 		err := s.change.Rollback(ctx)
 		s.change = nil
+		s.clearPendingState()
 		return err
 	}
 	return nil

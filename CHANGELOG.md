@@ -45,6 +45,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(firewall) Pending-change rollback now survives a restart**: the
+  anti-lockout watchdog kept the previous ruleset and its 30 s deadline
+  only in process memory, and `FirewallService` tracked the pending
+  change in a plain field with no startup restore. The web unit runs
+  `Restart=always` with `RestartSec=3`, so a restart inside the window
+  destroyed both, and the replacement process came up believing nothing
+  was pending. A ruleset severe enough to destabilise the process is
+  exactly what the watchdog exists for, so the two coincided precisely
+  when recovery mattered, leaving the broken rules applied permanently.
+  The snapshot and apply time are now written to
+  `/var/lib/lankeeper/firewall-pending.json` and re-read at startup,
+  following the same pattern the OTA updater already uses. A restored
+  change reverts after the remaining time, or immediately if the window
+  has already elapsed. The record is removed on confirm, on manual
+  rollback, and after the watchdog reverts, so a completed change is
+  never replayed on the next boot.
+
 - **(backup) Restore now writes each directory back where it came from**:
   `Export` stores members under plain top-level names (`lankeeper/...`,
   `unbound/...`, `openvpn/...`) because each source is passed as its own

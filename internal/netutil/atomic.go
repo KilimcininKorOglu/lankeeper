@@ -21,6 +21,21 @@ func NewAtomicChange(service string) *AtomicChange {
 	return &AtomicChange{Service: service}
 }
 
+// NewAtomicChangeWithSnapshot rebuilds a change whose snapshot was taken
+// by an earlier process. The watchdog state is persisted so an
+// unconfirmed change still rolls back after a restart, and the snapshot
+// field is unexported, so restoring needs this entry point.
+//
+// The change is marked applied because it only reaches persistence after
+// Apply has succeeded.
+func NewAtomicChangeWithSnapshot(service, snapshot string) *AtomicChange {
+	return &AtomicChange{
+		Service:  service,
+		snapshot: snapshot,
+		applied:  true,
+	}
+}
+
 func (ac *AtomicChange) Snapshot(ctx context.Context) error {
 	ac.mu.Lock()
 	defer ac.mu.Unlock()
