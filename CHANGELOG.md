@@ -8,6 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(backup) Target credentials are now encrypted at rest**: the
+  `BackupTarget` comment stated that the S3 secret access key and the
+  SFTP password were AES-encrypted before `SaveToFile` and decrypted on
+  `Load`. No such path existed. `Save` marshalled the struct as-is and
+  `Load` unmarshalled it as-is, so `router.yaml` held those two values
+  and the backup passphrase, which decrypts every stored archive, in the
+  clear. The AES-256-GCM helpers in `crypto.go` had been written and
+  unit-tested but were referenced only from their own test, and both
+  installers created a key directory nothing ever populated. Those three
+  fields are now encrypted on write and decrypted on read, using a key
+  generated on first use at
+  `/var/lib/lankeeper/credentials/config.key` (0600 in a 0700
+  directory). Values carry an `enc:v1:` marker, so a config written
+  before this loads unchanged and moves to ciphertext on its next save,
+  and only the credentials are encrypted: hosts, buckets and paths stay
+  readable for hand editing. In memory the config always holds the
+  usable value; encryption happens on a copy.
+
+  Scope, stated plainly. The key is not included in a backup archive, so
+  an export that leaves the device carries ciphertext it cannot open,
+  and a config file copied or shared on its own no longer discloses
+  third-party credentials. It does not defend against anyone who can
+  read both files, which means root, the service account, and a stolen
+  disk. Restoring a backup onto a different appliance therefore needs
+  these three values re-entered. If the key is missing or does not
+  match, the affected fields are cleared and the reason is logged rather
+  than failing the load: refusing to start would take DNS, DHCP and the
+  firewall down over a lost backup credential. `PPPoE.Password` and the
+  6in4 update key remain in the clear and are unchanged here.
+
 - **(nas, dns, healthcheck) Outbound fetches refuse internal destinations**:
   three fetch-a-URL paths issued their requests through the default HTTP
   client with no address check. The web-reachable one is the M3U

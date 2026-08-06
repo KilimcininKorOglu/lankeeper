@@ -39,21 +39,25 @@ type Config struct {
 // processed sequentially on each scheduled run; partial failures
 // are recorded in History but do not abort the remaining targets.
 type BackupConfig struct {
-	Enabled    bool             `yaml:"enabled"`
-	Schedule   string           `yaml:"schedule"`             // "@daily", "0 3 * * *"
-	Passphrase string           `yaml:"passphrase,omitempty"` // AES-256 encrypted
-	Retention  int              `yaml:"retention"`            // keep N most recent
-	Targets    []BackupTarget   `yaml:"targets,omitempty"`
-	LastRun    time.Time        `yaml:"lastRun,omitempty"`
-	LastStatus string           `yaml:"lastStatus,omitempty"`
-	LastError  string           `yaml:"lastError,omitempty"`
-	History    []BackupHistory  `yaml:"history,omitempty"`
+	Enabled    bool            `yaml:"enabled"`
+	Schedule   string          `yaml:"schedule"`             // "@daily", "0 3 * * *"
+	Passphrase string          `yaml:"passphrase,omitempty"` // AES-256-GCM encrypted on disk, see secrets.go
+	Retention  int             `yaml:"retention"`            // keep N most recent
+	Targets    []BackupTarget  `yaml:"targets,omitempty"`
+	LastRun    time.Time       `yaml:"lastRun,omitempty"`
+	LastStatus string          `yaml:"lastStatus,omitempty"`
+	LastError  string          `yaml:"lastError,omitempty"`
+	History    []BackupHistory `yaml:"history,omitempty"`
 }
 
 // BackupTarget describes a single destination. Type drives which
-// fields are read; unrelated fields are zero-valued. Secret fields
-// (SecretAccessKey, Password) are AES-encrypted before SaveToFile
-// and decrypted on Load via the same path used for PPPoE.Password.
+// fields are read; unrelated fields are zero-valued.
+//
+// SecretAccessKey and Password are AES-256-GCM encrypted before Save
+// writes them and decrypted on Load; see secrets.go for the key
+// location and for what the scheme does and does not protect. In memory
+// they always hold the usable value. PPPoE.Password is not covered and
+// is still stored in the clear.
 type BackupTarget struct {
 	Type string `yaml:"type"` // "local", "s3", "sftp"
 	Name string `yaml:"name"`
@@ -123,11 +127,11 @@ type SelfSignedConfig struct {
 }
 
 type ACMEConfig struct {
-	Enabled      bool                `yaml:"enabled"`
-	Email        string              `yaml:"email"`
-	Domain       string              `yaml:"domain"`
-	Provider     string              `yaml:"provider"`
-	DNSChallenge DNSChallengeConfig  `yaml:"dnsChallenge"`
+	Enabled      bool               `yaml:"enabled"`
+	Email        string             `yaml:"email"`
+	Domain       string             `yaml:"domain"`
+	Provider     string             `yaml:"provider"`
+	DNSChallenge DNSChallengeConfig `yaml:"dnsChallenge"`
 }
 
 type DNSChallengeConfig struct {
@@ -154,15 +158,15 @@ type InterfaceConfig struct {
 }
 
 type VLANConfig struct {
-	ID       string     `yaml:"id"`
-	Parent   string     `yaml:"parent"`
-	VID      int        `yaml:"vid"`
-	Label    string     `yaml:"label"`
-	Role     string     `yaml:"role"`
-	Type     string     `yaml:"type"`
-	Address  string     `yaml:"address"`
-	MTU      int        `yaml:"mtu"`
-	Isolated bool       `yaml:"isolated"`
+	ID       string         `yaml:"id"`
+	Parent   string         `yaml:"parent"`
+	VID      int            `yaml:"vid"`
+	Label    string         `yaml:"label"`
+	Role     string         `yaml:"role"`
+	Type     string         `yaml:"type"`
+	Address  string         `yaml:"address"`
+	MTU      int            `yaml:"mtu"`
+	Isolated bool           `yaml:"isolated"`
 	DHCP     VLANDHCPConfig `yaml:"dhcp"`
 }
 
@@ -216,15 +220,15 @@ type PPPoEConfig struct {
 }
 
 type USBTetherConfig struct {
-	Enabled        bool   `yaml:"enabled"`
-	AutoFailover   bool   `yaml:"autoFailover"`
-	AutoFailback   bool   `yaml:"autoFailback"`
-	FailoverDelay  string `yaml:"failoverDelay"`
-	FailbackDelay  string `yaml:"failbackDelay"`
-	Interface      string `yaml:"interface"`
-	Metric         int    `yaml:"metric"`
-	NAT            bool   `yaml:"nat"`
-	TTLFix         bool   `yaml:"ttlFix"`
+	Enabled       bool   `yaml:"enabled"`
+	AutoFailover  bool   `yaml:"autoFailover"`
+	AutoFailback  bool   `yaml:"autoFailback"`
+	FailoverDelay string `yaml:"failoverDelay"`
+	FailbackDelay string `yaml:"failbackDelay"`
+	Interface     string `yaml:"interface"`
+	Metric        int    `yaml:"metric"`
+	NAT           bool   `yaml:"nat"`
+	TTLFix        bool   `yaml:"ttlFix"`
 }
 
 type FirewallConfig struct {
@@ -273,18 +277,18 @@ type PortForward struct {
 }
 
 type QoSConfig struct {
-	Enabled           bool              `yaml:"enabled"`
-	Profile           string            `yaml:"profile"`
-	UploadKbps        int               `yaml:"uploadKbps"`
-	DownloadKbps      int               `yaml:"downloadKbps"`
-	CongestionControl string            `yaml:"congestionControl"`
-	PerDeviceLimits   map[string]int    `yaml:"perDeviceLimits"`
+	Enabled           bool           `yaml:"enabled"`
+	Profile           string         `yaml:"profile"`
+	UploadKbps        int            `yaml:"uploadKbps"`
+	DownloadKbps      int            `yaml:"downloadKbps"`
+	CongestionControl string         `yaml:"congestionControl"`
+	PerDeviceLimits   map[string]int `yaml:"perDeviceLimits"`
 }
 
 type DNSConfig struct {
-	Upstream                []string          `yaml:"upstream"`
-	DoTUpstream             string            `yaml:"dotUpstream"`
-	EnableDoT               bool              `yaml:"enableDoT"`
+	Upstream    []string `yaml:"upstream"`
+	DoTUpstream string   `yaml:"dotUpstream"`
+	EnableDoT   bool     `yaml:"enableDoT"`
 	// EnableDoH and DoTUpstream are mutually exclusive at the form
 	// layer; the validator rejects both-true. When set, Unbound is
 	// forwarded to the dnscrypt-proxy stub on 127.0.0.1:5353 which
@@ -337,12 +341,12 @@ type QueryLogConfig struct {
 }
 
 type DHCPConfig struct {
-	RangeStart   string            `yaml:"rangeStart"`
-	RangeEnd     string            `yaml:"rangeEnd"`
-	LeaseTime    string            `yaml:"leaseTime"`
-	Gateway      string            `yaml:"gateway"`
-	DNSServer    string            `yaml:"dnsServer"`
-	StaticLeases []StaticLease     `yaml:"staticLeases"`
+	RangeStart   string        `yaml:"rangeStart"`
+	RangeEnd     string        `yaml:"rangeEnd"`
+	LeaseTime    string        `yaml:"leaseTime"`
+	Gateway      string        `yaml:"gateway"`
+	DNSServer    string        `yaml:"dnsServer"`
+	StaticLeases []StaticLease `yaml:"staticLeases"`
 }
 
 type StaticLease struct {
@@ -352,7 +356,7 @@ type StaticLease struct {
 }
 
 type IPv6Config struct {
-	Enabled string           `yaml:"enabled"`
+	Enabled string `yaml:"enabled"`
 	// Mode selects the IPv6 plane: "dhcpv6-pd" requests a delegated
 	// prefix from the ISP via wide-dhcpv6, "6in4" terminates a
 	// Hurricane Electric tunnel locally and announces the routed
@@ -377,7 +381,7 @@ type IPv6TunnelConfig struct {
 	ClientIPv6   string `yaml:"clientIPv6,omitempty"`
 	RoutedPrefix string `yaml:"routedPrefix,omitempty"`
 	TunnelID     string `yaml:"tunnelID,omitempty"`
-	Username string `yaml:"username,omitempty"`
+	Username     string `yaml:"username,omitempty"`
 	// UpdateKey is the per-tunnel HE.net "Advanced" key used as the
 	// HTTP Basic Auth password against /nic/update. Stored in the
 	// same plaintext form as PPPoE.Password — promoting it to the
@@ -392,8 +396,8 @@ type IPv6TunnelConfig struct {
 }
 
 type IPv6WANConfig struct {
-	AcceptRA      bool   `yaml:"acceptRA"`
-	RequestPrefix bool   `yaml:"requestPrefix"`
+	AcceptRA      bool `yaml:"acceptRA"`
+	RequestPrefix bool `yaml:"requestPrefix"`
 	// PrefixHint requests a specific prefix length from the ISP via
 	// DHCPv6-PD (RFC 8415). Format: "/48", "/52", "/56", "/60", "/64".
 	// "/56" is the typical residential allocation.
@@ -421,9 +425,9 @@ type IPv6ULAConfig struct {
 }
 
 type VPNConfig struct {
-	Clients           []WGClientTunnel      `yaml:"clients"`
-	Server            WGServerConfig        `yaml:"server"`
-	DeviceAssignments map[string]string     `yaml:"deviceAssignments"`
+	Clients           []WGClientTunnel  `yaml:"clients"`
+	Server            WGServerConfig    `yaml:"server"`
+	DeviceAssignments map[string]string `yaml:"deviceAssignments"`
 }
 
 type WGClientTunnel struct {
@@ -453,21 +457,21 @@ type WGServerConfig struct {
 }
 
 type WGServerPeer struct {
-	Name          string    `yaml:"name"`
-	PublicKey     string    `yaml:"publicKey"`
-	PresharedKey  string    `yaml:"presharedKey"`
-	AllowedIPs    string    `yaml:"allowedIPs"`
-	Keepalive     int       `yaml:"keepalive"`
-	Endpoint      string    `yaml:"endpoint,omitempty"`
-	RemoteSubnets []string  `yaml:"remoteSubnets,omitempty"`
-	IsSiteToSite  bool      `yaml:"isSiteToSite,omitempty"`
+	Name          string   `yaml:"name"`
+	PublicKey     string   `yaml:"publicKey"`
+	PresharedKey  string   `yaml:"presharedKey"`
+	AllowedIPs    string   `yaml:"allowedIPs"`
+	Keepalive     int      `yaml:"keepalive"`
+	Endpoint      string   `yaml:"endpoint,omitempty"`
+	RemoteSubnets []string `yaml:"remoteSubnets,omitempty"`
+	IsSiteToSite  bool     `yaml:"isSiteToSite,omitempty"`
 	// Pending marks a site-to-site peer that has been issued a join
 	// token but not yet finalized (the remote side hasn't returned
 	// its public key via the ack token). Pending peers are skipped
 	// when rendering wgs0.conf so wg-quick doesn't reject the empty
 	// PublicKey, and they're garbage-collected after the invite
 	// expires.
-	Pending       bool      `yaml:"pending,omitempty"`
+	Pending bool `yaml:"pending,omitempty"`
 	// InviteExpiresAt records when the join invite for this peer
 	// expires. Only meaningful when Pending is true.
 	InviteExpiresAt time.Time `yaml:"inviteExpiresAt,omitempty"`
@@ -495,24 +499,24 @@ type OVPNClientConfig struct {
 }
 
 type OVPNServerConfig struct {
-	Enabled        bool               `yaml:"enabled"`
-	Protocol       string             `yaml:"protocol"`
-	Port           int                `yaml:"port"`
-	Device         string             `yaml:"device"`
-	Subnet         string             `yaml:"subnet"`
-	Subnet6        string             `yaml:"subnet6"`
-	DNS            string             `yaml:"dns"`
-	Cipher         string             `yaml:"cipher"`
-	Auth           string             `yaml:"auth"`
-	TLSAuth        bool               `yaml:"tlsAuth"`
-	Compression    bool               `yaml:"compression"`
-	MaxClients     int                `yaml:"maxClients"`
-	Keepalive      string             `yaml:"keepalive"`
-	ClientToClient bool               `yaml:"clientToClient"`
-	DuplicateCN    bool               `yaml:"duplicateCn"`
-	PublicEndpoint string             `yaml:"publicEndpoint,omitempty"`
-	Clients        []OVPNClientEntry  `yaml:"clients"`
-	CCD            map[string]string  `yaml:"ccd"`
+	Enabled        bool              `yaml:"enabled"`
+	Protocol       string            `yaml:"protocol"`
+	Port           int               `yaml:"port"`
+	Device         string            `yaml:"device"`
+	Subnet         string            `yaml:"subnet"`
+	Subnet6        string            `yaml:"subnet6"`
+	DNS            string            `yaml:"dns"`
+	Cipher         string            `yaml:"cipher"`
+	Auth           string            `yaml:"auth"`
+	TLSAuth        bool              `yaml:"tlsAuth"`
+	Compression    bool              `yaml:"compression"`
+	MaxClients     int               `yaml:"maxClients"`
+	Keepalive      string            `yaml:"keepalive"`
+	ClientToClient bool              `yaml:"clientToClient"`
+	DuplicateCN    bool              `yaml:"duplicateCn"`
+	PublicEndpoint string            `yaml:"publicEndpoint,omitempty"`
+	Clients        []OVPNClientEntry `yaml:"clients"`
+	CCD            map[string]string `yaml:"ccd"`
 }
 
 type OVPNClientEntry struct {
@@ -529,18 +533,18 @@ type RoutingConfig struct {
 }
 
 type RoutingPolicy struct {
-	Name      string   `yaml:"name"`
-	Enabled   bool     `yaml:"enabled"`
-	Priority  int      `yaml:"priority"`
-	SrcMACs   []string `yaml:"srcMacs"`
-	SrcIPs    []string `yaml:"srcIps"`
-	DstIPs    []string `yaml:"dstIps"`
-	DstPorts  []int    `yaml:"dstPorts"`
-	Domains   []string `yaml:"domains"`
-	Protocol  string   `yaml:"protocol"`
-	Tunnel    string   `yaml:"tunnel"`
-	KillSwitch bool   `yaml:"killSwitch"`
-	Schedule  string   `yaml:"schedule"`
+	Name       string   `yaml:"name"`
+	Enabled    bool     `yaml:"enabled"`
+	Priority   int      `yaml:"priority"`
+	SrcMACs    []string `yaml:"srcMacs"`
+	SrcIPs     []string `yaml:"srcIps"`
+	DstIPs     []string `yaml:"dstIps"`
+	DstPorts   []int    `yaml:"dstPorts"`
+	Domains    []string `yaml:"domains"`
+	Protocol   string   `yaml:"protocol"`
+	Tunnel     string   `yaml:"tunnel"`
+	KillSwitch bool     `yaml:"killSwitch"`
+	Schedule   string   `yaml:"schedule"`
 }
 
 type NASConfig struct {
@@ -592,10 +596,10 @@ type SyslogClientConfig struct {
 }
 
 type NTPConfig struct {
-	Server NTPServerConfig `yaml:"server"`
-	Client NTPClientConfig `yaml:"client"`
-	RTCSync      bool     `yaml:"rtcSync"`
-	AllowSubnets []string `yaml:"allowSubnets"`
+	Server       NTPServerConfig `yaml:"server"`
+	Client       NTPClientConfig `yaml:"client"`
+	RTCSync      bool            `yaml:"rtcSync"`
+	AllowSubnets []string        `yaml:"allowSubnets"`
 }
 
 type NTPServerConfig struct {
@@ -652,6 +656,8 @@ func Load(path string) (*Config, error) {
 		}
 	}
 
+	cfg.decryptSecretsInPlace()
+
 	cfg.filePath = path
 	return cfg, nil
 }
@@ -671,7 +677,16 @@ func Save(path string, cfg *Config) error {
 	configMu.Lock()
 	defer configMu.Unlock()
 
-	data, err := yaml.Marshal(cfg)
+	// Encrypt into a copy so the running process keeps the usable
+	// values. Failing here is deliberate: writing the file anyway would
+	// put the credentials on disk in the clear, which is the outcome
+	// this exists to prevent.
+	toWrite, err := withEncryptedSecrets(cfg)
+	if err != nil {
+		return err
+	}
+
+	data, err := yaml.Marshal(toWrite)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
