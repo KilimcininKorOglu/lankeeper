@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(deploy) The ISO package cache is re-resolved by version and hash**:
+  the build keyed its persistent package cache on the package name
+  alone, stripping everything after the first underscore, and treated a
+  package as satisfied whenever that key was present. No version
+  comparison, no digest check, no consultation of the mirror. Once a
+  package was cached it was never refreshed, so every ISO built
+  afterwards shipped that exact build forever, security updates
+  included, across `nftables`, `wireguard-tools`, `openvpn`, `samba`,
+  `unbound` and `dnsmasq`, all installed as root on every router flashed
+  from the image. The `SHA256SUMS` manifest was then generated from
+  whatever the cache held, so the installer's later check proved only
+  that the shipped pool matched itself. Compounding it, the builder
+  image clears `/var/lib/apt/lists` and nothing ran `apt-get update`,
+  so dependency resolution and every download failed silently and the
+  cache was the only package source there was. The build now refreshes
+  the lists, asks apt what each dependency resolves to in one bulk
+  call, and reuses a cached file only when its content matches the
+  SHA-256 from the signed Packages index. A superseded, truncated or
+  replaced file is re-fetched, everything entering the pool is verified,
+  and obsolete builds are pruned so two versions of a package cannot be
+  indexed and shipped together. Running this against the existing cache
+  replaced 64 superseded packages, `systemd`, `samba`, `tzdata` and
+  `xz-utils` among them.
+
 - **(agent) The command whitelist now decides which file actually runs**:
   `opExecRun` checked `filepath.Base(cmd)` against the whitelist and
   then handed `exec.CommandContext` the caller's original string, so the

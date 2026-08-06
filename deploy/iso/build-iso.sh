@@ -122,6 +122,15 @@ chmod -R +w "$BUILD_DIR/iso"
 echo "[2/7] Downloading required $ARCH packages with dependencies..."
 pushd "$PACKAGE_REPO_DIR" >/dev/null
 
+# The builder image clears /var/lib/apt/lists in its own layer, so apt
+# starts with no package lists at all: without this, dependency
+# resolution returns nothing and every download fails, leaving whatever
+# the cache already held as the entire package set. Refreshing first is
+# also what lets the cache notice a newer version upstream, since the
+# dependency cache below is keyed on the list mtimes this updates.
+echo "  Refreshing apt package lists..."
+apt-get update -qq
+
 # Cache the recursive apt-cache depends output. apt-cache --recurse over
 # ~84 packages takes 30-60s and the answer only changes when the input
 # package list, the apt sources, or apt-cache's own data change. Hash
@@ -164,40 +173,113 @@ else
     echo "  Resolving dependencies: $(echo "$ALL_DEPS" | wc -w) packages (resolved)"
 fi
 
-# Per-package `apt-get --print-uris` loops were ~30s of pure APT init
-# overhead with no real I/O. Instead, just intersect the dependency
-# list with the .deb filenames already in the cache directory.
-shopt -s nullglob
-declare -A DEB_BY_PKG=()
-for deb in "$PACKAGE_REPO_DIR"/*.deb; do
-    name="$(basename "$deb")"
-    pkg="${name%%_*}"
-    DEB_BY_PKG[$pkg]="$deb"
-done
-shopt -u nullglob
+# Ask APT what each dependency resolves to right now. This is one bulk
+# call, not the per-package loop it replaces, so the APT init cost is
+# paid once. Each line carries the exact versioned filename and the
+# SHA-256 taken from the signed Packages index:
+#
+#   'http://.../nftables_1.0.6-2%2bdeb12u2_arm64.deb' nftables_1.0.6-2+deb12u2_arm64.deb 70032 SHA256:f590...
+#
+# Keying the cache on the package name alone discarded the version, so a
+# package was treated as satisfied forever once present. Every ISO built
+# afterwards shipped that exact build, security updates included, and
+# the SHA256SUMS manifest was then generated from whatever the cache
+# happened to hold, which proved only that the pool matched itself.
+# Run from a directory that holds no .deb files. apt-get omits a package
+# from --print-uris when a matching file already sits in the working
+# directory, and this loop runs with the cache directory as cwd, so
+# asking from here would return nothing on the second build onwards.
+#
+# shellcheck disable=SC2086  # ALL_DEPS is a whitespace-separated
+# package list and must word-split into separate arguments.
+URI_LIST=$(cd "$BUILD_DIR" && apt-get --print-uris download $ALL_DEPS 2>/dev/null || true)
+if [[ -z "$URI_LIST" ]]; then
+    echo "ERROR: apt resolved no download URIs for ${ALL_DEPS//$'\n'/ }" >&2
+    echo "       The package pool cannot be built without them." >&2
+    exit 1
+fi
 
-MISSING_DEPS=()
+declare -A WANT_SHA=()
+while read -r _uri fname _size digest; do
+    [[ -z "${fname:-}" ]] && continue
+    if [[ "$digest" != SHA256:* ]]; then
+        echo "ERROR: apt reported '$digest' for $fname, expected a SHA256 digest" >&2
+        exit 1
+    fi
+    WANT_SHA[$fname]="${digest#SHA256:}"
+done <<< "$URI_LIST"
+
+# Reuse a cached file only when its content matches the digest APT
+# expects. Anything else is removed and fetched again, which covers a
+# superseded version, a truncated download, and a file replaced inside
+# dist/, a git-ignored directory nothing in review would catch.
+MISSING_DEBS=()
 CACHED_COUNT=0
-for pkg in $ALL_DEPS; do
-    if [[ -n "${DEB_BY_PKG[$pkg]:-}" ]]; then
+for fname in "${!WANT_SHA[@]}"; do
+    path="$PACKAGE_REPO_DIR/$fname"
+    if [[ -f "$path" ]] && \
+       [[ "$(sha256sum "$path" | awk '{print $1}')" == "${WANT_SHA[$fname]}" ]]; then
         CACHED_COUNT=$((CACHED_COUNT + 1))
     else
-        MISSING_DEPS+=( "$pkg" )
+        rm -f "$path"
+        MISSING_DEBS+=( "$fname" )
     fi
 done
 
 echo "  Cached packages: $CACHED_COUNT"
-if [[ ${#MISSING_DEPS[@]} -gt 0 ]]; then
-    echo "  Missing packages: ${#MISSING_DEPS[@]}"
-    apt-get download "${MISSING_DEPS[@]}" 2>/dev/null || {
+if [[ ${#MISSING_DEBS[@]} -gt 0 ]]; then
+    echo "  Fetching packages: ${#MISSING_DEBS[@]}"
+    # apt-get download takes package names; the filename's leading field
+    # is that name. The name only picks what to fetch, so a wrong guess
+    # cannot pass the digest check below.
+    DOWNLOAD_NAMES=()
+    for fname in "${MISSING_DEBS[@]}"; do
+        DOWNLOAD_NAMES+=( "${fname%%_*}" )
+    done
+    apt-get download "${DOWNLOAD_NAMES[@]}" 2>/dev/null || {
         echo "NOTE: bulk download had errors, retrying individually..."
-        for pkg in "${MISSING_DEPS[@]}"; do
+        for pkg in "${DOWNLOAD_NAMES[@]}"; do
             apt-get download "$pkg" 2>/dev/null || true
         done
     }
 fi
 
-echo "  Available $(ls -1 *.deb 2>/dev/null | wc -l) .deb files"
+# Verify every file that will go into the pool, freshly downloaded or
+# reused. This is the point where the cache stops being the authority on
+# package identity: the manifest generated further down now describes a
+# set apt has vouched for.
+for fname in "${!WANT_SHA[@]}"; do
+    path="$PACKAGE_REPO_DIR/$fname"
+    if [[ ! -f "$path" ]]; then
+        echo "ERROR: $fname is required but was not downloaded" >&2
+        exit 1
+    fi
+    got="$(sha256sum "$path" | awk '{print $1}')"
+    if [[ "$got" != "${WANT_SHA[$fname]}" ]]; then
+        echo "ERROR: $fname failed verification" >&2
+        echo "       expected ${WANT_SHA[$fname]}" >&2
+        echo "       got      $got" >&2
+        exit 1
+    fi
+done
+
+# Drop superseded builds. Leaving them would let dpkg-scanpackages index
+# two versions of the same package and ship both.
+shopt -s nullglob
+PRUNED=0
+for deb in "$PACKAGE_REPO_DIR"/*.deb; do
+    fname="$(basename "$deb")"
+    if [[ -z "${WANT_SHA[$fname]:-}" ]]; then
+        rm -f "$deb"
+        PRUNED=$((PRUNED + 1))
+    fi
+done
+shopt -u nullglob
+if [[ $PRUNED -gt 0 ]]; then
+    echo "  Pruned superseded packages: $PRUNED"
+fi
+
+echo "  Verified ${#WANT_SHA[@]} .deb files"
 popd >/dev/null
 
 echo "[3/7] Creating local package repository..."
@@ -221,7 +303,7 @@ cp "$PACKAGE_REPO_DIR"/Packages "$PACKAGE_REPO_DIR"/Packages.gz "$BUILD_DIR/iso/
 # tampering inside the bundled pool, not a fully replaced ISO; ISO
 # distribution integrity is delegated to the outer dist/SHA256SUMS.
 pushd "$BUILD_DIR/iso/pool/extra" >/dev/null
-sha256sum --tag *.deb Packages Packages.gz > SHA256SUMS
+sha256sum --tag -- *.deb Packages Packages.gz > SHA256SUMS
 popd >/dev/null
 
 echo "[4/7] Adding lankeeper files..."
