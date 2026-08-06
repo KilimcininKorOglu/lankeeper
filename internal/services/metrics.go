@@ -5,15 +5,18 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 )
 
 // MetricsService composes a single read-only snapshot drawn from
-// every domain service that owns numeric runtime state. It does
-// not hold any state of its own; calling Snapshot() concurrently is
-// safe (each contributing service guards its own data).
+// every domain service that owns numeric runtime state. Its only state
+// is the snapshot cache; calling Snapshot() concurrently is safe (each
+// contributing service guards its own data, and the cache has its own
+// lock).
 //
 // We deliberately avoid the github.com/prometheus/client_golang
 // dependency: the exposition format is ~50 LOC of stdlib fprintf,
@@ -27,7 +30,24 @@ type MetricsService struct {
 	vpn     *VPNService
 	backup  *BackupService
 	update  *UpdateService
+
+	// Snapshot collection is cached because /metrics carries no
+	// authentication. Collecting live meant every scrape forked several
+	// privileged subprocesses through the root agent, and the agent
+	// serialises all traffic behind one mutex-guarded connection, so a
+	// sustained scrape from any LAN device delayed the operator's own
+	// privileged operations. The lock also coalesces concurrent
+	// scrapes: the first collects, the rest read what it produced.
+	cacheMu  sync.Mutex
+	cached   MetricsSnapshot
+	cachedAt time.Time
+	cacheTTL time.Duration
 }
+
+// metricsCacheTTL bounds how often collection runs. Prometheus scrapes
+// at 15 s by default, so a shorter window keeps a normal scrape fresh
+// while capping the privileged work an abusive one can cause.
+const metricsCacheTTL = 10 * time.Second
 
 // NewMetricsService takes nil-safe references; the snapshot
 // gracefully degrades when any contributor is missing (handy for
@@ -43,14 +63,15 @@ func NewMetricsService(
 	update *UpdateService,
 ) *MetricsService {
 	return &MetricsService{
-		cfg:     cfg,
-		monitor: monitor,
-		dns:     dns,
-		dhcp:    dhcp,
-		qos:     qos,
-		vpn:     vpn,
-		backup:  backup,
-		update:  update,
+		cfg:      cfg,
+		monitor:  monitor,
+		dns:      dns,
+		dhcp:     dhcp,
+		qos:      qos,
+		vpn:      vpn,
+		backup:   backup,
+		update:   update,
+		cacheTTL: metricsCacheTTL,
 	}
 }
 
@@ -115,11 +136,11 @@ type ClientBandwidthMetric struct {
 // WGPeerMetric captures one WireGuard server peer (the road-warrior
 // kind). HandshakeAge is in seconds; -1 means "never handshaken".
 type WGPeerMetric struct {
-	Name          string
-	HandshakeAge  int64
-	Online        int
-	RxBytes       uint64
-	TxBytes       uint64
+	Name         string
+	HandshakeAge int64
+	Online       int
+	RxBytes      uint64
+	TxBytes      uint64
 }
 
 // S2SPeerMetric mirrors WGPeerMetric for site-to-site peers; kept
@@ -133,14 +154,36 @@ type S2SPeerMetric struct {
 	TxBytes      uint64
 }
 
-// Snapshot composes the full metric set. Errors from individual
+// Snapshot returns the metric set, collecting only when the cached one
+// has aged out. The returned value shares its slices with the cache, so
+// callers must treat it as read-only; the exposition writer does.
+func (s *MetricsService) Snapshot(ctx context.Context) MetricsSnapshot {
+	if s == nil {
+		return MetricsSnapshot{}
+	}
+
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	ttl := s.cacheTTL
+	if ttl <= 0 {
+		ttl = metricsCacheTTL
+	}
+	if !s.cachedAt.IsZero() && time.Since(s.cachedAt) < ttl {
+		return s.cached
+	}
+
+	snap := s.collect(ctx)
+	s.cached = snap
+	s.cachedAt = time.Now()
+	return snap
+}
+
+// collect composes the full metric set. Errors from individual
 // collectors are swallowed (logged at most by the collector itself)
 // so a single failed sub-system can't take the whole scrape down.
-func (s *MetricsService) Snapshot(ctx context.Context) MetricsSnapshot {
+func (s *MetricsService) collect(ctx context.Context) MetricsSnapshot {
 	snap := MetricsSnapshot{}
-	if s == nil {
-		return snap
-	}
 	if s.update != nil {
 		v := s.update.GetVersionInfo()
 		snap.BuildVersion = v.Version
@@ -261,5 +304,3 @@ func macHash(mac string) string {
 	h := sha1.Sum([]byte(strings.ToLower(strings.ReplaceAll(mac, ":", ""))))
 	return hex.EncodeToString(h[:4])
 }
-
-

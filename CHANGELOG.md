@@ -185,6 +185,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(metrics) A scrape no longer forks privileged subprocesses per
+  request**: `Snapshot` collected live on every call, so each request to
+  the unauthenticated `/metrics` endpoint ran `unbound-control
+  stats_noreset`, two `nft` invocations, a `wg show dump` per configured
+  site-to-site peer and a `pgrep` through the root agent. All agent
+  traffic serialises behind one mutex-guarded connection, so any LAN
+  device, including one on a guest or IoT segment, could scrape in a
+  loop without credentials and delay the authenticated operator's own
+  privileged operations, with the per-request cost scaling with the peer
+  count. The snapshot is now cached for ten seconds, below the default
+  Prometheus scrape interval, so a normal scrape sees fresh data while
+  the privileged work an abusive one can cause is capped. Concurrent
+  scrapes coalesce onto a single collection rather than each starting
+  their own.
+
 - **(firewall) A background apply no longer orphans the operator's
   rollback watchdog**: `Apply` never checked whether a change was
   already pending. It built a fresh atomic change, overwrote the
