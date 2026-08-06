@@ -213,7 +213,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	// every contributor we have - the snapshot itself is nil-safe
 	// and degrades when any one is missing.
 	metricsSvc := services.NewMetricsService(
-		cfg, monitorSvc, dnsSvc, dhcpSvc, qosSvc, vpnSvc, backupSvc, updateSvc,
+		cfg, monitorSvc, dnsSvc, dhcpSvc, qosSvc, vpnSvc, backupSvc, updateSvc, ovpnSvc,
 	)
 	metricsHandler := handlers.NewMetricsHandler(metricsSvc)
 	sseBroker := NewSSEBroker()

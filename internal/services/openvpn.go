@@ -39,12 +39,12 @@ func NewOpenVPNService(cfg *config.Config) *OpenVPNService {
 }
 
 type OVPNServerStatus struct {
-	Enabled      bool
-	Active       bool
-	PKIReady     bool
-	Port         int
-	Protocol     string
-	ClientCount  int
+	Enabled     bool
+	Active      bool
+	PKIReady    bool
+	Port        int
+	Protocol    string
+	ClientCount int
 }
 
 func (s *OpenVPNService) ServerStatus(ctx context.Context) (*OVPNServerStatus, error) {
@@ -273,8 +273,8 @@ func (s *OpenVPNService) GenerateClientOVPN(name string) (string, error) {
 
 type ovpnServerTemplateData struct {
 	config.OVPNServerConfig
-	SubnetIP        string
-	SubnetMask      string
+	SubnetIP         string
+	SubnetMask       string
 	SiteToSiteRoutes []ovpnRouteEntry
 }
 
@@ -536,4 +536,54 @@ func (s *OpenVPNService) DisconnectClient(ctx context.Context, name string) erro
 	}
 	log.Printf("OpenVPN client %q disconnected", name)
 	return nil
+}
+
+// ovpnStatusPath is the file the shipped server config writes its client
+// list to. Kept in step with configs/sysconf/openvpn-server.conf.tmpl.
+const ovpnStatusPath = "/var/log/openvpn-status.log"
+
+// ActiveSessions counts the clients currently connected to the OpenVPN
+// server, read from the status file the daemon maintains.
+//
+// The shipped config sets no status-version, so the file is OpenVPN's
+// default version 1: a "CLIENT LIST" section whose header row starts
+// with "Common Name", one row per connected client, terminated by
+// "ROUTING TABLE". The machine-readable versions prefix each row with
+// "CLIENT_LIST,", which is accepted too so an operator who sets
+// status-version by hand does not silently get zero.
+//
+// A missing file means the server has never run, which is zero sessions
+// rather than an error.
+func (s *OpenVPNService) ActiveSessions(ctx context.Context) int {
+	data, err := netutil.ReadFile(ovpnStatusPath)
+	if err != nil {
+		return 0
+	}
+	return countOVPNSessions(string(data))
+}
+
+func countOVPNSessions(status string) int {
+	var count int
+	inClientList := false
+
+	for _, line := range strings.Split(status, "\n") {
+		line = strings.TrimRight(line, "\r")
+		switch {
+		case strings.HasPrefix(line, "CLIENT_LIST,"):
+			count++
+			continue
+		case strings.HasPrefix(line, "Common Name,"):
+			inClientList = true
+			continue
+		case strings.HasPrefix(line, "ROUTING TABLE"),
+			strings.HasPrefix(line, "GLOBAL STATS"),
+			line == "END":
+			inClientList = false
+			continue
+		}
+		if inClientList && strings.TrimSpace(line) != "" {
+			count++
+		}
+	}
+	return count
 }

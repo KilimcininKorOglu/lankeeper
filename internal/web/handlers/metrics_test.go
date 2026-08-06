@@ -15,7 +15,7 @@ func TestMetricsHandlerContentTypeAndBody(t *testing.T) {
 	// Pass nil-safe references; the snapshot composer guards
 	// every contributor and degrades to a minimal output. We
 	// only need to confirm the wire format here.
-	mSvc := services.NewMetricsService(cfg, nil, nil, nil, nil, nil, nil, nil)
+	mSvc := services.NewMetricsService(cfg, nil, nil, nil, nil, nil, nil, nil, nil)
 	h := NewMetricsHandler(mSvc)
 
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)

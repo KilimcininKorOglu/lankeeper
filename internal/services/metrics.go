@@ -30,6 +30,7 @@ type MetricsService struct {
 	vpn     *VPNService
 	backup  *BackupService
 	update  *UpdateService
+	openvpn *OpenVPNService
 
 	// Snapshot collection is cached because /metrics carries no
 	// authentication. Collecting live meant every scrape forked several
@@ -61,6 +62,7 @@ func NewMetricsService(
 	vpn *VPNService,
 	backup *BackupService,
 	update *UpdateService,
+	openvpn *OpenVPNService,
 ) *MetricsService {
 	return &MetricsService{
 		cfg:      cfg,
@@ -71,6 +73,7 @@ func NewMetricsService(
 		vpn:      vpn,
 		backup:   backup,
 		update:   update,
+		openvpn:  openvpn,
 		cacheTTL: metricsCacheTTL,
 	}
 }
@@ -223,6 +226,9 @@ func (s *MetricsService) collect(ctx context.Context) MetricsSnapshot {
 			snap.BackupLastStatusOK = 1
 		}
 		snap.BackupHistorySize = len(s.cfg.Backup.History)
+	}
+	if s.openvpn != nil {
+		snap.OpenVPNPeers = s.openvpn.ActiveSessions(ctx)
 	}
 	snap.PPPoEConnected = pppoeConnectedFromCfg(s.cfg)
 	snap.IPv6Active, snap.IPv6Mode = ipv6StateFromCfg(s.cfg)

@@ -292,6 +292,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(metrics) OpenVPN session count is actually collected**: the
+  exposition wrote `lankeeper_openvpn_active_sessions` on every scrape,
+  but nothing ever assigned the field it reads. The metrics service held
+  no reference to the OpenVPN service at all, so the series reported
+  zero permanently. An operator alerting on it got either a constant
+  false alarm or, worse, silent confidence that OpenVPN was being
+  watched when no value had ever been measured. The service now reads
+  the status file the shipped server config already writes and counts
+  the connected clients, skipping the routing-table rows that repeat one
+  line per client. Both the default status format and the
+  machine-readable one are parsed, so an operator who sets
+  `status-version` by hand does not fall back to zero. A server that has
+  never run leaves no status file and still reports zero, which is the
+  correct answer there.
+
 - **(web) Request log lines carry the response status**: the logger
   handed the raw `ResponseWriter` to the next handler and observed
   nothing it wrote, so every line recorded only method, path, client and

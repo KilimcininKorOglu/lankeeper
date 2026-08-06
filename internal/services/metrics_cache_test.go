@@ -44,7 +44,7 @@ func newScrapeTestMetrics(t *testing.T) (*MetricsService, *scrapeAgent) {
 	t.Cleanup(func() { netutil.SetAgentClient(nil) })
 
 	cfg := &config.Config{}
-	svc := NewMetricsService(cfg, nil, NewDNSService(cfg), nil, nil, nil, nil, nil)
+	svc := NewMetricsService(cfg, nil, NewDNSService(cfg), nil, nil, nil, nil, nil, nil)
 	return svc, agent
 }
 
