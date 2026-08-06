@@ -199,7 +199,7 @@ func TestIPv6LeaseTriggersFirewallApply(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := ipv6.StartLeaseWatcher(ctx); err != nil {
+	if err := ipv6.StartLeaseWatcher(ctx, nil); err != nil {
 		t.Fatalf("StartLeaseWatcher: %v", err)
 	}
 	defer ipv6.StopLeaseWatcher()

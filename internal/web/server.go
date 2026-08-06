@@ -190,12 +190,8 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 		firewallSvc.Confirm()
 		return nil
 	})
-	if err := ipv6Svc.StartLeaseWatcher(context.Background()); err != nil {
-		// Watcher is best-effort: we log the failure but keep serving.
-		// dhcp6c will still write the state file; only the auto-refresh
-		// is lost.
-		log.Printf("ipv6: start lease watcher: %v", err)
-	}
+	// The watcher itself is started in Serve, where the shutdown context
+	// and the background drain group live.
 	ipv6Handler := handlers.NewIPv6Handler(renderer, cfg, ipv6Svc, sixInFourSvc, pppoeSvc)
 
 	backupSvc := services.NewBackupService("/etc/lankeeper")
@@ -375,6 +371,14 @@ func (s *Server) Serve(ctx context.Context) error {
 	// context from ctx, so shutdown drains the goroutines without an
 	// explicit Stop. No-op when disabled.
 	s.healthSvc.Start(ctx)
+
+	// Watches the dhcp6c lease state file and re-applies the firewall
+	// when the delegated prefix changes. Best-effort: a failure to
+	// install the fsnotify watch costs the auto-refresh, not the lease
+	// itself, so we log and keep serving.
+	if err := s.ipv6Svc.StartLeaseWatcher(ctx, &bg); err != nil {
+		log.Printf("ipv6: start lease watcher: %v", err)
+	}
 
 	go func() {
 		<-ctx.Done()

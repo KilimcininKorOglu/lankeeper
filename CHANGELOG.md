@@ -292,6 +292,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(ipv6) The lease watcher stops with the server**: it was started
+  with `context.Background()` instead of the shutdown context, so the
+  `ctx.Done()` branch written as its graceful-stop path could never
+  fire, and the only other exit, `StopLeaseWatcher`, had no production
+  caller at all. The fsnotify watch and its debounce timer therefore ran
+  unmanaged for the life of the process, and a lease dispatch in flight
+  at termination, which applies the firewall ruleset and auto-confirms
+  the watchdog, was abandoned mid-step. The watcher now starts alongside
+  the other background workers, on the shutdown context and counted in
+  the same drain group, so it exits on cancel and shutdown waits for an
+  in-flight dispatch. An exit on cancel also clears the running marker,
+  which previously only `StopLeaseWatcher` cleared: a watcher that
+  returned on its own left it set, and every later start reported
+  success without starting anything.
+
 - **(metrics) OpenVPN session count is actually collected**: the
   exposition wrote `lankeeper_openvpn_active_sessions` on every scrape,
   but nothing ever assigned the field it reads. The metrics service held

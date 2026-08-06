@@ -897,12 +897,16 @@ func (s *IPv6Service) SetOnLeaseChange(fn func(ctx context.Context, state Prefix
 // which destroys the inode the watcher would otherwise be tied to.
 //
 // Idempotent: subsequent calls are no-ops while the watcher is running.
-// Stop() tears it down.
+// Cancelling ctx or calling StopLeaseWatcher tears it down; either way
+// the watcher can be started again afterwards.
+//
+// wg, when non-nil, counts the goroutine so the caller's shutdown drain
+// waits for an in-flight dispatch instead of abandoning it.
 // leaseDebounceWindow collapses the two or three fsnotify events a
 // single atomic lease write produces into one dispatch.
 const leaseDebounceWindow = 150 * time.Millisecond
 
-func (s *IPv6Service) StartLeaseWatcher(ctx context.Context) error {
+func (s *IPv6Service) StartLeaseWatcher(ctx context.Context, wg *sync.WaitGroup) error {
 	s.mu.Lock()
 	if s.watcherStop != nil {
 		s.mu.Unlock()
@@ -928,8 +932,29 @@ func (s *IPv6Service) StartLeaseWatcher(ctx context.Context) error {
 	}
 
 	s.watcherWG.Add(1)
-	go s.runLeaseWatcher(ctx, watcher, stopCh, statePath)
+	if wg != nil {
+		wg.Add(1)
+	}
+	go func() {
+		if wg != nil {
+			defer wg.Done()
+		}
+		s.runLeaseWatcher(ctx, watcher, stopCh, statePath)
+	}()
 	return nil
+}
+
+// releaseWatcher clears the running-watcher marker once the goroutine
+// that owns stopCh has returned. Guarded on identity because
+// StopLeaseWatcher may already have cleared the field and a later
+// StartLeaseWatcher installed a new channel; without that check a
+// context-driven exit would silently disarm the fresh watcher.
+func (s *IPv6Service) releaseWatcher(stopCh chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.watcherStop == stopCh {
+		s.watcherStop = nil
+	}
 }
 
 // StopLeaseWatcher signals the watcher goroutine to exit and waits
@@ -954,6 +979,7 @@ func (s *IPv6Service) StopLeaseWatcher() {
 
 func (s *IPv6Service) runLeaseWatcher(ctx context.Context, watcher *fsnotify.Watcher, stopCh chan struct{}, statePath string) {
 	defer s.watcherWG.Done()
+	defer s.releaseWatcher(stopCh)
 	defer func() { _ = watcher.Close() }()
 
 	// Initial dispatch so the callback sees the state that already

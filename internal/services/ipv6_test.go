@@ -554,7 +554,7 @@ func TestIPv6LeaseWatcherFiresOnFileChange(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if err := svc.StartLeaseWatcher(ctx); err != nil {
+	if err := svc.StartLeaseWatcher(ctx, nil); err != nil {
 		t.Fatalf("StartLeaseWatcher: %v", err)
 	}
 	defer svc.StopLeaseWatcher()
@@ -616,7 +616,7 @@ func TestIPv6LeaseWatcherDedupesIdenticalEvents(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if err := svc.StartLeaseWatcher(ctx); err != nil {
+	if err := svc.StartLeaseWatcher(ctx, nil); err != nil {
 		t.Fatalf("StartLeaseWatcher: %v", err)
 	}
 	defer svc.StopLeaseWatcher()
