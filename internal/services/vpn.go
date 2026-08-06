@@ -262,7 +262,19 @@ func (s *VPNService) AddPeer(ctx context.Context, name string, siteToSite bool, 
 
 	psk, _ := s.GeneratePresharedKey(ctx)
 
-	nextIP := fmt.Sprintf("10.10.11.%d/32", len(s.cfg.VPN.Server.Peers)+2)
+	// Allocate, append and persist under one lock, matching RemovePeer.
+	// nextTunnelIP derives the address from the peers actually present,
+	// so splitting allocation from the append would let a concurrent
+	// AddPeer read the same free slot and hand the same /32 to both.
+	// Persisting inside the same section keeps the marshal from reading
+	// the peer slice while another caller is appending to it.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	nextIP, err := s.nextTunnelIP()
+	if err != nil {
+		return nil, "", err
+	}
 
 	allowedIPs := nextIP
 	if siteToSite && len(remoteSubnets) > 0 {
@@ -280,9 +292,7 @@ func (s *VPNService) AddPeer(ctx context.Context, name string, siteToSite bool, 
 		IsSiteToSite:  siteToSite,
 	}
 
-	s.mu.Lock()
 	s.cfg.VPN.Server.Peers = append(s.cfg.VPN.Server.Peers, peer)
-	s.mu.Unlock()
 
 	if err := s.persist(); err != nil {
 		return nil, "", fmt.Errorf("persist: %w", err)

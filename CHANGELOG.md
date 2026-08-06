@@ -94,6 +94,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(vpn) A removed WireGuard peer no longer causes address collisions**:
+  `AddPeer` derived the tunnel address from `len(Peers)+2`, so the
+  address depended on how many peers existed rather than on which
+  addresses were free. Removing a peer shrank the slice and the next
+  peer was handed a `/32` that an existing peer still held. Two
+  configurations then claimed the same address, the kernel routed the
+  tunnel subnet to whichever peer completed a handshake last, and the
+  other client lost connectivity until an operator noticed the duplicate
+  by hand. The site-to-site path already used `nextTunnelIP`, which
+  scans the peers actually present for the lowest free slot; the
+  road-warrior path now uses it too, so a freed address is reused and no
+  address is issued twice. Allocation, append and persist also moved
+  into a single critical section, matching `RemovePeer`: previously two
+  concurrent calls could read the same free slot, and the config marshal
+  ran while another caller was appending to the peer slice.
+
 - **(firewall) Inter-VLAN isolation rules now name the VLAN device**:
   the two drop rules used `$.VLANDevice`, but `$` is the root data
   object regardless of range nesting, so it never referred to the VLAN
