@@ -24,22 +24,22 @@ import (
 )
 
 type DNSService struct {
-	cfg       *config.Config
-	mu        sync.RWMutex
-	queryBuf  []QueryLogEntry
-	bufSize   int
-	stats     DNSStats
-	cancel    context.CancelFunc
+	cfg      *config.Config
+	mu       sync.RWMutex
+	queryBuf []QueryLogEntry
+	bufSize  int
+	stats    DNSStats
+	cancel   context.CancelFunc
 }
 
 type DNSStats struct {
-	TotalQueries  int
-	CacheHits     int
-	CacheMisses   int
-	BlockedCount  int
-	TopDomains    []DomainCount
-	TopClients    []ClientCount
-	TopBlocked    []DomainCount
+	TotalQueries int
+	CacheHits    int
+	CacheMisses  int
+	BlockedCount int
+	TopDomains   []DomainCount
+	TopClients   []ClientCount
+	TopBlocked   []DomainCount
 }
 
 type DomainCount struct {
@@ -391,6 +391,7 @@ func (s *DNSService) GetDNSConfig() config.DNSConfig {
 //   - "ip@port"                     (custom port, no SNI)
 //   - "ip@port#hostname"            (custom port + SNI for cert validation)
 //   - "ip#hostname"                 (port 853 + SNI)
+//
 // Probes are timeout-bounded (5s).
 func (s *DNSService) ProbeDoT(ctx context.Context, upstream string) (time.Duration, error) {
 	host, port, sni, err := parseAndValidateDoTSpec(strings.TrimSpace(upstream))
@@ -400,17 +401,7 @@ func (s *DNSService) ProbeDoT(ctx context.Context, upstream string) (time.Durati
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	dialer := &tls.Dialer{
-		NetDialer: &net.Dialer{Timeout: 3 * time.Second},
-		Config: &tls.Config{
-			// SNI is mandatory (validateDoTUpstream rejects empty);
-			// crypto/tls verifies the cert chain AND VerifyHostname
-			// against this name, defeating MITM attempts that present
-			// a valid cert issued for some other domain.
-			ServerName: sni,
-			MinVersion: tls.VersionTLS12,
-		},
-	}
+	dialer := newDoTProbeDialer(sni)
 	addr := net.JoinHostPort(host, port)
 	start := time.Now()
 	conn, err := dialer.DialContext(probeCtx, "tcp", addr)
@@ -464,9 +455,10 @@ func (s *DNSService) ProbeDoT(ctx context.Context, upstream string) (time.Durati
 // parseDoTSpec splits an unbound-style DoT upstream string into its
 // host, port, and SNI components. Defaults: port=853, sni="" (no
 // validation hostname). Examples:
-//   "1.1.1.1"                          → host=1.1.1.1, port=853, sni=""
-//   "1.1.1.1@853"                      → host=1.1.1.1, port=853, sni=""
-//   "1.1.1.1@853#cloudflare-dns.com"   → host=..., port=853, sni=cloudflare-dns.com
+//
+//	"1.1.1.1"                          → host=1.1.1.1, port=853, sni=""
+//	"1.1.1.1@853"                      → host=1.1.1.1, port=853, sni=""
+//	"1.1.1.1@853#cloudflare-dns.com"   → host=..., port=853, sni=cloudflare-dns.com
 func parseDoTSpec(spec string) (host, port, sni string) {
 	port = "853"
 	if i := strings.Index(spec, "#"); i >= 0 {
@@ -841,4 +833,28 @@ func topN(counts map[string]int, n int) []DomainCount {
 		result = result[:n]
 	}
 	return result
+}
+
+// newDoTProbeDialer builds the dialer the DoT probe connects with.
+//
+// The spec's host may be a name, and parseAndValidateDoTSpec resolves it
+// once to reject internal answers. Without the Control hook the dial
+// would resolve again, so a record repointed between the two lookups
+// would be connected to anyway; the hook checks the address actually
+// being dialled.
+func newDoTProbeDialer(sni string) *tls.Dialer {
+	return &tls.Dialer{
+		NetDialer: &net.Dialer{
+			Timeout: 3 * time.Second,
+			Control: refuseInternalAddress,
+		},
+		Config: &tls.Config{
+			// SNI is mandatory (validateDoTUpstream rejects empty);
+			// crypto/tls verifies the cert chain AND VerifyHostname
+			// against this name, defeating MITM attempts that present
+			// a valid cert issued for some other domain.
+			ServerName: sni,
+			MinVersion: tls.VersionTLS12,
+		},
+	}
 }

@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(dns) DoT and DoH probes check the address they actually dial**: the
+  upstream guard resolved the hostname once and rejected internal
+  answers, but neither probe pinned that result. The DoH transport had no
+  `DialContext` and the DoT dialer no `Control` hook, so both resolved
+  again at connect time and the address that was validated was not
+  necessarily the address that was dialled. A record repointed between
+  the two lookups, or a domain whose owner simply points it inward, had
+  the router open outbound TLS into its own LAN or localhost, which is
+  what the guard exists to prevent. The DoH probe additionally only
+  accepts ports 443, 4443 and 8443, which is little defence given 8443 is
+  the router's own admin UI. Both probes now dial through the same
+  address check the outbound fetch clients use, applied to the address
+  the connection actually uses. The persisted-config path is unchanged
+  and remains outside this: once an upstream is written into
+  `dnscrypt-proxy.toml`, that daemon resolves it on its own schedule and
+  nothing in this process can re-validate it.
+
 - **(agent, handlers) Privileged stderr no longer reaches the browser**:
   when a whitelisted command failed, the root agent embedded the failed
   process's stderr in the error it returned, and every layer above wrapped

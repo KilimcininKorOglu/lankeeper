@@ -32,9 +32,9 @@ import (
 // the DNS template, not here. This service is responsible only for
 // the proxy's own config rendering and lifecycle.
 type DoHService struct {
-	cfg          *config.Config
-	tmpl         string
-	parsedTmpl   *template.Template
+	cfg        *config.Config
+	tmpl       string
+	parsedTmpl *template.Template
 }
 
 const dnscryptConfigPath = "/etc/dnscrypt-proxy/dnscrypt-proxy.toml"
@@ -101,13 +101,13 @@ func (s *DoHService) RenderConfig() (string, error) {
 // buildTemplateData splits the configured DoHUpstream into the
 // shape the template wants. The decision tree:
 //   - empty:                    no server_names, fall through to
-//                               sources auto-pick (rare in our flow)
+//     sources auto-pick (rare in our flow)
 //   - catalogue name:           ServerNames=[name], no static
 //   - sdns:// custom:           ServerNames=[lankeeper-custom],
-//                               CustomServers=[{lankeeper-custom, stamp}]
+//     CustomServers=[{lankeeper-custom, stamp}]
 //   - https:// URL:             converted to sdns:// stamp first
-//                               (see specToStamp), then handled as
-//                               sdns:// case.
+//     (see specToStamp), then handled as
+//     sdns:// case.
 func (s *DoHService) buildTemplateData() dohTemplateData {
 	upstream := strings.TrimSpace(s.cfg.DNS.DoHUpstream)
 	if upstream == "" {
@@ -264,7 +264,9 @@ func validateSDNSUpstream(spec string) error {
 // decodeDoHStamp walks the wire format described in
 // https://dnscrypt.info/stamps-specifications#dns-over-https.
 // Layout after the 1-byte protocol marker:
-//   [u64 props] [lp address] [vlp hash...] [lp host] [lp path] [vlp bootstrap-ip...]
+//
+//	[u64 props] [lp address] [vlp hash...] [lp host] [lp path] [vlp bootstrap-ip...]
+//
 // We only care about [lp host] and [lp path]; everything else is
 // skipped via the length-prefixed walk so an unfamiliar trailing
 // extension never breaks parsing.
@@ -417,7 +419,7 @@ func httpsURLToStamp(rawURL string) (string, error) {
 	}
 
 	var buf bytes.Buffer
-	buf.WriteByte(0x02) // DoH
+	buf.WriteByte(0x02)        // DoH
 	buf.Write(make([]byte, 8)) // properties=0
 	writeLP(&buf, []byte(addr))
 	// hashes: empty vlp (single zero-length entry, no more)
@@ -478,13 +480,7 @@ func (s *DoHService) Probe(ctx context.Context, spec string) (time.Duration, err
 	req.Header.Set("Content-Type", "application/dns-message")
 	req.Header.Set("Accept", "application/dns-message")
 
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
-			TLSHandshakeTimeout:   3 * time.Second,
-			ResponseHeaderTimeout: 3 * time.Second,
-		},
-	}
+	client := newDoHProbeClient()
 
 	start := time.Now()
 	resp, err := client.Do(req)
@@ -547,4 +543,26 @@ func writeLP(buf *bytes.Buffer, payload []byte) {
 	}
 	buf.WriteByte(byte(len(payload)))
 	buf.Write(payload)
+}
+
+// newDoHProbeClient builds the client the DoH probe dials with.
+//
+// The upstream hostname is checked with one lookup before this runs, and
+// the transport would resolve again at connect time, so the address that
+// was validated is not necessarily the one dialled. The Control hook
+// closes that window by checking the address the connection actually
+// uses, which also covers a redirect and a record repointed between the
+// two lookups.
+func newDoHProbeClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout: 3 * time.Second,
+				Control: refuseInternalAddress,
+			}).DialContext,
+			TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
+			TLSHandshakeTimeout:   3 * time.Second,
+			ResponseHeaderTimeout: 3 * time.Second,
+		},
+	}
 }
