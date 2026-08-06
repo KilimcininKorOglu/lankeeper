@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(ci) The govulncheck gate no longer measures a frozen standard
+  library**: `go.mod` declared `go 1.26.2` and all three CI jobs
+  selected their compiler with `go-version-file: go.mod`. A fully
+  qualified patch version in that directive makes the setup action
+  install exactly that release, so CI evaluated the standard library of
+  a pinned patch and never picked up a newer one. `govulncheck` then
+  failed identically on every open pull request over `html/template`,
+  `crypto/tls`, `crypto/x509` and `net/http` advisories already fixed
+  upstream, including a pull request that touched no Go code at all. The
+  gate was specifically blocking the dependency updates it exists to
+  prompt. The `go` directive now declares `1.26.5` as the floor and the
+  three jobs track `1.26.x` with `check-latest`, so a new patch release
+  is picked up without a commit while the minor line stays the one
+  go.mod declares. No `toolchain` directive was added: with the version
+  chosen by a range in the workflow, it would be a second pin to keep in
+  sync for no gain.
+
 - **(deps) x/crypto and x/net bumped past their reachable advisories**:
   `golang.org/x/crypto v0.50.0` carried five `crypto/ssh` advisories
   that `govulncheck` reports as reachable from the SFTP backup target,
