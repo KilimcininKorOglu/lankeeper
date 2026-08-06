@@ -542,6 +542,8 @@
     "backup.targets.sftp.password": "Parola",
     "backup.targets.sftp.keyPath": "SSH anahtar yolu",
     "backup.targets.sftp.remoteDir": "Uzak dizin",
+    "backup.targets.sftp.hostKeyFingerprint": "Host key parmak izi",
+    "backup.targets.sftp.hostKeyFingerprintHint": "Zorunlu. Bir kez yedekleme çalıştırın, geçmiş satırı sunucunun sunduğu parmak izini gösterir; doğrulayın ve buraya yapıştırın.",
     "backup.history.title": "Geçmiş",
     "backup.history.empty": "Henüz çalıştırılmadı.",
     "backup.history.startedAt": "Başlangıç",

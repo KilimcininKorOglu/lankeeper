@@ -160,6 +160,11 @@
                                 {{ t $.Lang "backup.targets.sftp.remoteDir" }}
                                 <input class="input" name="remoteDir" type="text" placeholder="/backups">
                             </label>
+                            <label class="input-label">
+                                {{ t $.Lang "backup.targets.sftp.hostKeyFingerprint" }}
+                                <input class="input" name="hostKeyFingerprint" type="text" placeholder="SHA256:...">
+                                <span style="color:var(--text-secondary); font-size:var(--font-xs);">{{ t $.Lang "backup.targets.sftp.hostKeyFingerprintHint" }}</span>
+                            </label>
                         </div>
                     </div>
 

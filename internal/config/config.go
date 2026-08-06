@@ -77,6 +77,12 @@ type BackupTarget struct {
 	Password  string `yaml:"password,omitempty"`
 	KeyPath   string `yaml:"keyPath,omitempty"`
 	RemoteDir string `yaml:"remoteDir,omitempty"`
+	// HostKeyFingerprint pins the SSH host key in OpenSSH's
+	// "SHA256:..." form, the same string `ssh-keygen -lf` prints.
+	// A connection is refused while this is empty, and the refusal
+	// names the fingerprint the server presented so the operator can
+	// verify and paste it. Not a secret, so it is not encrypted.
+	HostKeyFingerprint string `yaml:"hostKeyFingerprint,omitempty"`
 }
 
 // BackupHistory is one row of the run-history ring buffer.

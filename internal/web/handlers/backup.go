@@ -132,6 +132,7 @@ func (h *BackupHandler) HandleAddTarget(w http.ResponseWriter, r *http.Request) 
 		target.Password = r.FormValue("password")
 		target.KeyPath = strings.TrimSpace(r.FormValue("keyPath"))
 		target.RemoteDir = strings.TrimSpace(r.FormValue("remoteDir"))
+		target.HostKeyFingerprint = strings.TrimSpace(r.FormValue("hostKeyFingerprint"))
 	default:
 		http.Error(w, "invalid type", http.StatusBadRequest)
 		return

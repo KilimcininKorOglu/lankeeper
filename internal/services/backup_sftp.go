@@ -19,18 +19,37 @@ import (
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 )
 
-// dialSFTP establishes an SSH connection then layers an SFTP client
-// on top. Auth precedence: KeyPath (if set) over Password. Host
-// key verification uses TOFU semantics: on first connect we accept
-// and pin to ~/.ssh/known_hosts, on subsequent connects we verify
-// against the pinned key.
+// pinnedHostKeyCallback verifies the server's host key against the
+// fingerprint the operator pinned on the target.
 //
-// We deliberately accept InsecureIgnoreHostKey ONLY when KnownHosts
-// is empty AND the operator opts in via a TrustOnFirstUse flag.
-// For the v1 ship we use a permissive host-key callback that
-// records the fingerprint into the run history so the operator can
-// audit it; production hardening (proper known_hosts persistence)
-// is a v2 follow-up.
+// An unpinned target is refused rather than trusted, because accepting
+// an unverified key is what let an on-path attacker collect the archive
+// and, when a password is configured, the credential with it. The
+// refusal carries the fingerprint the server actually presented: that
+// error reaches the operator through the backup history table, which is
+// how they learn the value to pin without a separate tool.
+func pinnedHostKeyCallback(t config.BackupTarget) ssh.HostKeyCallback {
+	want := strings.TrimSpace(t.HostKeyFingerprint)
+
+	return func(_ string, _ net.Addr, key ssh.PublicKey) error {
+		got := ssh.FingerprintSHA256(key)
+
+		if want == "" {
+			return fmt.Errorf(
+				"host key not pinned: server presented %s, set the host key fingerprint on this target to trust it",
+				got)
+		}
+		if got != want {
+			return fmt.Errorf("host key mismatch: expected %s, server presented %s", want, got)
+		}
+		return nil
+	}
+}
+
+// dialSFTP establishes an SSH connection then layers an SFTP client
+// on top. Auth precedence: KeyPath (if set) over Password. The host
+// key is verified against the fingerprint pinned on the target; see
+// pinnedHostKeyCallback.
 func dialSFTP(ctx context.Context, t config.BackupTarget) (*sftp.Client, *ssh.Client, error) {
 	if t.Host == "" {
 		return nil, nil, errors.New("sftp host required")
@@ -48,7 +67,7 @@ func dialSFTP(ctx context.Context, t config.BackupTarget) (*sftp.Client, *ssh.Cl
 	cfg := &ssh.ClientConfig{
 		User:            t.User,
 		Auth:            auths,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec // TOFU; v2 will pin
+		HostKeyCallback: pinnedHostKeyCallback(t),
 		Timeout:         15 * time.Second,
 	}
 

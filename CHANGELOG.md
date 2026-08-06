@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(backup) SFTP host keys are now verified against a pinned
+  fingerprint**: every SFTP backup connection used
+  `ssh.InsecureIgnoreHostKey`, with no condition and no setting that
+  could turn verification on. The comment above it described a
+  trust-on-first-use scheme with `known_hosts` persistence and an
+  operator opt-in flag, none of which existed anywhere in the codebase.
+  An on-path attacker could therefore intercept the session
+  transparently, and because a password-configured target offers
+  `ssh.Password`, the credential went to whoever answered. The uploaded
+  archive is a full config backup carrying the session secret, the admin
+  password hash, and every WireGuard private key, so interception meant
+  both exfiltration and backup poisoning. Targets now carry a
+  `hostKeyFingerprint` in OpenSSH's `SHA256:...` form, editable from the
+  backup page, and a mismatch aborts the transfer. An unpinned target is
+  refused rather than trusted; the refusal names the fingerprint the
+  server presented, and that message reaches the operator through the
+  backup history table, so pinning is a verify-and-paste step with no
+  extra tooling. Existing SFTP targets will fail until pinned, which is
+  the intended fail-closed behaviour. Local and S3 targets are
+  unaffected.
+
 - **(nas) Share path can no longer inject Samba directives**: the share
   path was checked only with `filepath.Clean` and a `/srv/` or `/mnt/`
   prefix test. Neither rejects an embedded newline, which an ordinary
