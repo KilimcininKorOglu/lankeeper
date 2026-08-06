@@ -81,6 +81,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(backup) A run aborted by a config guard now leaves a trace**:
+  `runOnce` returned bare errors from three paths, an empty passphrase,
+  an empty target list, and a failed `stat` on the produced archive,
+  without recording anything. Every other failure branch in the same
+  function wrote a history entry and updated `LastRun`, `LastStatus`,
+  and `LastError`. Because the Backup page and the
+  `lankeeper_backup_last_run` and `lankeeper_backup_last_status_ok`
+  gauges read only those fields, an operator who cleared the passphrase
+  or removed the last target saw both the page and `/metrics` frozen on
+  the previous success while the scheduler retried the broken config
+  indefinitely. The only trace was one journal line. All four failure
+  paths now go through a shared helper that records the run before
+  returning, and the returned error keeps its wrapping.
+
 - **(healthcheck) WAN auto-recovery now actually runs**: the health check
   service was fully implemented, enabled in the shipped defaults, and
   wired to a card on the network page, but the one function that seeds

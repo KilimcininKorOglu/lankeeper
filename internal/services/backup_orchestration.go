@@ -66,10 +66,10 @@ func (o *BackupOrchestrator) runOnce(ctx context.Context) error {
 	bcfg := o.cfg.Backup
 
 	if bcfg.Passphrase == "" {
-		return errors.New("backup passphrase not configured")
+		return o.failRun(started, errors.New("backup passphrase not configured"))
 	}
 	if len(bcfg.Targets) == 0 {
-		return errors.New("no backup targets configured")
+		return o.failRun(started, errors.New("no backup targets configured"))
 	}
 	retention := bcfg.Retention
 	if retention < 1 {
@@ -81,17 +81,11 @@ func (o *BackupOrchestrator) runOnce(ctx context.Context) error {
 	defer func() { _ = os.Remove(tmpPath) }()
 
 	if err := o.svc.Export(ctx, tmpPath, bcfg.Passphrase); err != nil {
-		o.recordHistory(historyEntry{
-			StartedAt:   started,
-			CompletedAt: time.Now(),
-			Status:      "error",
-			Message:     "export: " + err.Error(),
-		})
-		return fmt.Errorf("export: %w", err)
+		return o.failRun(started, fmt.Errorf("export: %w", err))
 	}
 	info, err := os.Stat(tmpPath)
 	if err != nil {
-		return fmt.Errorf("stat archive: %w", err)
+		return o.failRun(started, fmt.Errorf("stat archive: %w", err))
 	}
 	size := info.Size()
 
@@ -163,6 +157,25 @@ func (o *BackupOrchestrator) uploadOne(ctx context.Context, src string, t config
 		return fmt.Errorf("unknown target type %q", t.Type)
 	}
 	return nil
+}
+
+// failRun records a failed run before returning its error.
+//
+// Every abort has to leave a trace, including the ones that fire before
+// any work starts. The Backup page and the LastRun/LastStatus gauges
+// read only from the history the run writes, so a bare return froze
+// both on the last success while the scheduler kept retrying a config
+// that could not work.
+//
+// The error is returned unchanged so wrapping survives for callers.
+func (o *BackupOrchestrator) failRun(started time.Time, err error) error {
+	o.recordHistory(historyEntry{
+		StartedAt:   started,
+		CompletedAt: time.Now(),
+		Status:      "error",
+		Message:     err.Error(),
+	})
+	return err
 }
 
 // recordHistory persists the run entry to BackupConfig.History

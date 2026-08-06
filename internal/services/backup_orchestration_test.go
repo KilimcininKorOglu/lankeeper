@@ -169,6 +169,37 @@ func TestBackupOrchestratorRunsAndRotates(t *testing.T) {
 	}
 }
 
+// assertRunRecordedFailure checks the operator-visible trace a failed
+// run must leave. The Backup page renders cfg.Backup.History, and the
+// lankeeper_backup_last_run/last_status gauges read LastRun and
+// LastStatus, so a run that aborts without touching these leaves both
+// surfaces frozen on the previous success.
+func assertRunRecordedFailure(t *testing.T, cfg *config.Config, wantMessage string) {
+	t.Helper()
+
+	if len(cfg.Backup.History) != 1 {
+		t.Fatalf("history has %d entries, want 1: the aborted run left no trace",
+			len(cfg.Backup.History))
+	}
+	entry := cfg.Backup.History[0]
+	if entry.Status != "error" {
+		t.Errorf("history status = %q, want %q", entry.Status, "error")
+	}
+	if !strings.Contains(entry.Message, wantMessage) {
+		t.Errorf("history message %q does not mention %q", entry.Message, wantMessage)
+	}
+	if cfg.Backup.LastStatus != "error" {
+		t.Errorf("LastStatus = %q, want %q; the metrics gauge reads this field",
+			cfg.Backup.LastStatus, "error")
+	}
+	if cfg.Backup.LastRun.IsZero() {
+		t.Error("LastRun not set, so the last-run gauge keeps reporting the previous success")
+	}
+	if !strings.Contains(cfg.Backup.LastError, wantMessage) {
+		t.Errorf("LastError %q does not mention %q", cfg.Backup.LastError, wantMessage)
+	}
+}
+
 func TestBackupOrchestratorRequiresPassphrase(t *testing.T) {
 	cfgDir := t.TempDir()
 	cfg := &config.Config{}
@@ -184,6 +215,7 @@ func TestBackupOrchestratorRequiresPassphrase(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "passphrase") {
 		t.Errorf("expected passphrase error, got %v", err)
 	}
+	assertRunRecordedFailure(t, cfg, "passphrase")
 }
 
 func TestBackupOrchestratorRequiresTargets(t *testing.T) {
@@ -200,5 +232,38 @@ func TestBackupOrchestratorRequiresTargets(t *testing.T) {
 	err := svc.RunNow(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "no backup targets") {
 		t.Errorf("expected targets error, got %v", err)
+	}
+	assertRunRecordedFailure(t, cfg, "no backup targets")
+}
+
+// TestBackupOrchestratorRecordsFailureToDisk covers the persistence
+// half: recordHistory writes through cfg.SaveToFile, so the trace has
+// to survive a restart, not just live in memory.
+func TestBackupOrchestratorRecordsFailureToDisk(t *testing.T) {
+	cfgDir := t.TempDir()
+	cfgPath := filepath.Join(cfgDir, "router.yaml")
+	cfg := &config.Config{}
+	cfg.SetFilePath(cfgPath)
+	cfg.Backup = config.BackupConfig{
+		Enabled:   true,
+		Targets:   []config.BackupTarget{{Type: "local", Name: "x"}},
+		Retention: 1,
+	}
+	svc := services.NewBackupService(cfgDir)
+	services.NewBackupOrchestrator(svc, cfg)
+
+	if err := svc.RunNow(context.Background()); err == nil {
+		t.Fatal("expected the run to fail")
+	}
+
+	reloaded, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if len(reloaded.Backup.History) != 1 {
+		t.Fatalf("persisted history has %d entries, want 1", len(reloaded.Backup.History))
+	}
+	if reloaded.Backup.LastStatus != "error" {
+		t.Errorf("persisted LastStatus = %q, want %q", reloaded.Backup.LastStatus, "error")
 	}
 }
