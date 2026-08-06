@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,6 +26,70 @@ var allowedCommands = map[string]bool{
 	"openssl": true, "usermod": true, "localectl": true, "loadkeys": true,
 	"easyrsa": true, "mkdir": true, "tail": true, "update-grub": true,
 	"dhcp6c": true, "dhcp6ctl": true,
+}
+
+// trustedBinDirs are the only directories a whitelisted command is
+// resolved from.
+//
+// The caller's own path string is discarded entirely. Validating a
+// basename and then executing the caller's path meant the string that
+// was checked and the string that ran were different values, so naming
+// any file after an allowed command was enough to have the root agent
+// execute it. Resolution against these directories closes that, because
+// only root can write to them, and a caller who can write there already
+// has what this boundary exists to withhold.
+//
+// Debian 12 is usr-merged, so /sbin and /bin are symlinks to their /usr
+// counterparts. Both spellings are listed so resolution does not depend
+// on that merge holding.
+var trustedBinDirs = []string{"/usr/sbin", "/usr/bin", "/sbin", "/bin"}
+
+// commandOverrides pins the allowed commands that do not live in a bin
+// directory. easyrsa ships as a script under /usr/share.
+var commandOverrides = map[string]string{
+	"easyrsa": "/usr/share/easy-rsa/easyrsa",
+}
+
+var (
+	resolvedMu   sync.Mutex
+	resolvedCmds = map[string]string{}
+)
+
+// resolveAllowedCommand maps a command name to the absolute path that
+// will actually be executed, so the validated value and the executed
+// value are the same string.
+func resolveAllowedCommand(name string) (string, error) {
+	if !allowedCommands[name] {
+		return "", fmt.Errorf("command not allowed: %s", name)
+	}
+
+	resolvedMu.Lock()
+	defer resolvedMu.Unlock()
+
+	if p, ok := resolvedCmds[name]; ok {
+		return p, nil
+	}
+
+	var candidates []string
+	if p, ok := commandOverrides[name]; ok {
+		candidates = []string{p}
+	} else {
+		candidates = make([]string, 0, len(trustedBinDirs))
+		for _, dir := range trustedBinDirs {
+			candidates = append(candidates, filepath.Join(dir, name))
+		}
+	}
+
+	for _, p := range candidates {
+		info, err := os.Stat(p)
+		if err != nil || info.IsDir() || info.Mode().Perm()&0o111 == 0 {
+			continue
+		}
+		resolvedCmds[name] = p
+		return p, nil
+	}
+
+	return "", fmt.Errorf("command %q is allowed but was not found in a trusted directory", name)
 }
 
 type pathRuleKind int
@@ -158,8 +223,9 @@ func opExecRun(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	baseName := filepath.Base(params.Cmd)
-	if !allowedCommands[baseName] {
-		return nil, fmt.Errorf("command not allowed: %s", baseName)
+	cmdPath, err := resolveAllowedCommand(baseName)
+	if err != nil {
+		return nil, err
 	}
 
 	if _, ok := ctx.Deadline(); !ok {
@@ -168,7 +234,7 @@ func opExecRun(ctx context.Context, raw json.RawMessage) (any, error) {
 		defer cancel()
 	}
 
-	cmd := exec.CommandContext(ctx, params.Cmd, params.Args...)
+	cmd := exec.CommandContext(ctx, cmdPath, params.Args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -180,7 +246,7 @@ func opExecRun(ctx context.Context, raw json.RawMessage) (any, error) {
 		cmd.Env = append(os.Environ(), params.Env...)
 	}
 
-	err := cmd.Run()
+	err = cmd.Run()
 	result := ExecResult{
 		Stdout: stdout.String(),
 		Stderr: stderr.String(),

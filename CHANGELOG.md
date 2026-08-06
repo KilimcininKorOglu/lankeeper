@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(agent) The command whitelist now decides which file actually runs**:
+  `opExecRun` checked `filepath.Base(cmd)` against the whitelist and
+  then handed `exec.CommandContext` the caller's original string, so the
+  value that was validated and the value that ran were different.
+  Passing `/var/lib/lankeeper/backups/nft` cleared the check on its
+  basename and the root agent executed that file instead of
+  `/usr/sbin/nft`. Path-qualified commands are a supported input shape,
+  not a hypothetical, since the OpenVPN service already calls through
+  with an absolute path, so nothing rejected the form. That made the
+  whitelist a no-op for any path-qualified command and, combined with
+  the agent's own `file.write` into whitelisted directories, formed a
+  self-contained chain from file write to arbitrary root execution. The
+  caller's path is now discarded: only the name is honoured, and it is
+  resolved to an absolute path under `/usr/sbin`, `/usr/bin`, `/sbin` or
+  `/bin`, all of which only root can write, with an explicit pin for
+  `easyrsa`, which ships under `/usr/share`. A name that resolves to
+  nothing executable is an error rather than a fallback to the caller's
+  string. This does not change what a caller who reaches `exec.run` can
+  ask for, since the whitelist already includes `cp`, `chmod`, `rm`,
+  `chpasswd` and `usermod`, but it restores the bound the whitelist is
+  supposed to place on it.
+
 - **(update) The pre-update snapshot is no longer world-readable or
   permanent**: before every OTA update, `ApplyUpdate` exported the whole
   configuration with an empty passphrase. The only chmod in `Export`
