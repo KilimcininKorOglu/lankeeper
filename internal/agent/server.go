@@ -20,6 +20,12 @@ type Request struct {
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
 	ID      any             `json:"id"`
+	// TimeoutMS carries the caller's remaining time budget. Remaining
+	// duration rather than an absolute deadline: both processes share a
+	// clock, but a duration is immune to an NTP step landing between
+	// send and receive. Omitted when the caller set no deadline, in
+	// which case the handler applies its own default.
+	TimeoutMS int64 `json:"timeoutMs,omitempty"`
 }
 
 type Response struct {
@@ -250,6 +256,26 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 	}
 }
 
+// maxRequestedTimeout caps what a caller may ask for. The peer is
+// authenticated, but a compromised serve process should not be able to
+// tie up an agent goroutine for an arbitrary length of time. Comfortably
+// above the longest budget any real caller sets.
+const maxRequestedTimeout = 15 * time.Minute
+
+// requestedTimeout converts the wire value into a duration, clamping it
+// to the ceiling. A zero or negative value means the caller expressed no
+// preference and the handler's own default applies.
+func requestedTimeout(ms int64) time.Duration {
+	if ms <= 0 {
+		return 0
+	}
+	d := time.Duration(ms) * time.Millisecond
+	if d > maxRequestedTimeout {
+		return maxRequestedTimeout
+	}
+	return d
+}
+
 var errFrameTooLarge = errors.New("agent: request frame exceeds the size limit")
 
 // frameReader bounds a single JSON-RPC request without breaking the
@@ -322,6 +348,16 @@ func (s *Server) dispatch(ctx context.Context, req *Request) *Response {
 			Error:   &RPCError{Code: -32601, Message: fmt.Sprintf("method not found: %s", req.Method)},
 			ID:      req.ID,
 		}
+	}
+
+	// Give the handler the caller's budget. Without this the context
+	// reaching a handler never carried a deadline, so opExecRun always
+	// substituted its own 30 s and no caller could ask for more,
+	// however long the command legitimately needed.
+	if d := requestedTimeout(req.TimeoutMS); d > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, d)
+		defer cancel()
 	}
 
 	result, err := handler(ctx, req.Params)

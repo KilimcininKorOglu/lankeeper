@@ -94,6 +94,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(agent) The caller's timeout now crosses the IPC boundary**: the
+  request envelope carried no time budget, so the context reaching a
+  handler never had a deadline and `exec.run` always substituted its own
+  30 s. Every privileged command ran under a fixed ceiling no caller
+  could raise, and a caller that had deliberately allowed more was
+  silently overruled. `easyrsa build-ca` and especially `gen-dh`
+  generate key material and can exceed that on the low-power hardware
+  this targets, so they were killed mid-generation. Requests now carry
+  the caller's remaining budget, sent as a duration rather than an
+  absolute deadline so a clock step between send and receive cannot
+  distort it. The agent honours it, clamped to a ceiling so an
+  authenticated but compromised peer cannot tie up a goroutine
+  indefinitely, and falls back to its own default when the caller
+  expressed no preference. OpenVPN PKI setup now states a budget, since
+  without an explicit one it would still land on the agent's default.
+
 - **(deploy) The service user can now write the config directory**: both
   installers created `/etc/lankeeper` as mode 750 owned `root:lankeeper`,
   which gives the group read and traverse but not write. `SaveToFile`
@@ -167,7 +183,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   carried on to completion. Cancellation is now wired to the socket, an
   already-cancelled context returns before dialling, dialling itself
   takes the context, and the fallback is a generous liveness guard
-  rather than a policy ceiling. An abandoned call still drops its
+  rather than a policy ceiling. Raising that fallback did not on its own
+  let a long command finish: the agent applied its own short default
+  independently, which the entry below closes. An abandoned call still drops its
   connection, so its late reply can never be handed to the next caller.
 
 - **(server) Security rejections now reach the log**: `RequestLogger`

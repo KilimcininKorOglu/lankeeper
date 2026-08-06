@@ -77,7 +77,19 @@ func (c *Client) Call(ctx context.Context, method string, params any) (json.RawM
 	}
 
 	deadline, ok := ctx.Deadline()
-	if !ok {
+	if ok {
+		// Tell the agent how long the caller allowed. Without this the
+		// agent sees no deadline and falls back to its own 30 s, which
+		// silently overrules a caller that granted more.
+		//
+		// callTimeout is deliberately not sent when the caller set no
+		// deadline: it is this client's liveness guard, not a budget
+		// anyone asked for, and forwarding it would stretch every
+		// command to it.
+		if remaining := time.Until(deadline); remaining > 0 {
+			req.TimeoutMS = remaining.Milliseconds()
+		}
+	} else {
 		deadline = time.Now().Add(c.callTimeout)
 	}
 	_ = c.conn.SetDeadline(deadline)

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"text/template"
+	"time"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
@@ -65,7 +66,17 @@ func (s *OpenVPNService) ServerStatus(ctx context.Context) (*OVPNServerStatus, e
 	return status, nil
 }
 
+// pkiSetupBudget covers the whole PKI bring-up. Key generation, and
+// gen-dh in particular, can run for minutes on the low-power hardware
+// this targets, and the agent applies a short default to any command
+// whose caller expressed no budget. Without an explicit one here those
+// steps are killed mid-generation.
+const pkiSetupBudget = 10 * time.Minute
+
 func (s *OpenVPNService) InitPKI(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, pkiSetupBudget)
+	defer cancel()
+
 	pkiDir := "/etc/openvpn/pki"
 	easyrsa := "/usr/share/easy-rsa/easyrsa"
 	env := []string{"EASYRSA_PKI=" + pkiDir}
