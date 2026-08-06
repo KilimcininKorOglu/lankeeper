@@ -94,6 +94,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(firewall) Inter-VLAN isolation rules now name the VLAN device**:
+  the two drop rules used `$.VLANDevice`, but `$` is the root data
+  object regardless of range nesting, so it never referred to the VLAN
+  being iterated, and the field it pointed at was declared and never
+  assigned. Both rules therefore rendered with an empty interface name
+  that no device can match, leaving the Isolated control on the VLAN
+  page with no enforcement behind it. Nothing leaked in the current
+  build, because VLAN devices are not added to any forward accept rule
+  either and the default-deny policy happens to cover them, but the
+  gap would have opened the moment VLAN forwarding was enabled, which
+  the guest network requires. The rules now capture the loop element
+  the way the neighbouring WireGuard block already does, and the unused
+  field is gone.
+
 - **(agent) The caller's timeout now crosses the IPC boundary**: the
   request envelope carried no time budget, so the context reaching a
   handler never had a deadline and `exec.run` always substituted its own

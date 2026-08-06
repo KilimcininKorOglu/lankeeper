@@ -121,10 +121,10 @@ table inet filter {
 {{- end }}
 
         # Inter-VLAN isolation
-{{- range .IsolatedVLANs }}
+{{- range $vlan := .IsolatedVLANs }}
 {{- range $.LANInterfaces }}
-        iifname "{{ $.VLANDevice }}" oifname "{{ .Device }}" drop
-        iifname "{{ .Device }}" oifname "{{ $.VLANDevice }}" drop
+        iifname "{{ $vlan.Device }}" oifname "{{ .Device }}" drop
+        iifname "{{ .Device }}" oifname "{{ $vlan.Device }}" drop
 {{- end }}
 {{- end }}
 

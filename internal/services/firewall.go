@@ -50,7 +50,6 @@ type nftTemplateData struct {
 	LANDevice         string
 	WANDevice         string
 	IsolatedVLANs     []nftVLAN
-	VLANDevice        string
 	PortForwards      []config.PortForward
 	RateLimits        map[string]string
 	// Custom operator rules, already rendered and validated, grouped by
