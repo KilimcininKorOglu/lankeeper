@@ -9,6 +9,7 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
@@ -335,12 +336,16 @@ func (s *QoSService) ClientHistory(mac string) []ClientUsage {
 // counter table from the supplied lease provider every resyncEvery
 // ticks, samples every interval, and publishes ClientUsage slices
 // to the broker as event "qos-clients". Stops when ctx is done.
+//
+// wg may be nil. When supplied, the goroutine is counted into it so
+// shutdown can wait for it to drain.
 func (s *QoSService) StartClientSampler(
 	ctx context.Context,
 	publisher Publisher,
 	leaseProvider func() ([]Lease, error),
 	interval time.Duration,
 	resyncEvery int,
+	wg *sync.WaitGroup,
 ) {
 	if interval <= 0 {
 		interval = 2 * time.Second
@@ -349,7 +354,13 @@ func (s *QoSService) StartClientSampler(
 		resyncEvery = 30
 	}
 
+	if wg != nil {
+		wg.Add(1)
+	}
 	go func() {
+		if wg != nil {
+			defer wg.Done()
+		}
 		t := time.NewTicker(interval)
 		defer t.Stop()
 

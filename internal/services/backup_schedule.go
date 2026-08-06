@@ -231,7 +231,11 @@ var schedulerRunning bool
 // computes the next run from cfg.Backup.Schedule on every tick and
 // fires runBackup(ctx) when due. Schedule reloads happen on each
 // tick so a config change takes effect by the next minute boundary.
-func (s *BackupService) StartScheduler(ctx context.Context, cfg *backupSchedulerConfig) {
+// wg may be nil. When supplied, the goroutine is counted into it so a
+// caller can wait for an in-flight run to finish: RunNow is called
+// synchronously inside the loop below, so the goroutine does not exit
+// until the current backup has recorded its history entry.
+func (s *BackupService) StartScheduler(ctx context.Context, cfg *backupSchedulerConfig, wg *sync.WaitGroup) {
 	scheduleMu.Lock()
 	if schedulerRunning {
 		scheduleMu.Unlock()
@@ -240,7 +244,16 @@ func (s *BackupService) StartScheduler(ctx context.Context, cfg *backupScheduler
 	schedulerRunning = true
 	scheduleMu.Unlock()
 
+	if wg != nil {
+		wg.Add(1)
+	}
 	go func() {
+		if wg != nil {
+			// The loop clears schedulerRunning inline before it
+			// returns, so this deferred Done runs afterwards and a
+			// returning Wait never sees the flag still set.
+			defer wg.Done()
+		}
 		t := time.NewTicker(30 * time.Second)
 		defer t.Stop()
 		var nextFire time.Time

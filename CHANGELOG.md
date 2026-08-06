@@ -94,6 +94,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(server) Shutdown waits for background work to drain**: `Serve`
+  launched the monitor, stats publisher, QoS sampler, invite GC, and
+  backup scheduler as independent goroutines and waited for none of
+  them. The backup scheduler calls `RunNow` synchronously inside its
+  loop, so it only notices cancellation between runs, never during one.
+  When SIGTERM arrived mid-backup, which is exactly what a reboot or
+  the OTA updater's `systemctl restart` produces, the goroutine died
+  before `recordHistory`: no history entry, no `LastStatus` update, and
+  the deferred temp-file cleanup never ran, so the operator kept seeing
+  the previous run's "ok" while an encrypted archive was left behind.
+  Background goroutines are now counted into a wait group following the
+  same pattern the IPv6 lease watcher already uses, and shutdown drains
+  them before the process exits. The wait is capped at 30 s: the web
+  unit sets no `TimeoutStopSec`, so overrunning systemd's 90 s default
+  would earn a SIGKILL and reproduce the very damage being fixed.
+
 - **(agent) The RPC client honours context cancellation**: `Client.Call`
   never selected on `ctx.Done()`, so the blocking encode and decode ran
   to completion regardless. Since `SetAgentClient` is wired in

@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
@@ -312,9 +313,23 @@ func (s *Server) Serve(ctx context.Context) error {
 		ifaceNames = append(ifaceNames, iface.Device)
 	}
 
+	// bg counts every background goroutine so shutdown can wait for
+	// in-flight work instead of killing it mid-step. The backup
+	// scheduler is the one that matters: it calls RunNow synchronously
+	// inside its loop, so exiting the process during a run skips the
+	// history entry and leaves an encrypted archive in the temp dir.
+	var bg sync.WaitGroup
+
 	stopMonitor := make(chan struct{})
-	go s.monitor.Start(stopMonitor, ifaceNames)
-	go s.publishStats(ctx)
+	bg.Add(2)
+	go func() {
+		defer bg.Done()
+		s.monitor.Start(stopMonitor, ifaceNames)
+	}()
+	go func() {
+		defer bg.Done()
+		s.publishStats(ctx)
+	}()
 
 	// Per-client bandwidth sampler. Owns the lankeeper_qos
 	// nftables table; resyncs counter set from the dnsmasq lease
@@ -325,16 +340,17 @@ func (s *Server) Serve(ctx context.Context) error {
 		s.dhcpSvc.GetLeases,
 		2*time.Second,
 		30,
+		&bg,
 	)
 
 	// Garbage-collect expired site-to-site invite tokens. The
 	// ticker also sweeps once on startup so a long downtime does
 	// not leave stale pending peers visible in the UI.
-	s.vpnSvc.StartInviteGC(ctx, 5*time.Minute)
+	s.vpnSvc.StartInviteGC(ctx, 5*time.Minute, &bg)
 
 	// Backup scheduler: ticks every 30s, fires runOnce when the
 	// configured cron schedule next matches. No-op when disabled.
-	s.backupSvc.StartScheduler(ctx, s.backupOrch.SnapshotProvider())
+	s.backupSvc.StartScheduler(ctx, s.backupOrch.SnapshotProvider(), &bg)
 
 	// WAN health checks and their recovery actions. Derives its own
 	// context from ctx, so shutdown drains the goroutines without an
@@ -381,10 +397,42 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 
 	err = s.http.ListenAndServeTLS(certFile, keyFile)
+
+	// Only drain on an ordered shutdown. If the listener died for some
+	// other reason the background goroutines are still running against
+	// a live context, and waiting on them would hang instead of exit.
+	if ctx.Err() != nil {
+		drainBackground(&bg, backgroundDrainTimeout)
+	}
+
 	if err == http.ErrServerClosed {
 		return nil
 	}
 	return err
+}
+
+// backgroundDrainTimeout bounds the shutdown wait. The web unit sets no
+// TimeoutStopSec, so systemd's default of 90 s applies; overrunning it
+// earns a SIGKILL, which is the very outcome this drain exists to
+// avoid. Well under that, and long enough for a backup to finish
+// recording its run.
+const backgroundDrainTimeout = 30 * time.Second
+
+// drainBackground waits for wg, giving up after timeout rather than
+// blocking forever: an unbounded wait would simply hand the process to
+// systemd's kill timer.
+func drainBackground(wg *sync.WaitGroup, timeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		log.Printf("shutdown: background work still running after %s, exiting anyway", timeout)
+	}
 }
 
 func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
@@ -484,11 +485,20 @@ func (s *VPNService) GCExpiredInvites() int {
 // StartInviteGC launches a background goroutine that calls
 // GCExpiredInvites every interval until ctx is done. interval <= 0
 // defaults to 5 minutes.
-func (s *VPNService) StartInviteGC(ctx context.Context, interval time.Duration) {
+//
+// wg may be nil. When supplied, the goroutine is counted into it so
+// shutdown can wait for it to drain.
+func (s *VPNService) StartInviteGC(ctx context.Context, interval time.Duration, wg *sync.WaitGroup) {
 	if interval <= 0 {
 		interval = 5 * time.Minute
 	}
+	if wg != nil {
+		wg.Add(1)
+	}
 	go func() {
+		if wg != nil {
+			defer wg.Done()
+		}
 		// Sweep once at startup so a long downtime doesn't keep
 		// stale invites lying around.
 		s.GCExpiredInvites()
