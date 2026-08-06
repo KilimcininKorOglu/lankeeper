@@ -94,6 +94,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(dns) The web server starts again**: two lines in the DNS page held
+  a template action nested inside another action,
+  `{{ .Stats.{{ t $.Lang "dns.blocked" }}Count }}` and
+  `{{ if .{{ t $.Lang "dns.blocked" }} }}`, left behind by a bulk
+  find-and-replace that rewrote the Go field identifiers
+  `.Stats.BlockedCount` and `.Blocked` along with the display text.
+  `text/template` cannot lex that, and the renderer parses every page
+  eagerly, so the error propagated out of `NewServer` and the process
+  exited before binding: the UI, the API, and `/metrics` were all
+  unreachable and only the root agent ran. The identifiers are restored,
+  and a new test builds the renderer from the embedded filesystem the
+  binary actually ships with, which is the check whose absence let this
+  pass every CI gate.
+
 - **(backup) A run aborted by a config guard now leaves a trace**:
   `runOnce` returned bare errors from three paths, an empty passphrase,
   an empty target list, and a failed `stat` on the produced archive,

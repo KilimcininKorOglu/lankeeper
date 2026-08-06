@@ -20,7 +20,7 @@
         </div>
         <div class="card">
             <div class="input-label">{{ t $.Lang "dns.blocked" }}</div>
-            <div style="font-size:var(--font-2xl); font-weight:700; color:var(--accent-red);">{{ .Stats.{{ t $.Lang "dns.blocked" }}Count }}</div>
+            <div style="font-size:var(--font-2xl); font-weight:700; color:var(--accent-red);">{{ .Stats.BlockedCount }}</div>
         </div>
     </div>
     {{ end }}
@@ -53,7 +53,7 @@
             <span style="color:var(--text-secondary); width:60px;">{{ .QueryType }}</span>
             <span style="flex:1; font-family:var(--font-mono);">{{ .Domain }}</span>
             <span style="color:var(--text-secondary);">{{ .ClientIP }}</span>
-            {{ if .{{ t $.Lang "dns.blocked" }} }}
+            {{ if .Blocked }}
                 <span class="badge badge-error">{{ t $.Lang "dns.blocked" }}</span>
             {{ else }}
                 <span class="badge badge-success">{{ .Status }}</span>
