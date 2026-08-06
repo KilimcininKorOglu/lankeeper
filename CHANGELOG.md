@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(update) The pre-update snapshot is no longer world-readable or
+  permanent**: before every OTA update, `ApplyUpdate` exported the whole
+  configuration with an empty passphrase. The only chmod in `Export`
+  lived inside the encryption branch, so with no passphrase the archive
+  kept the mode `tar` gave it, and since the agent runs `tar` as root
+  under systemd's default umask with no `UMask=` in any unit, that was
+  0644. The containing directory was created by the unprivileged
+  process at 0755, so it was world-listable too. The archive holds
+  `router.yaml` plus the Unbound and dnsmasq configuration: the session
+  secret, the admin password hash, the PPPoE password, every backup
+  credential and the HE.net update key, all in the clear, readable by
+  any local account. It was never deleted, so one accumulated per
+  version. This bypassed a guard the rest of the system enforces, since
+  the scheduled and manual backup paths refuse to run without a
+  passphrase and create their directories at 0750. `Export` now
+  restricts the archive to 0600 whichever branch ran, the update path
+  creates the directory through the agent at 0750, and the snapshot is
+  removed once the update is confirmed or rolled back. Its path is
+  recorded in the persisted update state, so a restart inside the
+  confirmation window still knows what to clean up. The snapshot stays
+  unencrypted on purpose: the backup passphrase is optional and an
+  update must not depend on the operator having set one.
+
 - **(backup) Target credentials are now encrypted at rest**: the
   `BackupTarget` comment stated that the S3 secret access key and the
   SFTP password were AES-encrypted before `SaveToFile` and decrypted on

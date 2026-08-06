@@ -110,6 +110,16 @@ func (s *BackupService) Export(ctx context.Context, outputPath, passphrase strin
 		}
 	}
 
+	// Restrict the archive whether or not it was encrypted. tar runs as
+	// root through the agent under systemd's default umask, so an
+	// unencrypted archive would otherwise keep mode 0644 while holding
+	// every secret on the device. Tightening only inside the encryption
+	// branch left the one caller that passes no passphrase, the
+	// pre-update snapshot, with a world-readable copy of router.yaml.
+	if _, err := netutil.Run(ctx, "chmod", "600", outputPath); err != nil {
+		return fmt.Errorf("restrict backup archive: %w", err)
+	}
+
 	return nil
 }
 

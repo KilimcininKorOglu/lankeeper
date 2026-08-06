@@ -39,6 +39,7 @@ type UpdateService struct {
 	pendingVersion  string
 	previousVersion string
 	backupBinary    string
+	configSnapshot  string
 }
 
 const (
@@ -97,10 +98,13 @@ func (s *UpdateService) GetVersionInfo() *VersionInfo {
 }
 
 type updateState struct {
-	PendingVersion  string    `json:"pendingVersion"`
-	PreviousVersion string    `json:"previousVersion"`
-	BackupBinary    string    `json:"backupBinary"`
-	AppliedAt       time.Time `json:"appliedAt"`
+	PendingVersion  string `json:"pendingVersion"`
+	PreviousVersion string `json:"previousVersion"`
+	BackupBinary    string `json:"backupBinary"`
+	// ConfigSnapshot is the pre-update archive. Persisted so a restart
+	// inside the confirmation window still knows which file to remove.
+	ConfigSnapshot string    `json:"configSnapshot,omitempty"`
+	AppliedAt      time.Time `json:"appliedAt"`
 }
 
 func (s *UpdateService) HasPendingUpdate() bool {
@@ -189,13 +193,22 @@ func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error
 
 	log.Printf("starting update from %s to %s", s.currentVersion, info.LatestVersion)
 
+	// The snapshot holds every secret on the device in the clear, so the
+	// directory is created through the agent at 0750 rather than by this
+	// unprivileged process at 0755, and the archive is removed once the
+	// update is settled. It is deliberately not passphrase-encrypted:
+	// the backup passphrase is optional, and an update must not depend
+	// on the operator having configured one.
+	var configSnapshot string
 	if s.backup != nil {
 		backupPath := fmt.Sprintf("/var/lib/lankeeper/backups/pre-update-%s.tar.gz", info.LatestVersion)
-		if err := os.MkdirAll(filepath.Dir(backupPath), 0o755); err != nil {
+		if err := netutil.MkdirAll(filepath.Dir(backupPath), 0o750); err != nil {
 			log.Printf("pre-update backup: mkdir: %v", err)
 		}
 		if err := s.backup.Export(ctx, backupPath, ""); err != nil {
 			log.Printf("pre-update backup failed (continuing): %v", err)
+		} else {
+			configSnapshot = backupPath
 		}
 	}
 
@@ -249,6 +262,7 @@ func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error
 		PendingVersion:  info.LatestVersion,
 		PreviousVersion: s.currentVersion,
 		BackupBinary:    backupBinary,
+		ConfigSnapshot:  configSnapshot,
 		AppliedAt:       time.Now().UTC(),
 	}
 	if err := s.saveUpdateState(state); err != nil {
@@ -261,6 +275,7 @@ func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error
 	s.pendingVersion = info.LatestVersion
 	s.previousVersion = s.currentVersion
 	s.backupBinary = backupBinary
+	s.configSnapshot = configSnapshot
 
 	watchCtx, cancel := context.WithCancel(context.Background())
 	s.watchdogCancel = cancel
@@ -291,6 +306,13 @@ func (s *UpdateService) ConfirmUpdate(ctx context.Context) error {
 			log.Printf("update: remove backup binary: %v", err)
 		}
 	}
+	// The snapshot carries every secret on the device in the clear and
+	// is only useful while the update can still be undone.
+	if s.configSnapshot != "" {
+		if _, err := netutil.Run(ctx, "rm", "-f", s.configSnapshot); err != nil {
+			log.Printf("update: remove pre-update snapshot: %v", err)
+		}
+	}
 	if err := s.clearUpdateState(); err != nil {
 		log.Printf("clear update state failed: %v", err)
 	}
@@ -299,6 +321,7 @@ func (s *UpdateService) ConfirmUpdate(ctx context.Context) error {
 	s.pendingVersion = ""
 	s.previousVersion = ""
 	s.backupBinary = ""
+	s.configSnapshot = ""
 
 	return nil
 }
@@ -320,6 +343,14 @@ func (s *UpdateService) Rollback(ctx context.Context) error {
 		return fmt.Errorf("rollback: %w", err)
 	}
 
+	// The snapshot carries every secret on the device in the clear and
+	// is only useful while the update can still be undone.
+	if s.configSnapshot != "" {
+		if _, err := netutil.Run(ctx, "rm", "-f", s.configSnapshot); err != nil {
+			log.Printf("update: remove pre-update snapshot: %v", err)
+		}
+	}
+
 	log.Printf("update rolled back from %s", s.pendingVersion)
 	if s.previousVersion != "" {
 		s.updateBootBranding(ctx, s.previousVersion)
@@ -330,6 +361,7 @@ func (s *UpdateService) Rollback(ctx context.Context) error {
 	s.pendingVersion = ""
 	s.previousVersion = ""
 	s.backupBinary = ""
+	s.configSnapshot = ""
 
 	if _, err := netutil.Run(ctx, "systemctl", "restart", "lankeeper.target"); err != nil {
 		log.Printf("update: systemctl restart after rollback: %v", err)
@@ -369,6 +401,7 @@ func (s *UpdateService) restorePendingUpdate() {
 	s.pendingVersion = state.PendingVersion
 	s.previousVersion = state.PreviousVersion
 	s.backupBinary = state.BackupBinary
+	s.configSnapshot = state.ConfigSnapshot
 
 	elapsed := time.Since(state.AppliedAt)
 	remaining := updateConfirmWindow - elapsed
