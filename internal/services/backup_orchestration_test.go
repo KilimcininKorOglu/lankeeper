@@ -20,8 +20,8 @@ import (
 // Export path (which routes file ops through the agent) can be
 // exercised against a TempDir.
 type localFakeAgent struct {
-	mu      sync.Mutex
-	writes  []string
+	mu     sync.Mutex
+	writes []string
 }
 
 func (f *localFakeAgent) Call(_ context.Context, method string, params any) (json.RawMessage, error) {
@@ -113,6 +113,7 @@ func TestBackupOrchestratorRunsAndRotates(t *testing.T) {
 
 	services.SetBackupRootForTesting(backupDir + "/")
 	t.Cleanup(func() { services.SetBackupRootForTesting("/var/lib/lankeeper/backups/") })
+	useTempCredentialKey(t)
 
 	cfg := &config.Config{}
 	cfgPath := filepath.Join(cfgDir, "router.yaml")
@@ -218,7 +219,18 @@ func TestBackupOrchestratorRequiresPassphrase(t *testing.T) {
 	assertRunRecordedFailure(t, cfg, "passphrase")
 }
 
+// useTempCredentialKey points the config credential key at a temp file.
+// Backup secrets are encrypted before Save writes them, and the default
+// key location is under /var/lib, which a test must neither create nor
+// depend on: without this, every SaveToFile in these tests fails and the
+// history assertions would pass only because they read memory.
+func useTempCredentialKey(t *testing.T) {
+	t.Helper()
+	t.Setenv("LANKEEPER_CONFIG_KEY", filepath.Join(t.TempDir(), "credentials", "config.key"))
+}
+
 func TestBackupOrchestratorRequiresTargets(t *testing.T) {
+	useTempCredentialKey(t)
 	cfgDir := t.TempDir()
 	cfg := &config.Config{}
 	cfg.SetFilePath(filepath.Join(cfgDir, "router.yaml"))
