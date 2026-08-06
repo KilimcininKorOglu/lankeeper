@@ -94,6 +94,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(deploy) The service user can now write the config directory**: both
+  installers created `/etc/lankeeper` as mode 750 owned `root:lankeeper`,
+  which gives the group read and traverse but not write. `SaveToFile`
+  writes atomically by creating a temp file beside the target and
+  renaming over it, and both halves need write permission on the
+  directory itself, so every runtime config write failed for the
+  unprivileged `serve` process. The shipped default ships an empty
+  `sessionSecret`, so first boot generated one, failed to persist it,
+  and continued with the in-memory value; with `Restart=always` and
+  `RestartSec=3` that meant a fresh secret and a silent invalidation of
+  every session cookie on each restart. The same path made the
+  password-change handler answer 500 on a stock install. The directory
+  is now mode 770; others still get nothing. Existing installs pick
+  this up by re-running the installer.
+
 - **(auth) Changing the admin password now takes effect immediately**:
   `Auth` captured the bcrypt hash by value when the server was
   constructed and exposed no way to replace it. The change handler

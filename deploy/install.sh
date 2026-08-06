@@ -99,7 +99,14 @@ setup_directories() {
     mkdir -p "$LOG_DIR"
     mkdir -p /var/log/unbound
 
-    chmod 750 "$CONFIG_DIR"
+    # Group write is required, not optional. The unprivileged serve
+    # process rewrites router.yaml through an atomic
+    # create-temp-then-rename, and both halves need write permission on
+    # the directory itself. Without it the session secret generated at
+    # first boot cannot be persisted, so every restart mints a new one
+    # and invalidates all sessions, and every runtime config change
+    # fails to save. Group is $SERVICE_USER; others still get nothing.
+    chmod 770 "$CONFIG_DIR"
     chown root:"$SERVICE_USER" "$CONFIG_DIR"
     chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR"
     chown -R "$SERVICE_USER:$SERVICE_USER" "$LOG_DIR"

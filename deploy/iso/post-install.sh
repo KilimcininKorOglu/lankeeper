@@ -117,7 +117,13 @@ chmod +x "$INSTALL_DIR/$BINARY_NAME"
 # The web service runs as lankeeper and must be able to write TLS certs,
 # credentials, backups, and logs.
 mkdir -p "$CONFIG_DIR"
-chmod 750 "$CONFIG_DIR"
+# Group write is required, not optional. The unprivileged serve process
+# rewrites router.yaml through an atomic create-temp-then-rename, and
+# both halves need write permission on the directory itself. Without it
+# the session secret generated at first boot cannot be persisted, so
+# every restart mints a new one and invalidates all sessions, and every
+# runtime config change fails to save. Others still get nothing.
+chmod 770 "$CONFIG_DIR"
 chown root:"$SERVICE_USER" "$CONFIG_DIR" 2>/dev/null || true
 mkdir -p "$DATA_DIR/tls"
 mkdir -p "$DATA_DIR/credentials"
