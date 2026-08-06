@@ -197,8 +197,9 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	backupSvc := services.NewBackupService("/etc/lankeeper")
 	backupOrch := services.NewBackupOrchestrator(backupSvc, cfg)
 	monitorSvc := services.NewMonitorService()
+	systemSvc := services.NewSystemService()
 	dashboardHandler := handlers.NewDashboardHandler(renderer, monitorSvc, pppoeSvc, dhcpSvc)
-	settingsHandler := handlers.NewSystemHandler(renderer, cfg, loc, dhcpSvc, backupSvc, updateSvc)
+	settingsHandler := handlers.NewSystemHandler(renderer, cfg, loc, dhcpSvc, backupSvc, updateSvc, systemSvc)
 	// Without this the auth object keeps verifying against the hash it
 	// captured at startup, so a password change would report success
 	// while the old credential still worked.

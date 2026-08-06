@@ -11,12 +11,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/i18n"
-	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 	"github.com/KilimcininKorOglu/lankeeper/internal/services"
 	"github.com/KilimcininKorOglu/lankeeper/internal/tmpl"
 	"golang.org/x/crypto/bcrypt"
@@ -29,6 +27,7 @@ type SystemHandler struct {
 	dhcp     *services.DHCPService
 	backup   *services.BackupService
 	update   *services.UpdateService
+	system   *services.SystemService
 	// passwordSink hands a newly generated hash back to the auth
 	// object, which caches it by value. A callback rather than a
 	// direct reference because Auth lives in the parent web package,
@@ -43,8 +42,8 @@ func (h *SystemHandler) SetPasswordSink(fn func(hash string)) {
 	h.passwordSink = fn
 }
 
-func NewSystemHandler(renderer *tmpl.Renderer, cfg *config.Config, loc *i18n.I18n, dhcp *services.DHCPService, backup *services.BackupService, update *services.UpdateService) *SystemHandler {
-	return &SystemHandler{renderer: renderer, cfg: cfg, loc: loc, dhcp: dhcp, backup: backup, update: update}
+func NewSystemHandler(renderer *tmpl.Renderer, cfg *config.Config, loc *i18n.I18n, dhcp *services.DHCPService, backup *services.BackupService, update *services.UpdateService, system *services.SystemService) *SystemHandler {
+	return &SystemHandler{renderer: renderer, cfg: cfg, loc: loc, dhcp: dhcp, backup: backup, update: update, system: system}
 }
 
 func (h *SystemHandler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
@@ -128,15 +127,7 @@ func (h *SystemHandler) HandleChangeRootPassword(w http.ResponseWriter, r *http.
 		return
 	}
 
-	hashOut, err := netutil.RunSimple(context.Background(), "openssl", "passwd", "-6", newPassword)
-	if err != nil {
-		log.Printf("generate password hash: %v", err)
-		clientError(w, r, http.StatusInternalServerError, "error.passwordHashFailed")
-		return
-	}
-	cryptHash := strings.TrimSpace(hashOut)
-
-	if _, err := netutil.Run(context.Background(), "usermod", "-p", cryptHash, "root"); err != nil {
+	if err := h.system.SetRootPassword(r.Context(), newPassword); err != nil {
 		log.Printf("change root password: %v", err)
 		clientError(w, r, http.StatusInternalServerError, "error.rootPasswordFailed")
 		return
@@ -160,7 +151,7 @@ func (h *SystemHandler) HandleUpdateHostname(w http.ResponseWriter, r *http.Requ
 	hostname := r.FormValue("hostname")
 	domain := r.FormValue("domain")
 
-	if hostname == "" || len(hostname) > 63 {
+	if err := services.ValidateHostname(hostname); err != nil {
 		clientError(w, r, http.StatusBadRequest, "error.invalidHostname")
 		return
 	}
@@ -171,8 +162,8 @@ func (h *SystemHandler) HandleUpdateHostname(w http.ResponseWriter, r *http.Requ
 		h.cfg.System.Domain = domain
 	}
 
-	if _, err := netutil.Run(context.Background(), "hostnamectl", "set-hostname", hostname); err != nil {
-		log.Printf("system: hostnamectl: %v", err)
+	if err := h.system.SetHostname(r.Context(), hostname); err != nil {
+		log.Printf("system: set hostname: %v", err)
 	}
 
 	if domain != "" && domain != oldDomain {
@@ -204,7 +195,7 @@ func (h *SystemHandler) HandleUpdateTimezone(w http.ResponseWriter, r *http.Requ
 	}
 	tz := r.FormValue("timezone")
 
-	if tz == "" {
+	if err := services.ValidateTimezone(tz); err != nil {
 		clientError(w, r, http.StatusBadRequest, "error.invalidTimezone")
 		return
 	}
@@ -215,8 +206,8 @@ func (h *SystemHandler) HandleUpdateTimezone(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if _, err := netutil.Run(context.Background(), "timedatectl", "set-timezone", tz); err != nil {
-		log.Printf("system: timedatectl: %v", err)
+	if err := h.system.SetTimezone(r.Context(), tz); err != nil {
+		log.Printf("system: set timezone: %v", err)
 	}
 
 	log.Printf("timezone changed to %s", tz)
@@ -231,8 +222,7 @@ func (h *SystemHandler) HandleUpdateTimezone(w http.ResponseWriter, r *http.Requ
 
 func (h *SystemHandler) HandleReboot(w http.ResponseWriter, r *http.Request) {
 	log.Println("system reboot requested via web UI")
-	_, err := netutil.Run(r.Context(), "systemctl", "reboot")
-	if err != nil {
+	if err := h.system.Reboot(r.Context()); err != nil {
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
@@ -247,7 +237,7 @@ func (h *SystemHandler) HandleFactoryReset(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
-	if _, err := netutil.Run(r.Context(), "systemctl", "reboot"); err != nil {
+	if err := h.system.Reboot(r.Context()); err != nil {
 		log.Printf("system: reboot: %v", err)
 	}
 	w.WriteHeader(http.StatusOK)

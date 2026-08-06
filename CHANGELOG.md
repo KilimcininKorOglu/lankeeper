@@ -308,6 +308,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(handlers) System settings go through a service like everything
+  else**: the settings handler was the only one in the tree that called
+  `netutil` directly, issuing `openssl passwd`, `usermod`,
+  `hostnamectl`, `timedatectl` and `systemctl reboot` itself. That put
+  command construction and hash handling somewhere no test could reach
+  without building an HTTP request and faking the agent, and in practice
+  none of it was covered at all, including the path that rewrites the
+  root account's password. Those operations now live in a service with
+  the rest, and are tested: the hash reaches `usermod` intact, the
+  plaintext reaches nothing else, and an empty hash is refused rather
+  than installed, since `usermod -p ""` leaves root passwordless. The
+  hostname is now validated as an RFC 1123 label instead of only being
+  checked for length, and the timezone against the tz database name
+  form, so neither reaches a privileged command or the rendered DNS
+  configuration unchecked.
+
 - **(update) The OTA download and extraction are bounded**: both copies
   ran unbounded. The download used a plain `io.Copy` from the response
   body, and the asset size the GitHub API publishes was parsed into the
