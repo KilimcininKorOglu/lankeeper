@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,8 +60,12 @@ type nftTemplateData struct {
 	CustomInputRules   []string
 	CustomForwardRules []string
 	CustomOutputRules  []string
-	WebPort            int
-	IPv6Enabled        bool
+	// OpenPortRules are the rendered accept lines for the operator's
+	// open ports. They sit after the custom rules so an explicit custom
+	// drop still wins over an opened port.
+	OpenPortRules []string
+	WebPort       int
+	IPv6Enabled   bool
 	// SixInFourEnabled gates the protocol-41 input rule. Set when
 	// cfg.IPv6.Mode == "6in4" and ServerIPv4 is non-empty.
 	SixInFourEnabled  bool
@@ -392,6 +397,83 @@ func (s *FirewallService) buildCustomRules() customRules {
 // renderCustomRule turns one rule into an nftables statement. It returns
 // an empty string when the rule carries no match conditions, which would
 // otherwise render as an unconditional accept or drop for the chain.
+// buildOpenPortRules renders every enabled open port. An entry that
+// fails validation is skipped with a log line rather than aborting the
+// whole ruleset, matching how custom rules are handled: one bad entry
+// hand-edited into router.yaml must not take the firewall down.
+func (s *FirewallService) buildOpenPortRules() []string {
+	var out []string
+	for _, op := range s.cfg.Firewall.OpenPorts {
+		if !op.Enabled {
+			continue
+		}
+		lines, err := renderOpenPortRules(op)
+		if err != nil {
+			log.Printf("firewall: skipping open port %q: %v", op.Name, err)
+			continue
+		}
+		out = append(out, lines...)
+	}
+	return out
+}
+
+// renderOpenPortRules turns one entry into the input-chain accept lines
+// it stands for. Protocol "both" yields one line per protocol so each
+// rule stays a plain dport match.
+func renderOpenPortRules(op config.OpenPort) ([]string, error) {
+	if err := netutil.ValidatePort(op.Port); err != nil {
+		return nil, err
+	}
+
+	var protocols []string
+	switch op.Protocol {
+	case "tcp", "udp":
+		protocols = []string{op.Protocol}
+	case "both":
+		protocols = []string{"tcp", "udp"}
+	default:
+		return nil, fmt.Errorf("unsupported protocol %q", op.Protocol)
+	}
+
+	var prefix string
+	if src := strings.TrimSpace(op.Source); src != "" {
+		if err := validateAddressOrCIDR(src); err != nil {
+			return nil, fmt.Errorf("source: %w", err)
+		}
+		prefix = addressFamilyMatcher(src) + " saddr " + src + " "
+	}
+
+	var comment string
+	if name := strings.TrimSpace(op.Name); name != "" {
+		if err := netutil.ValidateRuleName(name); err != nil {
+			return nil, err
+		}
+		comment = " # " + name
+	}
+
+	lines := make([]string, 0, len(protocols))
+	for _, proto := range protocols {
+		lines = append(lines, fmt.Sprintf("        %s%s dport %d ct state new accept%s",
+			prefix, proto, op.Port, comment))
+	}
+	return lines, nil
+}
+
+// addressFamilyMatcher picks the nftables address matcher for an IP or
+// CIDR. The filter table is `inet`, so both families are valid in it,
+// but `ip saddr` against an IPv6 address is a syntax error that nft
+// rejects, which would take the whole ruleset with it.
+func addressFamilyMatcher(s string) string {
+	addr := s
+	if i := strings.IndexByte(addr, '/'); i >= 0 {
+		addr = addr[:i]
+	}
+	if ip := net.ParseIP(addr); ip != nil && ip.To4() == nil {
+		return "ip6"
+	}
+	return "ip"
+}
+
 func renderCustomRule(r config.FirewallRule) (string, error) {
 	if err := netutil.ValidateRuleName(r.Name); err != nil {
 		return "", err
@@ -488,6 +570,7 @@ func (s *FirewallService) buildTemplateData() *nftTemplateData {
 	data.CustomInputRules = custom.Input
 	data.CustomForwardRules = custom.Forward
 	data.CustomOutputRules = custom.Output
+	data.OpenPortRules = s.buildOpenPortRules()
 
 	// 6in4 wiring: when the operator selected mode "6in4" and provided
 	// at least the ServerIPv4 + a tunnel device, expose the sit

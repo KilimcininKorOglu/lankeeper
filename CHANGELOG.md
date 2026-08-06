@@ -94,6 +94,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(firewall) Open ports now reach the nftables input chain**: the
+  open-ports CRUD, its routes and its UI badge were all in place, but
+  the config slice was never carried into the template data and the
+  ruleset had no block for it. Adding an entry was accepted, stored and
+  shown as Enabled while the port stayed closed behind the default-drop
+  input policy, with no error to diagnose. Enabled entries now render an
+  accept rule per protocol, scoped to the optional source, restricted to
+  `ct state new`, and placed after the custom rules so an explicit
+  custom drop still wins. An entry that fails validation is skipped with
+  a log line rather than taking the whole ruleset with it, matching how
+  custom rules behave. An IPv6 source renders `ip6 saddr`, since `ip
+  saddr` against an IPv6 address is a syntax error `nft` rejects.
+
 - **(vpn) A removed WireGuard peer no longer causes address collisions**:
   `AddPeer` derived the tunnel address from `len(Peers)+2`, so the
   address depended on how many peers existed rather than on which

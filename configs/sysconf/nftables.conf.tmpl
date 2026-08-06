@@ -51,6 +51,12 @@ table inet filter {
         # Use an explicit port-forward via the web UI to allow remote
         # SSH if you need it.
 
+        # Operator-opened ports for router-local services. Placed after
+        # the custom rules so an explicit custom drop still wins.
+{{- range .OpenPortRules }}
+{{ . }}
+{{- end }}
+
         # DHCPv6 client (WAN side — receive RA and DHCPv6 replies)
 {{- if .IPv6Enabled }}
         udp sport 547 udp dport 546 accept
