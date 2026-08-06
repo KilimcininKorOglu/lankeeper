@@ -37,14 +37,14 @@ func (h *BackupHandler) HandleBackupPage(w http.ResponseWriter, r *http.Request)
 		Lang: lang,
 		Page: "backup",
 		Data: map[string]any{
-			"Backup":   h.cfg.Backup,
-			"Targets":  h.cfg.Backup.Targets,
-			"History":  reverseHistory(h.cfg.Backup.History),
-			"HasPass":  h.cfg.Backup.Passphrase != "",
+			"Backup":  h.cfg.Backup,
+			"Targets": h.cfg.Backup.Targets,
+			"History": reverseHistory(h.cfg.Backup.History),
+			"HasPass": h.cfg.Backup.Passphrase != "",
 		},
 	}
 	if err := h.renderer.Render(w, "backup", "default", data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 	}
 }
 

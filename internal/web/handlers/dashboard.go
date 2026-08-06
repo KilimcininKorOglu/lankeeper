@@ -41,10 +41,10 @@ func (h *DashboardHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 		Lang: lang,
 		Page: "dashboard",
 		Data: map[string]any{
-			"Stats":        stats,
-			"PPPoE":        pppoeStatus,
-			"DeviceCount":  len(devices),
-			"History":      h.monitor.GetHistory(),
+			"Stats":       stats,
+			"PPPoE":       pppoeStatus,
+			"DeviceCount": len(devices),
+			"History":     h.monitor.GetHistory(),
 		},
 	}
 

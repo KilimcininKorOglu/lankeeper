@@ -94,7 +94,7 @@ func runViaAgentFull(ctx context.Context, stdin string, env []string, name strin
 
 	raw, err := agentClient.Call(ctx, "exec.run", params)
 	if err != nil {
-		return nil, fmt.Errorf("agent exec.run %s: %w", name, err)
+		return nil, &AgentError{Op: "exec.run", Target: name, Err: err}
 	}
 
 	var result ExecResult
@@ -174,7 +174,7 @@ func WriteFile(path string, content []byte, mode os.FileMode) error {
 		}
 		_, err := agentClient.Call(context.Background(), "file.write", params)
 		if err != nil {
-			return fmt.Errorf("agent file.write %s: %w", path, err)
+			return &AgentError{Op: "file.write", Target: path, Err: err}
 		}
 		return nil
 	}
@@ -192,7 +192,7 @@ func MkdirAll(path string, mode os.FileMode) error {
 		}{Path: path, Mode: int(mode)}
 		_, err := agentClient.Call(context.Background(), "file.mkdir", params)
 		if err != nil {
-			return fmt.Errorf("agent file.mkdir %s: %w", path, err)
+			return &AgentError{Op: "file.mkdir", Target: path, Err: err}
 		}
 		return nil
 	}
@@ -205,7 +205,7 @@ func ReadFile(path string) ([]byte, error) {
 			Path string `json:"path"`
 		}{Path: path})
 		if err != nil {
-			return nil, fmt.Errorf("agent file.read %s: %w", path, err)
+			return nil, &AgentError{Op: "file.read", Target: path, Err: err}
 		}
 		var result struct {
 			Content string `json:"content"`

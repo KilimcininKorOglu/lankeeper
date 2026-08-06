@@ -8,6 +8,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -98,8 +99,7 @@ func (c *s3Client) putObject(ctx context.Context, bucket, key, srcPath string) e
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		return fmt.Errorf("s3 PUT %s: %s: %s", key, resp.Status, body)
+		return s3Failure("PUT", key, resp)
 	}
 	return nil
 }
@@ -142,8 +142,7 @@ func (c *s3Client) listObjects(ctx context.Context, bucket, prefix string) ([]s3
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		return nil, fmt.Errorf("s3 LIST %s: %s: %s", bucket, resp.Status, body)
+		return nil, s3Failure("LIST", bucket, resp)
 	}
 
 	var parsed struct {
@@ -185,8 +184,7 @@ func (c *s3Client) deleteObject(ctx context.Context, bucket, key string) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		return fmt.Errorf("s3 DELETE %s: %s: %s", key, resp.Status, body)
+		return s3Failure("DELETE", key, resp)
 	}
 	return nil
 }
@@ -387,4 +385,20 @@ func filepathBase(p string) string {
 		return p[i+1:]
 	}
 	return p
+}
+
+// s3Failure turns a non-2xx response into an error the operator can act
+// on, while keeping the provider's response body out of it.
+//
+// The body was previously embedded in the error text, and the backup
+// page renders that error inline, so a provider's XML, which can name
+// buckets, request IDs and account detail, ended up in the browser and
+// in its history. The body still reaches the journal, which is where it
+// is useful when diagnosing a failing target.
+func s3Failure(op, target string, resp *http.Response) error {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	if len(body) > 0 {
+		log.Printf("s3 %s %s: %s: %s", op, target, resp.Status, body)
+	}
+	return fmt.Errorf("s3 %s %s: %s", op, target, resp.Status)
 }

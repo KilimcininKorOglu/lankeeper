@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(agent, handlers) Privileged stderr no longer reaches the browser**:
+  when a whitelisted command failed, the root agent embedded the failed
+  process's stderr in the error it returned, and every layer above wrapped
+  that string without changing it. Handlers then passed `err.Error()`
+  straight to `http.Error` at 68 sites, so the browser was shown raw
+  `nft`, `wg-quick`, `easyrsa` and `openvpn` output, exact command names
+  and internal temp-file paths, all of which then persisted in browser
+  history and any HAR export. That is the detail the two-process split
+  exists to keep on the agent side. Agent failures now carry a distinct
+  error type, and a single handler helper logs the full error to the
+  journal while sending only the status text for anything that crossed
+  the IPC boundary. Errors our own validation produced are still shown,
+  since those tell the operator what to change. The parallel path is
+  closed too: the S3 client embedded the provider's raw response body,
+  which the backup page rendered inline; the body now goes to the journal
+  and the error carries only the status.
+
 - **(handlers) Key-bearing downloads are no longer cacheable**: the
   WireGuard client config, which carries a freshly generated private
   key, the OpenVPN profile, which embeds a certificate and key, and the

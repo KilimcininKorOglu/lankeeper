@@ -131,12 +131,12 @@ func TestHandleS2SFinalizeValidation(t *testing.T) {
 
 func TestJSONStringEscapes(t *testing.T) {
 	cases := map[string]string{
-		`abc`:       `"abc"`,
-		`a"b`:       `"a\"b"`,
-		`a\b`:       `"a\\b"`,
-		"a\nb":      `"a\nb"`,
-		"a\tb":      `"a\tb"`,
-		"\x01":      `"\u0001"`,
+		`abc`:  `"abc"`,
+		`a"b`:  `"a\"b"`,
+		`a\b`:  `"a\\b"`,
+		"a\nb": `"a\nb"`,
+		"a\tb": `"a\tb"`,
+		"\x01": `"\u0001"`,
 	}
 	for in, want := range cases {
 		if got := jsonString(in); got != want {

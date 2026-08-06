@@ -108,7 +108,7 @@ func (h *NASHandler) HandleAddShare(w http.ResponseWriter, r *http.Request) {
 func (h *NASHandler) HandleDeleteShare(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := h.nas.RemoveShare(name); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := h.nas.ApplyConfig(r.Context()); err != nil {
@@ -156,7 +156,7 @@ func (h *NASHandler) HandleDiscoverGroups(w http.ResponseWriter, r *http.Request
 
 	groups, err := h.nas.DiscoverM3UGroups(r.Context(), rawURL)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 

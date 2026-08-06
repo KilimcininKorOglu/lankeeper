@@ -67,7 +67,7 @@ func (h *DNSHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 
 func (h *DNSHandler) HandleClearLog(w http.ResponseWriter, r *http.Request) {
 	if err := h.dns.ClearQueryLog(r.Context()); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" {
@@ -80,8 +80,7 @@ func (h *DNSHandler) HandleClearLog(w http.ResponseWriter, r *http.Request) {
 
 func (h *DNSHandler) HandleUpdateBlocklist(w http.ResponseWriter, r *http.Request) {
 	if err := h.dns.UpdateBlocklist(r.Context()); err != nil {
-		log.Printf("update blocklist: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" {
@@ -142,7 +141,7 @@ func (h *DNSHandler) HandleSaveDoT(w http.ResponseWriter, r *http.Request) {
 		}
 		if h.doh != nil {
 			if err := h.doh.ValidateUpstream(dohUpstream); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+				fail(w, r, http.StatusBadRequest, err)
 				return
 			}
 		}
@@ -155,7 +154,7 @@ func (h *DNSHandler) HandleSaveDoT(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.dns.SaveDNSSettings(enableDoT, dotUpstream, enableDoH, dohUpstream); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	// Apply order matters: dnscrypt-proxy MUST be up before unbound
@@ -230,7 +229,7 @@ func (h *DNSHandler) HandleAddRecord(w http.ResponseWriter, r *http.Request) {
 		Source:         config.DNSSourceUser,
 	}
 	if err := h.dns.AddStaticRecord(rec); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := h.dns.ApplyConfig(r.Context()); err != nil {
@@ -252,7 +251,7 @@ func (h *DNSHandler) HandleDeleteRecord(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := h.dns.RemoveStaticRecord(idx); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := h.dns.ApplyConfig(r.Context()); err != nil {

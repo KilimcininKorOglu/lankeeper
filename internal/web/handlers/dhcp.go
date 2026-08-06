@@ -87,7 +87,7 @@ func (h *DHCPHandler) HandleDeleteStatic(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := h.dhcp.RemoveStaticLease(idx); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := h.dhcp.ApplyConfig(r.Context()); err != nil {

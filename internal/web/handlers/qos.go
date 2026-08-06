@@ -85,8 +85,7 @@ func (h *QoSHandler) HandleApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.qos.Apply(r.Context()); err != nil {
-		log.Printf("apply qos: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -100,8 +99,7 @@ func (h *QoSHandler) HandleApply(w http.ResponseWriter, r *http.Request) {
 
 func (h *QoSHandler) HandleClear(w http.ResponseWriter, r *http.Request) {
 	if err := h.qos.Clear(r.Context()); err != nil {
-		log.Printf("clear qos: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 

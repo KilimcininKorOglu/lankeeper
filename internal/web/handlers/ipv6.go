@@ -172,8 +172,7 @@ func (h *IPv6Handler) HandleSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.ipv6.ApplyConfig(r.Context()); err != nil {
-		log.Printf("ipv6 apply: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -216,8 +215,7 @@ func (h *IPv6Handler) HandleTunnelUpdateNow(w http.ResponseWriter, r *http.Reque
 	}
 
 	if _, err := h.sixinfour.UpdateRemoteIPv4(r.Context(), currentIPv4); err != nil {
-		log.Printf("6in4 manual update: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	h.respondOK(w, r)
@@ -256,8 +254,7 @@ func (h *IPv6Handler) HandleSubnetMap(w http.ResponseWriter, r *http.Request) {
 		m[name] = i
 	}
 	if err := h.ipv6.SetSubnetMap(r.Context(), m); err != nil {
-		log.Printf("ipv6 subnet-map: %v", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 	h.respondOK(w, r)
@@ -267,8 +264,7 @@ func (h *IPv6Handler) HandleSubnetMap(w http.ResponseWriter, r *http.Request) {
 // without dropping the current lease).
 func (h *IPv6Handler) HandleRenew(w http.ResponseWriter, r *http.Request) {
 	if err := h.ipv6.Renew(r.Context()); err != nil {
-		log.Printf("ipv6 renew: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	h.respondOK(w, r)
@@ -277,8 +273,7 @@ func (h *IPv6Handler) HandleRenew(w http.ResponseWriter, r *http.Request) {
 // HandleRelease drops the current prefix and stops the daemon.
 func (h *IPv6Handler) HandleRelease(w http.ResponseWriter, r *http.Request) {
 	if err := h.ipv6.Release(r.Context()); err != nil {
-		log.Printf("ipv6 release: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	h.respondOK(w, r)
@@ -287,8 +282,7 @@ func (h *IPv6Handler) HandleRelease(w http.ResponseWriter, r *http.Request) {
 // HandleStart starts the dhcp6c unit.
 func (h *IPv6Handler) HandleStart(w http.ResponseWriter, r *http.Request) {
 	if err := h.ipv6.Start(r.Context()); err != nil {
-		log.Printf("ipv6 start: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	h.respondOK(w, r)
@@ -297,8 +291,7 @@ func (h *IPv6Handler) HandleStart(w http.ResponseWriter, r *http.Request) {
 // HandleStop stops the dhcp6c unit (without releasing the lease cleanly).
 func (h *IPv6Handler) HandleStop(w http.ResponseWriter, r *http.Request) {
 	if err := h.ipv6.Stop(r.Context()); err != nil {
-		log.Printf("ipv6 stop: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	h.respondOK(w, r)

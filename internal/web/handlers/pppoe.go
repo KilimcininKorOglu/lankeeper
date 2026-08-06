@@ -20,8 +20,7 @@ func NewPPPoEHandler(renderer *tmpl.Renderer, pppoe *services.PPPoEService) *PPP
 
 func (h *PPPoEHandler) HandleConnect(w http.ResponseWriter, r *http.Request) {
 	if err := h.pppoe.Connect(r.Context()); err != nil {
-		log.Printf("pppoe connect: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" {
@@ -34,8 +33,7 @@ func (h *PPPoEHandler) HandleConnect(w http.ResponseWriter, r *http.Request) {
 
 func (h *PPPoEHandler) HandleDisconnect(w http.ResponseWriter, r *http.Request) {
 	if err := h.pppoe.Disconnect(r.Context()); err != nil {
-		log.Printf("pppoe disconnect: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" {
@@ -63,8 +61,7 @@ func (h *PPPoEHandler) HandleStatus(w http.ResponseWriter, r *http.Request) {
 
 func (h *PPPoEHandler) HandleSniffStart(w http.ResponseWriter, r *http.Request) {
 	if err := h.pppoe.SniffStart(r.Context()); err != nil {
-		log.Printf("pppoe sniff start: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" {
@@ -77,8 +74,7 @@ func (h *PPPoEHandler) HandleSniffStart(w http.ResponseWriter, r *http.Request) 
 
 func (h *PPPoEHandler) HandleSniffStop(w http.ResponseWriter, r *http.Request) {
 	if err := h.pppoe.SniffStop(r.Context()); err != nil {
-		log.Printf("pppoe sniff stop: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" {

@@ -84,7 +84,7 @@ func (h *VPNHandler) HandleAddPeer(w http.ResponseWriter, r *http.Request) {
 
 	peer, privKey, err := h.vpn.AddPeer(r.Context(), name, siteToSite, remoteSubnets, endpoint)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -97,7 +97,7 @@ func (h *VPNHandler) HandleAddPeer(w http.ResponseWriter, r *http.Request) {
 func (h *VPNHandler) HandleRemovePeer(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := h.vpn.RemovePeer(name); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 
@@ -115,8 +115,7 @@ func (h *VPNHandler) HandleServerStart(w http.ResponseWriter, r *http.Request) {
 	// ServerUp serialises concurrent requests; the second one finds
 	// `running == true` and returns ErrVPNAlreadyRunning.
 	if err := h.vpn.ServerUp(r.Context()); err != nil && !errors.Is(err, services.ErrVPNAlreadyRunning) {
-		log.Printf("vpn server start: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" {
@@ -129,8 +128,7 @@ func (h *VPNHandler) HandleServerStart(w http.ResponseWriter, r *http.Request) {
 
 func (h *VPNHandler) HandleServerStop(w http.ResponseWriter, r *http.Request) {
 	if err := h.vpn.ServerDown(r.Context()); err != nil && !errors.Is(err, services.ErrVPNAlreadyStopped) {
-		log.Printf("vpn server stop: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" {
@@ -148,8 +146,7 @@ func (h *VPNHandler) HandleConnectClient(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := h.vpn.ConnectClient(r.Context(), name); err != nil {
-		log.Printf("vpn connect %s: %v", name, err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" {
@@ -222,8 +219,7 @@ func (h *VPNHandler) HandleS2SInvite(w http.ResponseWriter, r *http.Request) {
 
 	token, peer, err := h.vpn.CreateS2SInvite(r.Context(), name, siteName, endpoint, remote)
 	if err != nil {
-		log.Printf("vpn s2s invite: %v", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 
@@ -249,8 +245,7 @@ func (h *VPNHandler) HandleS2SJoin(w http.ResponseWriter, r *http.Request) {
 	}
 	ack, pub, peer, err := h.vpn.ConsumeInvite(r.Context(), token)
 	if err != nil {
-		log.Printf("vpn s2s join: %v", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -278,8 +273,7 @@ func (h *VPNHandler) HandleS2SFinalize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := h.vpn.FinalizeInvite(r.Context(), name, ack); err != nil {
-		log.Printf("vpn s2s finalize: %v", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 	// Best-effort live reload of wgs0; if syncconf fails (e.g. the
@@ -304,7 +298,7 @@ func (h *VPNHandler) HandleS2SCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.vpn.CancelInvite(name); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" {
@@ -325,7 +319,7 @@ func (h *VPNHandler) HandleS2SHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	info, err := h.vpn.S2SHealth(r.Context(), name)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -347,7 +341,7 @@ func (h *VPNHandler) HandleS2SReachability(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := h.vpn.S2SReachability(r.Context(), name); err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		fail(w, r, http.StatusBadGateway, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -403,8 +397,7 @@ func (h *VPNHandler) HandleDisconnectClient(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := h.vpn.DisconnectClient(r.Context(), name); err != nil {
-		log.Printf("vpn disconnect %s: %v", name, err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" {

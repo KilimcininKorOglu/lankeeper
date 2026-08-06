@@ -74,7 +74,7 @@ func (h *SyslogHandler) HandleSaveServerConfig(w http.ResponseWriter, r *http.Re
 		// SaveServerConfig validates TLS paths against an allowlist
 		// so a rejection here is operator input, not an I/O fault —
 		// return 400 so HTMX surfaces the message.
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := h.syslog.ApplyConfig(r.Context()); err != nil {
@@ -101,7 +101,7 @@ func (h *SyslogHandler) HandleSaveClientConfig(w http.ResponseWriter, r *http.Re
 	if err := h.syslog.SaveClientConfig(current); err != nil {
 		// Same reasoning as the server-side handler — TLS path
 		// rejection is operator input.
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := h.syslog.ApplyConfig(r.Context()); err != nil {
@@ -121,7 +121,7 @@ func (h *SyslogHandler) HandleAddFacility(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := h.syslog.AddFacility(name); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := h.syslog.ApplyConfig(r.Context()); err != nil {
@@ -137,7 +137,7 @@ func (h *SyslogHandler) HandleRemoveFacility(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err := h.syslog.RemoveFacility(idx); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := h.syslog.ApplyConfig(r.Context()); err != nil {

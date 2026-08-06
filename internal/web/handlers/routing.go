@@ -105,7 +105,7 @@ func (h *RoutingHandler) HandleAddPolicy(w http.ResponseWriter, r *http.Request)
 func (h *RoutingHandler) HandleDeletePolicy(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := h.routing.RemovePolicy(name); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 

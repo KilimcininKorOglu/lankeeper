@@ -233,7 +233,7 @@ func (h *SystemHandler) HandleReboot(w http.ResponseWriter, r *http.Request) {
 	log.Println("system reboot requested via web UI")
 	_, err := netutil.Run(r.Context(), "systemctl", "reboot")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -243,7 +243,7 @@ func (h *SystemHandler) HandleFactoryReset(w http.ResponseWriter, r *http.Reques
 	log.Println("factory reset requested via web UI")
 	if h.backup != nil {
 		if err := h.backup.FactoryReset(r.Context()); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			fail(w, r, http.StatusInternalServerError, err)
 			return
 		}
 	}
@@ -375,7 +375,7 @@ func (h *SystemHandler) HandleCheckUpdate(w http.ResponseWriter, r *http.Request
 func (h *SystemHandler) HandleApplyUpdate(w http.ResponseWriter, r *http.Request) {
 	info, err := h.update.CheckForUpdate(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if !info.Available {
@@ -383,7 +383,7 @@ func (h *SystemHandler) HandleApplyUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := h.update.ApplyUpdate(r.Context(), info); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -391,7 +391,7 @@ func (h *SystemHandler) HandleApplyUpdate(w http.ResponseWriter, r *http.Request
 
 func (h *SystemHandler) HandleConfirmUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := h.update.ConfirmUpdate(r.Context()); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" {
@@ -404,7 +404,7 @@ func (h *SystemHandler) HandleConfirmUpdate(w http.ResponseWriter, r *http.Reque
 
 func (h *SystemHandler) HandleRollbackUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := h.update.Rollback(r.Context()); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

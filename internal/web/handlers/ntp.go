@@ -43,7 +43,7 @@ func (h *NTPHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 
 func (h *NTPHandler) HandleForceSync(w http.ResponseWriter, r *http.Request) {
 	if err := h.ntp.ForceSync(r.Context()); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" {
@@ -65,7 +65,7 @@ func (h *NTPHandler) HandleAddSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.ntp.AddSource(host); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := h.ntp.ApplyConfig(r.Context()); err != nil {
@@ -86,7 +86,7 @@ func (h *NTPHandler) HandleRemoveSource(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := h.ntp.RemoveSource(idx); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := h.ntp.ApplyConfig(r.Context()); err != nil {
@@ -111,7 +111,7 @@ func (h *NTPHandler) HandleAddAllowSubnet(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := h.ntp.AddAllowSubnet(cidr); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := h.ntp.ApplyConfig(r.Context()); err != nil {
@@ -132,7 +132,7 @@ func (h *NTPHandler) HandleRemoveAllowSubnet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err := h.ntp.RemoveAllowSubnet(idx); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := h.ntp.ApplyConfig(r.Context()); err != nil {
@@ -157,7 +157,7 @@ func (h *NTPHandler) HandleSaveSettings(w http.ResponseWriter, r *http.Request) 
 	serverEnabled := r.FormValue("server_enabled") == "on"
 	rtcSync := r.FormValue("rtc_sync") == "on"
 	if err := h.ntp.SaveSettings(fallback, listenAddress, listenPort, serverEnabled, rtcSync); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if err := h.ntp.ApplyConfig(r.Context()); err != nil {

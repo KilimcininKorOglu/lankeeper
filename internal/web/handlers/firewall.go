@@ -51,14 +51,13 @@ func (h *FirewallHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 
 func (h *FirewallHandler) HandleApply(w http.ResponseWriter, r *http.Request) {
 	if err := h.firewall.Apply(r.Context()); err != nil {
-		log.Printf("apply firewall: %v", err)
 		// A pending change is a state the operator can resolve from
 		// this same page, not a server fault.
 		status := http.StatusInternalServerError
 		if errors.Is(err, services.ErrChangePending) {
 			status = http.StatusConflict
 		}
-		http.Error(w, err.Error(), status)
+		fail(w, r, status, err)
 		return
 	}
 
@@ -83,8 +82,7 @@ func (h *FirewallHandler) HandleConfirm(w http.ResponseWriter, r *http.Request) 
 
 func (h *FirewallHandler) HandleRollback(w http.ResponseWriter, r *http.Request) {
 	if err := h.firewall.Rollback(r.Context()); err != nil {
-		log.Printf("rollback firewall: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -154,7 +152,7 @@ func (h *FirewallHandler) HandleDeletePortForward(w http.ResponseWriter, r *http
 	}
 
 	if err := h.firewall.RemovePortForward(idx); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 
@@ -257,7 +255,7 @@ func (h *FirewallHandler) HandleDeleteRule(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := h.firewall.RemoveRule(idx); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 
@@ -278,7 +276,7 @@ func (h *FirewallHandler) HandleToggleRule(w http.ResponseWriter, r *http.Reques
 	enabled := r.FormValue("enabled") == "true"
 
 	if err := h.firewall.ToggleRule(idx, enabled); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 
@@ -341,7 +339,7 @@ func (h *FirewallHandler) HandleDeleteOpenPort(w http.ResponseWriter, r *http.Re
 	}
 
 	if err := h.firewall.RemoveOpenPort(idx); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 
@@ -362,7 +360,7 @@ func (h *FirewallHandler) HandleToggleOpenPort(w http.ResponseWriter, r *http.Re
 	enabled := r.FormValue("enabled") == "true"
 
 	if err := h.firewall.ToggleOpenPort(idx, enabled); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 
