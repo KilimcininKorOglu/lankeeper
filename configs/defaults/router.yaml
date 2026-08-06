@@ -119,7 +119,10 @@ dns:
   blocklistUrls:
     - "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
   blocklistUpdateSchedule: "0 3 * * *"
-  cacheSize: 50000
+  # Megabytes. The Unbound template requests this for the message cache,
+  # twice this for the rrset cache, and this again for the key cache, so
+  # the real footprint is roughly four times the value.
+  cacheSize: 64
   queryLog:
     enabled: true
     logPath: "/var/log/unbound/queries.log"

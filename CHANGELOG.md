@@ -45,6 +45,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(dns) Default Unbound cache size no longer exceeds the hardware**:
+  the shipped default was `cacheSize: 50000`. The field carries no unit
+  and the Unbound template appends `m` to it across three directives,
+  with the rrset cache at twice the base, so a fresh install rendered a
+  combined cache request of roughly 195 GiB against the documented 4 GB
+  minimum. The service-side fallback only substituted a sane value when
+  the setting was exactly `0`, so the shipped non-zero default bypassed
+  it. Unbound cannot start with that allocation, DNS has no fallback
+  path on this appliance, and the field is not exposed in the web UI, so
+  recovery meant hand-editing YAML over SSH. The default is now 64 MB
+  and the renderer clamps the value to 4-256 MB, logging when it does.
+  The clamp also repairs existing installs that already have the old
+  value persisted in `router.yaml`, which changing the default alone
+  would not.
+
 - **(firewall) Custom rules now reach the live ruleset**: the UI offered
   a full add/remove/toggle flow with an Enabled badge, and the generator
   that turns those rules into nftables text existed, but nothing ever

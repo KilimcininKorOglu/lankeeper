@@ -62,6 +62,44 @@ type QueryLogEntry struct {
 	Blocked   bool
 }
 
+// Unbound cache bounds, in megabytes. The template multiplies this
+// value out into three directives, with rrset at twice the base, so the
+// real footprint is four times what is configured here. The ceiling
+// keeps that total near 1 GB, which the documented 4 GB minimum can
+// still accommodate.
+const (
+	defaultDNSCacheSizeMB = 64
+	minDNSCacheSizeMB     = 4
+	maxDNSCacheSizeMB     = 256
+)
+
+// clampCacheSize keeps the configured cache within what router-class
+// hardware can allocate.
+//
+// The field carries no unit in the schema and the template appends "m"
+// to it, so a value written as if it were kilobytes renders as that many
+// megabytes. The shipped default was 50000, which rendered a combined
+// request of roughly 195 GiB against documented hardware of 4 to 8 GB.
+// Unbound cannot start with that, and DNS has no fallback path on this
+// appliance.
+func clampCacheSize(mb int) int {
+	switch {
+	case mb == 0:
+		return defaultDNSCacheSizeMB
+	case mb < minDNSCacheSizeMB:
+		log.Printf("dns: cacheSize %d MB is below the %d MB minimum, using %d MB",
+			mb, minDNSCacheSizeMB, minDNSCacheSizeMB)
+		return minDNSCacheSizeMB
+	case mb > maxDNSCacheSizeMB:
+		log.Printf("dns: cacheSize %d MB exceeds the %d MB maximum, using %d MB; "+
+			"the value is megabytes and the template requests four times it across three caches",
+			mb, maxDNSCacheSizeMB, maxDNSCacheSizeMB)
+		return maxDNSCacheSizeMB
+	default:
+		return mb
+	}
+}
+
 func NewDNSService(cfg *config.Config) *DNSService {
 	bufSize := 10000
 	return &DNSService{
@@ -121,9 +159,7 @@ func (s *DNSService) RenderConfig() (string, error) {
 		data.QueryLogPath = "/var/log/unbound-query.log"
 	}
 
-	if data.CacheSize == 0 {
-		data.CacheSize = 64
-	}
+	data.CacheSize = clampCacheSize(data.CacheSize)
 
 	for _, vlan := range s.cfg.VLANs {
 		for _, iface := range s.cfg.Interfaces {
