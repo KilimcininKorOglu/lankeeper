@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **(backup) Factory Reset now works on every install**: the reset
+  derived its source directory from the config directory's parent,
+  which resolved to `/etc/configs/defaults` - a path no installer
+  ever creates. `POST /system/factory-reset` therefore returned
+  HTTP 500 on any router installed by the documented process, and
+  the appliance was neither reset nor rebooted. The shipped default
+  YAML files are now embedded in the binary, so the reset works on
+  any install layout and always restores the defaults matching the
+  running version, including after an OTA update that replaces only
+  the binary. Restored files are written `0640` to match the mode
+  the installer applies, instead of the previous world-readable
+  `0644`; `router.yaml` carries the session secret and the admin
+  password hash. Write failures are now reported instead of being
+  logged and swallowed, which previously let the router reboot
+  while reporting a successful reset.
+
 ## [0.5.0] - 2026-05-07
 
 ### Added

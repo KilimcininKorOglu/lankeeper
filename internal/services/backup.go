@@ -9,8 +9,10 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -18,17 +20,26 @@ import (
 
 	"golang.org/x/crypto/scrypt"
 
+	"github.com/KilimcininKorOglu/lankeeper/configs"
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 )
 
 type BackupService struct {
 	configDir string
+	defaults  fs.FS
 	runMu     sync.Mutex
 	runner    func(context.Context) error
 }
 
 func NewBackupService(configDir string) *BackupService {
-	return &BackupService{configDir: configDir}
+	return &BackupService{configDir: configDir, defaults: configs.DefaultsFS}
+}
+
+// NewBackupServiceWithDefaults overrides the factory-default source.
+// The filesystem must expose the YAML files under defaultsSubdir, the
+// same layout the embedded copy has. Only tests need this.
+func NewBackupServiceWithDefaults(configDir string, defaults fs.FS) *BackupService {
+	return &BackupService{configDir: configDir, defaults: defaults}
 }
 
 // SetRunner installs the orchestration callback used by RunNow and
@@ -144,30 +155,53 @@ func (s *BackupService) Import(ctx context.Context, archivePath, passphrase stri
 	return nil
 }
 
-func (s *BackupService) FactoryReset(ctx context.Context) error {
-	defaultsDir := filepath.Join(filepath.Dir(s.configDir), "configs", "defaults")
+// defaultsSubdir is the directory holding the factory YAML files inside
+// the defaults filesystem.
+const defaultsSubdir = "defaults"
 
-	entries, err := os.ReadDir(defaultsDir)
+// FactoryReset restores the shipped default configuration. The source is
+// the embedded copy rather than a directory on disk, so the reset works
+// on any install layout and always matches the running binary.
+//
+// Every write failure is collected and returned. Reporting success after
+// writing nothing would reboot the router into the state the operator
+// was trying to leave.
+func (s *BackupService) FactoryReset(ctx context.Context) error {
+	entries, err := fs.ReadDir(s.defaults, defaultsSubdir)
 	if err != nil {
 		return fmt.Errorf("read defaults: %w", err)
 	}
 
+	var failed []string
+	written := 0
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
 			continue
 		}
-		src := filepath.Join(defaultsDir, entry.Name())
 		dst := filepath.Join(s.configDir, entry.Name())
 
-		fileData, err := os.ReadFile(src)
+		fileData, err := fs.ReadFile(s.defaults, path.Join(defaultsSubdir, entry.Name()))
 		if err != nil {
+			return fmt.Errorf("read default %s: %w", entry.Name(), err)
+		}
+		// 0640 matches the mode the installer applies. These files hold
+		// the session secret and the admin password hash, so a reset
+		// must not widen their permissions.
+		if err := netutil.WriteFile(dst, fileData, 0o640); err != nil {
+			log.Printf("factory reset: write %s: %v", dst, err)
+			failed = append(failed, entry.Name())
 			continue
 		}
-		if err := netutil.WriteFile(dst, fileData, 0o644); err != nil {
-			log.Printf("factory reset: write %s: %v", dst, err)
-		}
+		written++
 	}
 
+	if len(failed) > 0 {
+		return fmt.Errorf("factory reset: %d of %d defaults could not be written: %s",
+			len(failed), len(failed)+written, strings.Join(failed, ", "))
+	}
+	if written == 0 {
+		return fmt.Errorf("factory reset: no default configs found")
+	}
 	return nil
 }
 
