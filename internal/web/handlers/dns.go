@@ -157,17 +157,33 @@ func (h *DNSHandler) HandleSaveDoT(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	// Apply order matters: dnscrypt-proxy MUST be up before unbound
-	// reloads, otherwise unbound's first forward query lands on a
-	// closed port and triggers a 5-10s retry storm.
-	if h.doh != nil {
+	// Apply order depends on the direction, because the wrong one leaves
+	// Unbound forwarding to a port nobody is listening on.
+	//
+	// Turning DoH on: dnscrypt-proxy must be up before Unbound reloads,
+	// or Unbound's first forward query lands on a closed port and
+	// triggers a 5-10s retry storm.
+	//
+	// Turning it off: Unbound must stop forwarding to 127.0.0.1:5353
+	// first. Stopping dnscrypt-proxy while unbound.conf still names it
+	// reproduces exactly the same failure on the way down, and the
+	// settings are already persisted by this point, so the disabled
+	// branch of the DoH service stops the daemon straight away.
+	applyDNS := func() {
+		if err := h.dns.ApplyConfig(r.Context()); err != nil {
+			log.Printf("dns apply after mode change: %v", err)
+		}
+	}
+	applyDoH := func() {
+		if h.doh == nil {
+			return
+		}
 		if err := h.doh.ApplyConfig(r.Context()); err != nil {
 			log.Printf("doh apply after mode change: %v", err)
 		}
 	}
-	if err := h.dns.ApplyConfig(r.Context()); err != nil {
-		log.Printf("dns apply after mode change: %v", err)
-	}
+
+	applyDNSPlane(enableDoH, applyDoH, applyDNS)
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Refresh", "true")
 		w.WriteHeader(http.StatusOK)
@@ -264,4 +280,21 @@ func (h *DNSHandler) HandleDeleteRecord(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	http.Redirect(w, r, "/dns", http.StatusSeeOther)
+}
+
+// applyDNSPlane runs the two applies in the order the transition needs.
+//
+// Enabling DoH: the proxy comes up first, so Unbound never reloads with
+// a forwarder that is not listening yet. Disabling it: Unbound drops the
+// forwarder first, so the proxy is only stopped once nothing points at
+// it. The handler used one fixed order for both, which was right on the
+// way up and wrong on the way down.
+func applyDNSPlane(enableDoH bool, applyDoH, applyDNS func()) {
+	if enableDoH {
+		applyDoH()
+		applyDNS()
+		return
+	}
+	applyDNS()
+	applyDoH()
 }

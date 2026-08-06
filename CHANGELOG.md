@@ -275,6 +275,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(dns) Turning DoH off no longer points Unbound at a closed port**:
+  the handler applied the DoH plane and then the DNS plane in one fixed
+  order. That is correct when enabling, where dnscrypt-proxy has to be
+  listening before Unbound reloads with it as a forwarder, and wrong
+  when disabling. The new settings are already persisted by that point,
+  so the DoH service takes its disabled branch and stops dnscrypt-proxy
+  straight away, while `unbound.conf` still carries `forward-addr:
+  127.0.0.1@5353` until the DNS apply re-renders and reloads. Every
+  query arriving in that window was forwarded to a closed port, the same
+  failure the enable-direction comment already described, reproduced on
+  the way down. The order now follows the direction: on the way up the
+  proxy starts first, on the way down Unbound drops the forwarder first.
+
 - **(handlers, web) Error responses are localized**: the project requires
   every visible string to resolve through the locale files, and page
   rendering did, but error responses did not. All 191 `http.Error` sites
