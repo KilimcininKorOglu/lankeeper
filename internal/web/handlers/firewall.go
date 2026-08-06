@@ -45,7 +45,7 @@ func (h *FirewallHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.renderer.Render(w, "firewall", "base", data); err != nil {
 		log.Printf("render firewall: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.internal")
 	}
 }
 
@@ -96,29 +96,29 @@ func (h *FirewallHandler) HandleRollback(w http.ResponseWriter, r *http.Request)
 
 func (h *FirewallHandler) HandleAddPortForward(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 
 	extPort, err := strconv.Atoi(r.FormValue("extPort"))
 	if err != nil || netutil.ValidatePort(extPort) != nil {
-		http.Error(w, "invalid port", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidPort")
 		return
 	}
 	intPort, err := strconv.Atoi(r.FormValue("intPort"))
 	if err != nil || netutil.ValidatePort(intPort) != nil {
-		http.Error(w, "invalid port", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidPort")
 		return
 	}
 
 	protocol := r.FormValue("protocol")
 	if protocol != "tcp" && protocol != "udp" && protocol != "both" {
-		http.Error(w, "invalid protocol", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidProtocol")
 		return
 	}
 	intIP := r.FormValue("intIP")
 	if netutil.ValidateIP(intIP) != nil {
-		http.Error(w, "invalid internal IP", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidInternalIP")
 		return
 	}
 
@@ -132,7 +132,7 @@ func (h *FirewallHandler) HandleAddPortForward(w http.ResponseWriter, r *http.Re
 	}
 
 	if err := h.firewall.AddPortForward(pf); err != nil {
-		http.Error(w, "save failed", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
 
@@ -147,7 +147,7 @@ func (h *FirewallHandler) HandleAddPortForward(w http.ResponseWriter, r *http.Re
 func (h *FirewallHandler) HandleDeletePortForward(w http.ResponseWriter, r *http.Request) {
 	idx, err := strconv.Atoi(r.PathValue("index"))
 	if err != nil {
-		http.Error(w, "invalid index", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidIndex")
 		return
 	}
 
@@ -166,44 +166,44 @@ func (h *FirewallHandler) HandleDeletePortForward(w http.ResponseWriter, r *http
 
 func (h *FirewallHandler) HandleAddRule(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 
 	port, err := strconv.Atoi(r.FormValue("port"))
 	if err != nil || netutil.ValidatePort(port) != nil {
-		http.Error(w, "invalid port", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidPort")
 		return
 	}
 
 	chain := r.FormValue("chain")
 	if chain != "input" && chain != "forward" && chain != "output" {
-		http.Error(w, "invalid chain", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidChain")
 		return
 	}
 	action := r.FormValue("action")
 	if action != "accept" && action != "drop" && action != "reject" {
-		http.Error(w, "invalid action", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidAction")
 		return
 	}
 	protocol := r.FormValue("protocol")
 	if protocol != "" && protocol != "tcp" && protocol != "udp" && protocol != "icmp" {
-		http.Error(w, "invalid protocol", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidProtocol")
 		return
 	}
 	direction := r.FormValue("direction")
 	if direction != "" && direction != "in" && direction != "out" {
-		http.Error(w, "invalid direction", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidDirection")
 		return
 	}
 	srcIP := r.FormValue("srcIP")
 	if srcIP != "" && netutil.ValidateCIDR(srcIP) != nil && netutil.ValidateIP(srcIP) != nil {
-		http.Error(w, "invalid source IP/CIDR", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidSourceAddress")
 		return
 	}
 	dstIP := r.FormValue("dstIP")
 	if dstIP != "" && netutil.ValidateCIDR(dstIP) != nil && netutil.ValidateIP(dstIP) != nil {
-		http.Error(w, "invalid destination IP/CIDR", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidDestinationAddress")
 		return
 	}
 
@@ -212,12 +212,12 @@ func (h *FirewallHandler) HandleAddRule(w http.ResponseWriter, r *http.Request) 
 	// Neither may carry a quote or a newline.
 	name := r.FormValue("name")
 	if err := netutil.ValidateRuleName(name); err != nil {
-		http.Error(w, "invalid rule name", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidRuleName")
 		return
 	}
 	iface := r.FormValue("interface")
 	if iface != "" && netutil.ValidateInterfaceName(iface) != nil {
-		http.Error(w, "invalid interface", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidInterface")
 		return
 	}
 
@@ -235,7 +235,7 @@ func (h *FirewallHandler) HandleAddRule(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := h.firewall.AddRule(rule); err != nil {
-		http.Error(w, "save failed", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
 
@@ -250,7 +250,7 @@ func (h *FirewallHandler) HandleAddRule(w http.ResponseWriter, r *http.Request) 
 func (h *FirewallHandler) HandleDeleteRule(w http.ResponseWriter, r *http.Request) {
 	idx, err := strconv.Atoi(r.PathValue("index"))
 	if err != nil {
-		http.Error(w, "invalid index", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidIndex")
 		return
 	}
 
@@ -270,7 +270,7 @@ func (h *FirewallHandler) HandleDeleteRule(w http.ResponseWriter, r *http.Reques
 func (h *FirewallHandler) HandleToggleRule(w http.ResponseWriter, r *http.Request) {
 	idx, err := strconv.Atoi(r.PathValue("index"))
 	if err != nil {
-		http.Error(w, "invalid index", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidIndex")
 		return
 	}
 	enabled := r.FormValue("enabled") == "true"
@@ -290,23 +290,23 @@ func (h *FirewallHandler) HandleToggleRule(w http.ResponseWriter, r *http.Reques
 
 func (h *FirewallHandler) HandleAddOpenPort(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	port, err := strconv.Atoi(r.FormValue("port"))
 	if err != nil || netutil.ValidatePort(port) != nil {
-		http.Error(w, "invalid port", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidPort")
 		return
 	}
 
 	protocol := r.FormValue("protocol")
 	if protocol != "tcp" && protocol != "udp" && protocol != "both" {
-		http.Error(w, "invalid protocol", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidProtocol")
 		return
 	}
 	source := r.FormValue("source")
 	if source != "" && netutil.ValidateCIDR(source) != nil && netutil.ValidateIP(source) != nil {
-		http.Error(w, "invalid source IP/CIDR", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidSourceAddress")
 		return
 	}
 
@@ -319,7 +319,7 @@ func (h *FirewallHandler) HandleAddOpenPort(w http.ResponseWriter, r *http.Reque
 	}
 
 	if err := h.firewall.AddOpenPort(op); err != nil {
-		http.Error(w, "save failed", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
 
@@ -334,7 +334,7 @@ func (h *FirewallHandler) HandleAddOpenPort(w http.ResponseWriter, r *http.Reque
 func (h *FirewallHandler) HandleDeleteOpenPort(w http.ResponseWriter, r *http.Request) {
 	idx, err := strconv.Atoi(r.PathValue("index"))
 	if err != nil {
-		http.Error(w, "invalid index", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidIndex")
 		return
 	}
 
@@ -354,7 +354,7 @@ func (h *FirewallHandler) HandleDeleteOpenPort(w http.ResponseWriter, r *http.Re
 func (h *FirewallHandler) HandleToggleOpenPort(w http.ResponseWriter, r *http.Request) {
 	idx, err := strconv.Atoi(r.PathValue("index"))
 	if err != nil {
-		http.Error(w, "invalid index", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidIndex")
 		return
 	}
 	enabled := r.FormValue("enabled") == "true"

@@ -42,29 +42,29 @@ func (h *NASHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.renderer.Render(w, "nas", "base", data); err != nil {
 		log.Printf("render nas: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.internal")
 	}
 }
 
 func (h *NASHandler) HandleAddShare(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 
 	name := r.FormValue("name")
 	if name == "" {
-		http.Error(w, "name required", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.nameRequired")
 		return
 	}
 	if len(name) > 64 || !nasNamePattern.MatchString(name) {
-		http.Error(w, "name must be alphanumeric, dashes, or underscores (max 64 chars)", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidNameCharacters")
 		return
 	}
 
 	rawPath := r.FormValue("path")
 	if rawPath == "" {
-		http.Error(w, "path required", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.pathRequired")
 		return
 	}
 	// Check the character set on the raw value, before Clean. The path is
@@ -72,13 +72,13 @@ func (h *NASHandler) HandleAddShare(w http.ResponseWriter, r *http.Request) {
 	// control characters, so a newline here would start a new directive
 	// inside the share stanza.
 	if netutil.ValidateFilesystemPath(rawPath) != nil {
-		http.Error(w, "path contains characters that are not allowed", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.pathCharacters")
 		return
 	}
 
 	path := filepath.Clean(rawPath)
 	if !strings.HasPrefix(path, "/srv/") && !strings.HasPrefix(path, "/mnt/") {
-		http.Error(w, "path must start with /srv/ or /mnt/", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.pathPrefix")
 		return
 	}
 
@@ -90,7 +90,7 @@ func (h *NASHandler) HandleAddShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.nas.AddShare(share); err != nil {
-		http.Error(w, "save failed", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
 	if err := h.nas.ApplyConfig(r.Context()); err != nil {
@@ -140,17 +140,17 @@ func (h *NASHandler) HandleSyncM3U(w http.ResponseWriter, r *http.Request) {
 
 func (h *NASHandler) HandleDiscoverGroups(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	rawURL := r.FormValue("url")
 	if rawURL == "" {
-		http.Error(w, "url required", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.urlRequired")
 		return
 	}
 	parsed, err := url.Parse(rawURL)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		http.Error(w, "url must use http or https scheme", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.urlScheme")
 		return
 	}
 

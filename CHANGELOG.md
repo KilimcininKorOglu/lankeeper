@@ -275,6 +275,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(handlers, web) Error responses are localized**: the project requires
+  every visible string to resolve through the locale files, and page
+  rendering did, but error responses did not. All 191 `http.Error` sites
+  across the handlers, the middleware and the SSE endpoint wrote English
+  literals such as "bad form", "save failed" and "invalid port", so a
+  Turkish operator, the primary locale, read raw English for essentially
+  every validation and mutation failure across firewall, DNS, VLAN, QoS,
+  VPN, OpenVPN, PPPoE and backup management. Exactly one handler
+  localized its errors, which showed the pattern was available and
+  simply unused. Every site now resolves an `error.*` key, with 80 new
+  keys added to both locale files. The bundle is installed once at
+  startup and reached through a package-level accessor, rather than
+  threading an `*I18n` through fourteen handler constructors for
+  something the server owns exactly one of. Tests assert that every key
+  the code references exists in both files, that the two files hold the
+  same key set, and that no Turkish string is a copy of its English
+  counterpart.
+
 - **(handlers) The backup import endpoint bounds its upload**: the
   handler went straight to `FormFile` and copied the body into the temp
   directory in full before anything inspected it, with no

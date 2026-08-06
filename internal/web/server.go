@@ -70,6 +70,10 @@ type Server struct {
 }
 
 func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *services.UpdateService) (*Server, error) {
+	// Handlers and middleware localize their error responses through the
+	// package-level bundle rather than each holding a reference.
+	i18n.SetDefault(loc)
+
 	auth := NewAuth(cfg.System.SessionSecret, cfg.System.AdminPasswordHash)
 
 	renderer, err := tmpl.NewRenderer(webFS, loc)
@@ -594,7 +598,7 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.renderer.Render(w, "login", "auth", data); err != nil {
 		log.Printf("render login: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		httpErrorT(w, r, http.StatusInternalServerError, "error.internal")
 	}
 }
 
@@ -618,7 +622,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.auth.Login(w, r); err != nil {
 		log.Printf("login session error: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		httpErrorT(w, r, http.StatusInternalServerError, "error.internal")
 		return
 	}
 

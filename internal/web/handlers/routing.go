@@ -35,13 +35,13 @@ func (h *RoutingHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.renderer.Render(w, "routing", "base", data); err != nil {
 		log.Printf("render routing: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.internal")
 	}
 }
 
 func (h *RoutingHandler) HandleAddPolicy(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 
@@ -55,7 +55,7 @@ func (h *RoutingHandler) HandleAddPolicy(w http.ResponseWriter, r *http.Request)
 		policy.SrcMACs = strings.Split(srcMACs, ",")
 		for _, mac := range policy.SrcMACs {
 			if netutil.ValidateMAC(strings.TrimSpace(mac)) != nil {
-				http.Error(w, "invalid MAC: "+mac, http.StatusBadRequest)
+				clientErrorf(w, r, http.StatusBadRequest, "error.invalidMAC", mac)
 				return
 			}
 		}
@@ -64,7 +64,7 @@ func (h *RoutingHandler) HandleAddPolicy(w http.ResponseWriter, r *http.Request)
 		policy.SrcIPs = strings.Split(srcIPs, ",")
 		for _, cidr := range policy.SrcIPs {
 			if netutil.ValidateCIDR(strings.TrimSpace(cidr)) != nil {
-				http.Error(w, "invalid CIDR: "+cidr, http.StatusBadRequest)
+				clientErrorf(w, r, http.StatusBadRequest, "error.invalidCIDR", cidr)
 				return
 			}
 		}
@@ -73,7 +73,7 @@ func (h *RoutingHandler) HandleAddPolicy(w http.ResponseWriter, r *http.Request)
 		policy.DstIPs = strings.Split(dstIPs, ",")
 		for _, cidr := range policy.DstIPs {
 			if netutil.ValidateCIDR(strings.TrimSpace(cidr)) != nil {
-				http.Error(w, "invalid CIDR: "+cidr, http.StatusBadRequest)
+				clientErrorf(w, r, http.StatusBadRequest, "error.invalidCIDR", cidr)
 				return
 			}
 		}
@@ -90,7 +90,7 @@ func (h *RoutingHandler) HandleAddPolicy(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := h.routing.AddPolicy(policy); err != nil {
-		http.Error(w, "save failed", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
 
@@ -120,12 +120,12 @@ func (h *RoutingHandler) HandleDeletePolicy(w http.ResponseWriter, r *http.Reque
 func (h *RoutingHandler) HandleReorder(w http.ResponseWriter, r *http.Request) {
 	var names []string
 	if err := json.NewDecoder(r.Body).Decode(&names); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidJSON")
 		return
 	}
 
 	if err := h.routing.UpdatePriorities(names); err != nil {
-		http.Error(w, "save failed", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
 

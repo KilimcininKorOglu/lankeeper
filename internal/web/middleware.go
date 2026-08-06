@@ -33,7 +33,7 @@ func CSRFProtect(next http.Handler) http.Handler {
 
 		cookie, err := r.Cookie("csrf_token")
 		if err != nil {
-			http.Error(w, "CSRF token missing", http.StatusForbidden)
+			httpErrorT(w, r, http.StatusForbidden, "error.csrfMissing")
 			return
 		}
 
@@ -45,7 +45,7 @@ func CSRFProtect(next http.Handler) http.Handler {
 		}
 
 		if token == "" || token != cookie.Value {
-			http.Error(w, "CSRF token invalid", http.StatusForbidden)
+			httpErrorT(w, r, http.StatusForbidden, "error.csrfInvalid")
 			return
 		}
 
@@ -84,7 +84,7 @@ func LANOnly(allowedNets []*net.IPNet) func(http.Handler) http.Handler {
 
 			ip := net.ParseIP(host)
 			if ip == nil {
-				http.Error(w, "Forbidden", http.StatusForbidden)
+				httpErrorT(w, r, http.StatusForbidden, "error.forbidden")
 				return
 			}
 
@@ -100,7 +100,7 @@ func LANOnly(allowedNets []*net.IPNet) func(http.Handler) http.Handler {
 				}
 			}
 
-			http.Error(w, "Forbidden", http.StatusForbidden)
+			httpErrorT(w, r, http.StatusForbidden, "error.forbidden")
 		})
 	}
 }
@@ -179,7 +179,7 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 		}
 
 		if !rl.Allow(host) {
-			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+			httpErrorT(w, r, http.StatusTooManyRequests, "error.tooManyRequests")
 			return
 		}
 

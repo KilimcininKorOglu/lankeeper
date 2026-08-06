@@ -55,7 +55,7 @@ func (h *PPPoEHandler) HandleStatus(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.renderer.RenderPartial(w, "network", "wan-status", data); err != nil {
 		log.Printf("render wan-status: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.internal")
 	}
 }
 

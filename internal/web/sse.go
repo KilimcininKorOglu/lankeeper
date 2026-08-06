@@ -63,7 +63,7 @@ func (b *SSEBroker) ClientCount() int {
 func (b *SSEBroker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		httpErrorT(w, r, http.StatusInternalServerError, "error.streamingUnsupported")
 		return
 	}
 

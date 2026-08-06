@@ -58,7 +58,7 @@ func (h *OpenVPNHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.renderer.Render(w, "openvpn", "base", data); err != nil {
 		log.Printf("render openvpn: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.internal")
 	}
 }
 
@@ -77,16 +77,16 @@ func (h *OpenVPNHandler) HandleInitPKI(w http.ResponseWriter, r *http.Request) {
 
 func (h *OpenVPNHandler) HandleAddClient(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	name := r.FormValue("name")
 	if name == "" {
-		http.Error(w, "name required", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.nameRequired")
 		return
 	}
 	if len(name) > 64 || !ovpnNamePattern.MatchString(name) {
-		http.Error(w, "name must be alphanumeric, dashes, or underscores (max 64 chars)", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidNameCharacters")
 		return
 	}
 
@@ -95,7 +95,7 @@ func (h *OpenVPNHandler) HandleAddClient(w http.ResponseWriter, r *http.Request)
 	fixedIP := r.FormValue("fixedIP")
 	if fixedIP != "" {
 		if err := netutil.ValidateIP(fixedIP); err != nil {
-			http.Error(w, "invalid fixedIP: "+err.Error(), http.StatusBadRequest)
+			clientErrorf(w, r, http.StatusBadRequest, "error.invalidFixedIP", err.Error())
 			return
 		}
 	}
@@ -105,7 +105,7 @@ func (h *OpenVPNHandler) HandleAddClient(w http.ResponseWriter, r *http.Request)
 		for _, s := range strings.Split(raw, ",") {
 			if trimmed := strings.TrimSpace(s); trimmed != "" {
 				if err := netutil.ValidateCIDR(trimmed); err != nil {
-					http.Error(w, "invalid CIDR in remoteSubnets: "+trimmed, http.StatusBadRequest)
+					clientErrorf(w, r, http.StatusBadRequest, "error.invalidRemoteSubnet", trimmed)
 					return
 				}
 				remoteSubnets = append(remoteSubnets, trimmed)
@@ -129,13 +129,13 @@ func (h *OpenVPNHandler) HandleAddClient(w http.ResponseWriter, r *http.Request)
 func (h *OpenVPNHandler) HandleDownloadOVPN(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if len(name) > 64 || !ovpnNamePattern.MatchString(name) {
-		http.Error(w, "invalid client name", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidClientName")
 		return
 	}
 
 	ovpnContent, err := h.ovpn.GenerateClientOVPN(name)
 	if err != nil {
-		http.Error(w, "generate failed", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.generateFailed")
 		return
 	}
 
@@ -187,47 +187,47 @@ func (h *OpenVPNHandler) HandleRevokeClient(w http.ResponseWriter, r *http.Reque
 
 func (h *OpenVPNHandler) HandleAddOutboundClient(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	name := r.FormValue("name")
 	if name == "" {
-		http.Error(w, "name required", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.nameRequired")
 		return
 	}
 	if len(name) > 64 || !ovpnNamePattern.MatchString(name) {
-		http.Error(w, "name must be alphanumeric, dashes, or underscores (max 64 chars)", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidNameCharacters")
 		return
 	}
 
 	remoteHost := r.FormValue("remoteHost")
 	if remoteHost == "" {
-		http.Error(w, "remoteHost required", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.remoteHostRequired")
 		return
 	}
 
 	protocol := r.FormValue("protocol")
 	if protocol != "udp" && protocol != "tcp" {
-		http.Error(w, "protocol must be udp or tcp", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.protocolUDPOrTCP")
 		return
 	}
 
 	cipher := r.FormValue("cipher")
 	if cipher != "" && !validCiphers[cipher] {
-		http.Error(w, "invalid cipher", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidCipher")
 		return
 	}
 
 	auth := r.FormValue("auth")
 	if auth != "" && !validAuths[auth] {
-		http.Error(w, "invalid auth", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidAuth")
 		return
 	}
 
 	rawConfig := r.FormValue("configFile")
 	port, err := strconv.Atoi(r.FormValue("remotePort"))
 	if err != nil || netutil.ValidatePort(port) != nil {
-		http.Error(w, "invalid port", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidPort")
 		return
 	}
 
@@ -245,7 +245,7 @@ func (h *OpenVPNHandler) HandleAddOutboundClient(w http.ResponseWriter, r *http.
 	}
 
 	if err := h.ovpn.AddOutboundClient(client); err != nil {
-		http.Error(w, "save failed", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
 

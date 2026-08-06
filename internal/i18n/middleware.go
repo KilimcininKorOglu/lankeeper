@@ -8,6 +8,13 @@ import (
 
 type ctxKey struct{}
 
+// ContextWithLang returns a context carrying lang, the same value the
+// middleware installs. Exported so a caller that answers a request
+// outside the middleware chain, or a test, can localize consistently.
+func ContextWithLang(ctx context.Context, lang string) context.Context {
+	return context.WithValue(ctx, ctxKey{}, lang)
+}
+
 func LangFromContext(ctx context.Context) string {
 	if lang, ok := ctx.Value(ctxKey{}).(string); ok {
 		return lang

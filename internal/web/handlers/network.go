@@ -69,6 +69,6 @@ func (h *NetworkHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.renderer.Render(w, "network", "base", data); err != nil {
 		log.Printf("render network: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.internal")
 	}
 }

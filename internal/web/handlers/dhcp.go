@@ -36,13 +36,13 @@ func (h *DHCPHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.renderer.Render(w, "dhcp", "base", data); err != nil {
 		log.Printf("render dhcp: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.internal")
 	}
 }
 
 func (h *DHCPHandler) HandleAddStatic(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 
@@ -51,20 +51,20 @@ func (h *DHCPHandler) HandleAddStatic(w http.ResponseWriter, r *http.Request) {
 	hostname := r.FormValue("hostname")
 
 	if netutil.ValidateMAC(mac) != nil {
-		http.Error(w, "invalid MAC address", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidMAC")
 		return
 	}
 	if netutil.ValidateIP(ip) != nil {
-		http.Error(w, "invalid IP address", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidIP")
 		return
 	}
 	if hostname == "" {
-		http.Error(w, "hostname required", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.hostnameRequired")
 		return
 	}
 
 	if err := h.dhcp.AddStaticLease(mac, ip, hostname); err != nil {
-		http.Error(w, "save failed", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
 	if err := h.dhcp.ApplyConfig(r.Context()); err != nil {
@@ -82,7 +82,7 @@ func (h *DHCPHandler) HandleAddStatic(w http.ResponseWriter, r *http.Request) {
 func (h *DHCPHandler) HandleDeleteStatic(w http.ResponseWriter, r *http.Request) {
 	idx, err := strconv.Atoi(r.PathValue("index"))
 	if err != nil {
-		http.Error(w, "invalid index", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidIndex")
 		return
 	}
 

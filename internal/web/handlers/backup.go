@@ -54,7 +54,7 @@ func (h *BackupHandler) HandleBackupPage(w http.ResponseWriter, r *http.Request)
 // blank the encryption credential.
 func (h *BackupHandler) HandleSaveSchedule(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	enabled := r.FormValue("enabled") == "on" || r.FormValue("enabled") == "true"
@@ -67,7 +67,7 @@ func (h *BackupHandler) HandleSaveSchedule(w http.ResponseWriter, r *http.Reques
 
 	if schedule != "" {
 		if _, err := services.ParseSchedule(schedule, nil); err != nil {
-			http.Error(w, "invalid schedule: "+err.Error(), http.StatusBadRequest)
+			clientErrorf(w, r, http.StatusBadRequest, "error.invalidSchedule", err.Error())
 			return
 		}
 	}
@@ -79,7 +79,7 @@ func (h *BackupHandler) HandleSaveSchedule(w http.ResponseWriter, r *http.Reques
 		h.cfg.Backup.Passphrase = passphrase
 	}
 	if err := h.cfg.SaveToFile(); err != nil {
-		http.Error(w, "save failed", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
 
@@ -96,17 +96,17 @@ func (h *BackupHandler) HandleSaveSchedule(w http.ResponseWriter, r *http.Reques
 // chosen target needs.
 func (h *BackupHandler) HandleAddTarget(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	name := strings.TrimSpace(r.FormValue("name"))
 	if name == "" {
-		http.Error(w, "name required", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.nameRequired")
 		return
 	}
 	for _, t := range h.cfg.Backup.Targets {
 		if t.Name == name {
-			http.Error(w, "duplicate name", http.StatusBadRequest)
+			clientError(w, r, http.StatusBadRequest, "error.duplicateName")
 			return
 		}
 	}
@@ -134,12 +134,12 @@ func (h *BackupHandler) HandleAddTarget(w http.ResponseWriter, r *http.Request) 
 		target.RemoteDir = strings.TrimSpace(r.FormValue("remoteDir"))
 		target.HostKeyFingerprint = strings.TrimSpace(r.FormValue("hostKeyFingerprint"))
 	default:
-		http.Error(w, "invalid type", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidType")
 		return
 	}
 	h.cfg.Backup.Targets = append(h.cfg.Backup.Targets, target)
 	if err := h.cfg.SaveToFile(); err != nil {
-		http.Error(w, "save failed", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" {
@@ -155,7 +155,7 @@ func (h *BackupHandler) HandleAddTarget(w http.ResponseWriter, r *http.Request) 
 func (h *BackupHandler) HandleDeleteTarget(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/backup/target/")
 	if name == "" {
-		http.Error(w, "name required", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.nameRequired")
 		return
 	}
 	out := make([]config.BackupTarget, 0, len(h.cfg.Backup.Targets))
@@ -168,12 +168,12 @@ func (h *BackupHandler) HandleDeleteTarget(w http.ResponseWriter, r *http.Reques
 		out = append(out, t)
 	}
 	if !found {
-		http.Error(w, "target not found", http.StatusNotFound)
+		clientError(w, r, http.StatusNotFound, "error.targetNotFound")
 		return
 	}
 	h.cfg.Backup.Targets = out
 	if err := h.cfg.SaveToFile(); err != nil {
-		http.Error(w, "save failed", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" {

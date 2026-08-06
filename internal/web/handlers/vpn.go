@@ -42,22 +42,22 @@ func (h *VPNHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.renderer.Render(w, "vpn", "base", data); err != nil {
 		log.Printf("render vpn: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.internal")
 	}
 }
 
 func (h *VPNHandler) HandleAddPeer(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	name := r.FormValue("name")
 	if name == "" {
-		http.Error(w, "name required", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.nameRequired")
 		return
 	}
 	if len(name) > 64 || !vpnNamePattern.MatchString(name) {
-		http.Error(w, "name must be alphanumeric, dashes, or underscores (max 64 chars)", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidNameCharacters")
 		return
 	}
 
@@ -65,7 +65,7 @@ func (h *VPNHandler) HandleAddPeer(w http.ResponseWriter, r *http.Request) {
 	siteToSite := peerType == "site-to-site"
 	endpoint := r.FormValue("endpoint")
 	if endpoint != "" && !strings.Contains(endpoint, ":") {
-		http.Error(w, "endpoint must be in host:port format", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.endpointFormat")
 		return
 	}
 
@@ -74,7 +74,7 @@ func (h *VPNHandler) HandleAddPeer(w http.ResponseWriter, r *http.Request) {
 		for _, s := range strings.Split(raw, ",") {
 			if trimmed := strings.TrimSpace(s); trimmed != "" {
 				if err := netutil.ValidateCIDR(trimmed); err != nil {
-					http.Error(w, "invalid CIDR in remoteSubnets: "+trimmed, http.StatusBadRequest)
+					clientErrorf(w, r, http.StatusBadRequest, "error.invalidRemoteSubnet", trimmed)
 					return
 				}
 				remoteSubnets = append(remoteSubnets, trimmed)
@@ -142,7 +142,7 @@ func (h *VPNHandler) HandleServerStop(w http.ResponseWriter, r *http.Request) {
 func (h *VPNHandler) HandleConnectClient(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !vpnNamePattern.MatchString(name) {
-		http.Error(w, "invalid client name", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidClientName")
 		return
 	}
 	if err := h.vpn.ConnectClient(r.Context(), name); err != nil {
@@ -176,7 +176,7 @@ func (h *VPNHandler) HandleS2SWizardPage(w http.ResponseWriter, r *http.Request)
 	}
 	if err := h.renderer.Render(w, "vpn-s2s", "base", data); err != nil {
 		log.Printf("render vpn-s2s: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.internal")
 	}
 }
 
@@ -184,7 +184,7 @@ func (h *VPNHandler) HandleS2SWizardPage(w http.ResponseWriter, r *http.Request)
 // originating router. Returns JSON {"token": "...", "peerName": "..."}.
 func (h *VPNHandler) HandleS2SInvite(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	name := r.FormValue("name")
@@ -193,11 +193,11 @@ func (h *VPNHandler) HandleS2SInvite(w http.ResponseWriter, r *http.Request) {
 	remoteRaw := strings.TrimSpace(r.FormValue("remoteSubnets"))
 
 	if name == "" || !vpnNamePattern.MatchString(name) {
-		http.Error(w, "invalid name", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidName")
 		return
 	}
 	if endpoint == "" || !strings.Contains(endpoint, ":") {
-		http.Error(w, "endpoint must be in host:port form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.endpointFormat")
 		return
 	}
 	var remote []string
@@ -207,13 +207,13 @@ func (h *VPNHandler) HandleS2SInvite(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if err := netutil.ValidateCIDR(s); err != nil {
-			http.Error(w, "invalid CIDR: "+s, http.StatusBadRequest)
+			clientErrorf(w, r, http.StatusBadRequest, "error.invalidCIDR", s)
 			return
 		}
 		remote = append(remote, s)
 	}
 	if len(remote) == 0 {
-		http.Error(w, "at least one remote subnet required", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.remoteSubnetRequired")
 		return
 	}
 
@@ -235,12 +235,12 @@ func (h *VPNHandler) HandleS2SInvite(w http.ResponseWriter, r *http.Request) {
 // + the local public key so the operator can paste it back.
 func (h *VPNHandler) HandleS2SJoin(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	token := strings.TrimSpace(r.FormValue("token"))
 	if token == "" {
-		http.Error(w, "token required", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.tokenRequired")
 		return
 	}
 	ack, pub, peer, err := h.vpn.ConsumeInvite(r.Context(), token)
@@ -259,17 +259,17 @@ func (h *VPNHandler) HandleS2SJoin(w http.ResponseWriter, r *http.Request) {
 // by accepting the ack token from the joining router.
 func (h *VPNHandler) HandleS2SFinalize(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	name := r.FormValue("peerName")
 	ack := strings.TrimSpace(r.FormValue("ackToken"))
 	if name == "" || !vpnNamePattern.MatchString(name) {
-		http.Error(w, "invalid peer name", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidPeerName")
 		return
 	}
 	if ack == "" {
-		http.Error(w, "ackToken required", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.ackTokenRequired")
 		return
 	}
 	if _, err := h.vpn.FinalizeInvite(r.Context(), name, ack); err != nil {
@@ -294,7 +294,7 @@ func (h *VPNHandler) HandleS2SFinalize(w http.ResponseWriter, r *http.Request) {
 func (h *VPNHandler) HandleS2SCancel(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" || !vpnNamePattern.MatchString(name) {
-		http.Error(w, "invalid name", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidName")
 		return
 	}
 	if err := h.vpn.CancelInvite(name); err != nil {
@@ -314,7 +314,7 @@ func (h *VPNHandler) HandleS2SCancel(w http.ResponseWriter, r *http.Request) {
 func (h *VPNHandler) HandleS2SHealth(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" || !vpnNamePattern.MatchString(name) {
-		http.Error(w, "invalid name", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidName")
 		return
 	}
 	info, err := h.vpn.S2SHealth(r.Context(), name)
@@ -337,7 +337,7 @@ func (h *VPNHandler) HandleS2SHealth(w http.ResponseWriter, r *http.Request) {
 func (h *VPNHandler) HandleS2SReachability(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" || !vpnNamePattern.MatchString(name) {
-		http.Error(w, "invalid name", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidName")
 		return
 	}
 	if err := h.vpn.S2SReachability(r.Context(), name); err != nil {
@@ -393,7 +393,7 @@ func uintStr(u uint64) string { return fmt.Sprintf("%d", u) }
 func (h *VPNHandler) HandleDisconnectClient(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !vpnNamePattern.MatchString(name) {
-		http.Error(w, "invalid client name", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidClientName")
 		return
 	}
 	if err := h.vpn.DisconnectClient(r.Context(), name); err != nil {

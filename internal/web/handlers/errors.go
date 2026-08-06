@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/KilimcininKorOglu/lankeeper/internal/i18n"
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 )
 
@@ -28,6 +29,34 @@ func fail(w http.ResponseWriter, r *http.Request, status int, err error) {
 	}
 
 	http.Error(w, safeErrorMessage(err, status), status)
+}
+
+// clientError answers a request the operator can fix, with the message
+// resolved in their language.
+//
+// Every visible string in this product is required to go through the
+// locale files, and page rendering does. Error responses did not: they
+// were English literals written straight into http.Error, so a Turkish
+// operator, the primary locale, read raw English for essentially every
+// validation and mutation failure across the whole administrative
+// surface.
+func clientError(w http.ResponseWriter, r *http.Request, status int, key string) {
+	lang := ""
+	if r != nil {
+		lang = i18n.LangFromContext(r.Context())
+	}
+	http.Error(w, i18n.T(lang, key), status)
+}
+
+// clientErrorf is clientError for the few messages that must name the
+// offending value. The detail comes from the request, never from an
+// agent or a third party.
+func clientErrorf(w http.ResponseWriter, r *http.Request, status int, key, detail string) {
+	lang := ""
+	if r != nil {
+		lang = i18n.LangFromContext(r.Context())
+	}
+	http.Error(w, i18n.T(lang, key)+": "+detail, status)
 }
 
 // safeErrorMessage picks the text to send for err.

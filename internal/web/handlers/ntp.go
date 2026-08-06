@@ -37,7 +37,7 @@ func (h *NTPHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.renderer.Render(w, "ntp", "base", data); err != nil {
 		log.Printf("render ntp: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.internal")
 	}
 }
 
@@ -56,12 +56,12 @@ func (h *NTPHandler) HandleForceSync(w http.ResponseWriter, r *http.Request) {
 
 func (h *NTPHandler) HandleAddSource(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	host := strings.TrimSpace(r.FormValue("host"))
 	if host == "" {
-		http.Error(w, "host required", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.hostRequired")
 		return
 	}
 	if err := h.ntp.AddSource(host); err != nil {
@@ -82,7 +82,7 @@ func (h *NTPHandler) HandleAddSource(w http.ResponseWriter, r *http.Request) {
 func (h *NTPHandler) HandleRemoveSource(w http.ResponseWriter, r *http.Request) {
 	idx, err := strconv.Atoi(r.PathValue("index"))
 	if err != nil {
-		http.Error(w, "invalid index", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidIndex")
 		return
 	}
 	if err := h.ntp.RemoveSource(idx); err != nil {
@@ -102,12 +102,12 @@ func (h *NTPHandler) HandleRemoveSource(w http.ResponseWriter, r *http.Request) 
 
 func (h *NTPHandler) HandleAddAllowSubnet(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	cidr := strings.TrimSpace(r.FormValue("cidr"))
 	if netutil.ValidateCIDR(cidr) != nil {
-		http.Error(w, "invalid CIDR", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidCIDR")
 		return
 	}
 	if err := h.ntp.AddAllowSubnet(cidr); err != nil {
@@ -128,7 +128,7 @@ func (h *NTPHandler) HandleAddAllowSubnet(w http.ResponseWriter, r *http.Request
 func (h *NTPHandler) HandleRemoveAllowSubnet(w http.ResponseWriter, r *http.Request) {
 	idx, err := strconv.Atoi(r.PathValue("index"))
 	if err != nil {
-		http.Error(w, "invalid index", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidIndex")
 		return
 	}
 	if err := h.ntp.RemoveAllowSubnet(idx); err != nil {
@@ -148,7 +148,7 @@ func (h *NTPHandler) HandleRemoveAllowSubnet(w http.ResponseWriter, r *http.Requ
 
 func (h *NTPHandler) HandleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	fallback := r.FormValue("fallback")

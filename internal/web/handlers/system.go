@@ -68,13 +68,13 @@ func (h *SystemHandler) HandleSettingsPage(w http.ResponseWriter, r *http.Reques
 
 	if err := h.renderer.Render(w, "settings", "base", data); err != nil {
 		log.Printf("render settings: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.internal")
 	}
 }
 
 func (h *SystemHandler) HandleChangeWebPassword(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 
@@ -82,19 +82,19 @@ func (h *SystemHandler) HandleChangeWebPassword(w http.ResponseWriter, r *http.R
 	confirmPassword := r.FormValue("confirmPassword")
 
 	if newPassword != confirmPassword || len(newPassword) < 8 {
-		http.Error(w, "Password mismatch or too short (min 8 chars)", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.passwordMismatchOrShort")
 		return
 	}
 
 	hashBytes, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.internal")
 		return
 	}
 
 	h.cfg.System.AdminPasswordHash = string(hashBytes)
 	if err := h.cfg.SaveToFile(); err != nil {
-		http.Error(w, "save failed", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
 
@@ -116,7 +116,7 @@ func (h *SystemHandler) HandleChangeWebPassword(w http.ResponseWriter, r *http.R
 
 func (h *SystemHandler) HandleChangeRootPassword(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 
@@ -124,21 +124,21 @@ func (h *SystemHandler) HandleChangeRootPassword(w http.ResponseWriter, r *http.
 	confirmPassword := r.FormValue("rootPasswordConfirm")
 
 	if newPassword != confirmPassword || len(newPassword) < 8 {
-		http.Error(w, "Password mismatch or too short (min 8 chars)", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.passwordMismatchOrShort")
 		return
 	}
 
 	hashOut, err := netutil.RunSimple(context.Background(), "openssl", "passwd", "-6", newPassword)
 	if err != nil {
 		log.Printf("generate password hash: %v", err)
-		http.Error(w, "Failed to hash password", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.passwordHashFailed")
 		return
 	}
 	cryptHash := strings.TrimSpace(hashOut)
 
 	if _, err := netutil.Run(context.Background(), "usermod", "-p", cryptHash, "root"); err != nil {
 		log.Printf("change root password: %v", err)
-		http.Error(w, "Failed to change root password", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.rootPasswordFailed")
 		return
 	}
 
@@ -154,14 +154,14 @@ func (h *SystemHandler) HandleChangeRootPassword(w http.ResponseWriter, r *http.
 
 func (h *SystemHandler) HandleUpdateHostname(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	hostname := r.FormValue("hostname")
 	domain := r.FormValue("domain")
 
 	if hostname == "" || len(hostname) > 63 {
-		http.Error(w, "Invalid hostname", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidHostname")
 		return
 	}
 
@@ -184,7 +184,7 @@ func (h *SystemHandler) HandleUpdateHostname(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := h.cfg.SaveToFile(); err != nil {
-		http.Error(w, "save failed", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
 	log.Printf("hostname changed to %s.%s", hostname, h.cfg.System.Domain)
@@ -199,19 +199,19 @@ func (h *SystemHandler) HandleUpdateHostname(w http.ResponseWriter, r *http.Requ
 
 func (h *SystemHandler) HandleUpdateTimezone(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	tz := r.FormValue("timezone")
 
 	if tz == "" {
-		http.Error(w, "Invalid timezone", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidTimezone")
 		return
 	}
 
 	h.cfg.System.Timezone = tz
 	if err := h.cfg.SaveToFile(); err != nil {
-		http.Error(w, "save failed", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
 
@@ -256,14 +256,14 @@ func (h *SystemHandler) HandleFactoryReset(w http.ResponseWriter, r *http.Reques
 func (h *SystemHandler) HandleExport(w http.ResponseWriter, r *http.Request) {
 	passphrase := r.FormValue("passphrase")
 	if passphrase == "" {
-		http.Error(w, "passphrase required for encrypted backup", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.passphraseRequired")
 		return
 	}
 
 	outputPath := filepath.Join(os.TempDir(), fmt.Sprintf("lankeeper-backup-%s.tar.gz.enc", time.Now().Format("20060102-150405")))
 
 	if err := h.backup.Export(r.Context(), outputPath, passphrase); err != nil {
-		http.Error(w, "export failed", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.exportFailed")
 		return
 	}
 	defer func() { _ = os.Remove(outputPath) }()
@@ -289,24 +289,24 @@ func (h *SystemHandler) HandleImport(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(maxBackupFormMemory); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			http.Error(w, "backup archive is too large", http.StatusRequestEntityTooLarge)
+			clientError(w, r, http.StatusRequestEntityTooLarge, "error.backupTooLarge")
 			return
 		}
-		http.Error(w, "backup file required", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.backupFileRequired")
 		return
 	}
 	defer func() { _ = r.MultipartForm.RemoveAll() }()
 
 	file, _, err := r.FormFile("backup")
 	if err != nil {
-		http.Error(w, "backup file required", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.backupFileRequired")
 		return
 	}
 	defer func() { _ = file.Close() }()
 
 	tmpFile, err := os.CreateTemp("", "lankeeper-import-*.tar.gz")
 	if err != nil {
-		http.Error(w, "failed to create temp file", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.tempFileFailed")
 		return
 	}
 	defer func() { _ = os.Remove(tmpFile.Name()) }()
@@ -315,17 +315,17 @@ func (h *SystemHandler) HandleImport(w http.ResponseWriter, r *http.Request) {
 		_ = tmpFile.Close()
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			http.Error(w, "backup archive is too large", http.StatusRequestEntityTooLarge)
+			clientError(w, r, http.StatusRequestEntityTooLarge, "error.backupTooLarge")
 			return
 		}
-		http.Error(w, "failed to save uploaded file", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.uploadSaveFailed")
 		return
 	}
 	_ = tmpFile.Close()
 
 	passphrase := r.FormValue("passphrase")
 	if err := h.backup.Import(r.Context(), tmpFile.Name(), passphrase); err != nil {
-		http.Error(w, "import failed", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.importFailed")
 		return
 	}
 
@@ -379,7 +379,7 @@ func (h *SystemHandler) HandleApplyUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if !info.Available {
-		http.Error(w, "no update available", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.noUpdateAvailable")
 		return
 	}
 	if err := h.update.ApplyUpdate(r.Context(), info); err != nil {

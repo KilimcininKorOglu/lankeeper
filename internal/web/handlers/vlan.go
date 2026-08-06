@@ -43,24 +43,24 @@ func (h *VLANHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.renderer.Render(w, "network", "base", data); err != nil {
 		log.Printf("render network (vlan): %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.internal")
 	}
 }
 
 func (h *VLANHandler) HandleAdd(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 
 	vid, err := strconv.Atoi(r.FormValue("vid"))
 	if err != nil || netutil.ValidateVLANID(vid) != nil {
-		http.Error(w, "invalid VLAN ID", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidVLANID")
 		return
 	}
 	mtu, err := strconv.Atoi(r.FormValue("mtu"))
 	if err != nil && r.FormValue("mtu") != "" {
-		http.Error(w, "invalid MTU", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidMTU")
 		return
 	}
 	if mtu == 0 {
@@ -90,7 +90,7 @@ func (h *VLANHandler) HandleAdd(w http.ResponseWriter, r *http.Request) {
 
 	h.cfg.VLANs = append(h.cfg.VLANs, vlan)
 	if err := h.cfg.SaveToFile(); err != nil {
-		http.Error(w, "save failed", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
 
@@ -136,7 +136,7 @@ func (h *VLANHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 
 			h.cfg.VLANs = append(h.cfg.VLANs[:i], h.cfg.VLANs[i+1:]...)
 			if err := h.cfg.SaveToFile(); err != nil {
-				http.Error(w, "save failed", http.StatusInternalServerError)
+				clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 				return
 			}
 			break

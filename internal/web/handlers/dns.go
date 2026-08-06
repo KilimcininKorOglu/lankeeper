@@ -61,7 +61,7 @@ func (h *DNSHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.renderer.Render(w, "dns", "base", data); err != nil {
 		log.Printf("render dns: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.internal")
 	}
 }
 
@@ -96,12 +96,12 @@ func (h *DNSHandler) HandleUpdateBlocklist(w http.ResponseWriter, r *http.Reques
 // HTML span) so the result lands in the Test button's hx-target.
 func (h *DNSHandler) HandleProbeDoT(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	upstream := strings.TrimSpace(r.FormValue("dot_upstream"))
 	if upstream == "" {
-		http.Error(w, "upstream required", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.upstreamRequired")
 		return
 	}
 	latency, err := h.dns.ProbeDoT(r.Context(), upstream)
@@ -119,7 +119,7 @@ func (h *DNSHandler) HandleProbeDoT(w http.ResponseWriter, r *http.Request) {
 // which mode the operator picked.
 func (h *DNSHandler) HandleSaveDoT(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	mode := r.FormValue("encryption_mode")
@@ -130,13 +130,13 @@ func (h *DNSHandler) HandleSaveDoT(w http.ResponseWriter, r *http.Request) {
 	switch mode {
 	case "dot":
 		if dotUpstream == "" {
-			http.Error(w, "DoT upstream required", http.StatusBadRequest)
+			clientError(w, r, http.StatusBadRequest, "error.dotUpstreamRequired")
 			return
 		}
 		enableDoT = true
 	case "doh":
 		if dohUpstream == "" {
-			http.Error(w, "DoH upstream required", http.StatusBadRequest)
+			clientError(w, r, http.StatusBadRequest, "error.dohUpstreamRequired")
 			return
 		}
 		if h.doh != nil {
@@ -149,7 +149,7 @@ func (h *DNSHandler) HandleSaveDoT(w http.ResponseWriter, r *http.Request) {
 	case "plain", "":
 		// both stay false
 	default:
-		http.Error(w, "unknown encryption mode", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.unknownEncryptionMode")
 		return
 	}
 
@@ -182,16 +182,16 @@ func (h *DNSHandler) HandleSaveDoT(w http.ResponseWriter, r *http.Request) {
 // than pretending to test something we can't reach.
 func (h *DNSHandler) HandleProbeDoH(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	upstream := strings.TrimSpace(r.FormValue("doh_upstream"))
 	if upstream == "" {
-		http.Error(w, "upstream required", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.upstreamRequired")
 		return
 	}
 	if h.doh == nil {
-		http.Error(w, "DoH not wired", http.StatusServiceUnavailable)
+		clientError(w, r, http.StatusServiceUnavailable, "error.dohUnavailable")
 		return
 	}
 	latency, err := h.doh.Probe(r.Context(), upstream)
@@ -205,7 +205,7 @@ func (h *DNSHandler) HandleProbeDoH(w http.ResponseWriter, r *http.Request) {
 
 func (h *DNSHandler) HandleAddRecord(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	name := strings.TrimSpace(r.FormValue("name"))
@@ -213,11 +213,11 @@ func (h *DNSHandler) HandleAddRecord(w http.ResponseWriter, r *http.Request) {
 	localZone := r.FormValue("local_zone") == "on"
 
 	if !dnsNamePattern.MatchString(name) {
-		http.Error(w, "invalid DNS name", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidDNSName")
 		return
 	}
 	if netutil.ValidateIP(ip) != nil {
-		http.Error(w, "invalid IP address", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidIP")
 		return
 	}
 
@@ -247,7 +247,7 @@ func (h *DNSHandler) HandleAddRecord(w http.ResponseWriter, r *http.Request) {
 func (h *DNSHandler) HandleDeleteRecord(w http.ResponseWriter, r *http.Request) {
 	idx, err := strconv.Atoi(r.PathValue("index"))
 	if err != nil {
-		http.Error(w, "invalid index", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidIndex")
 		return
 	}
 	if err := h.dns.RemoveStaticRecord(idx); err != nil {

@@ -101,7 +101,7 @@ func (h *IPv6Handler) HandlePage(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.renderer.Render(w, "ipv6", "base", data); err != nil {
 		log.Printf("render ipv6: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.internal")
 	}
 }
 
@@ -109,7 +109,7 @@ func (h *IPv6Handler) HandlePage(w http.ResponseWriter, r *http.Request) {
 // between PD and 6in4 — and re-applies the relevant plane.
 func (h *IPv6Handler) HandleSave(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 
@@ -159,7 +159,7 @@ func (h *IPv6Handler) HandleSave(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.cfg.SaveToFile(); err != nil {
 		log.Printf("ipv6 save config: %v", err)
-		http.Error(w, "config save failed", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
 
@@ -198,7 +198,7 @@ func (h *IPv6Handler) HandleSave(w http.ResponseWriter, r *http.Request) {
 // remote IPv4 without waiting for the next PPPoE reconnect.
 func (h *IPv6Handler) HandleTunnelUpdateNow(w http.ResponseWriter, r *http.Request) {
 	if h.sixinfour == nil {
-		http.Error(w, "6in4 not configured", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.sixInFourNotConfigured")
 		return
 	}
 
@@ -210,7 +210,7 @@ func (h *IPv6Handler) HandleTunnelUpdateNow(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	if currentIPv4 == "" {
-		http.Error(w, "no current WAN IPv4", http.StatusServiceUnavailable)
+		clientError(w, r, http.StatusServiceUnavailable, "error.noWANIPv4")
 		return
 	}
 
@@ -231,11 +231,11 @@ func (h *IPv6Handler) HandleTunnelUpdateNow(w http.ResponseWriter, r *http.Reque
 func (h *IPv6Handler) HandleSubnetMap(w http.ResponseWriter, r *http.Request) {
 	var order []string
 	if err := json.NewDecoder(r.Body).Decode(&order); err != nil {
-		http.Error(w, "bad json", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidJSON")
 		return
 	}
 	if len(order) == 0 || order[0] != "lan" {
-		http.Error(w, "first entry must be \"lan\"", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.firstEntryMustBeLAN")
 		return
 	}
 	m := make(map[string]int, len(order))
@@ -243,7 +243,7 @@ func (h *IPv6Handler) HandleSubnetMap(w http.ResponseWriter, r *http.Request) {
 	for i, name := range order {
 		name = strings.TrimSpace(name)
 		if name == "" {
-			http.Error(w, "empty entry in order list", http.StatusBadRequest)
+			clientError(w, r, http.StatusBadRequest, "error.emptyOrderEntry")
 			return
 		}
 		if _, dup := seen[name]; dup {

@@ -50,6 +50,6 @@ func (h *DashboardHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.renderer.Render(w, "dashboard", "base", data); err != nil {
 		log.Printf("render dashboard: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.internal")
 	}
 }

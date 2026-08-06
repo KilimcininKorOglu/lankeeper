@@ -49,13 +49,13 @@ func (h *SyslogHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.renderer.Render(w, "syslog", "base", data); err != nil {
 		log.Printf("render syslog: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		clientError(w, r, http.StatusInternalServerError, "error.internal")
 	}
 }
 
 func (h *SyslogHandler) HandleSaveServerConfig(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	cfg := config.SyslogServerConfig{
@@ -85,7 +85,7 @@ func (h *SyslogHandler) HandleSaveServerConfig(w http.ResponseWriter, r *http.Re
 
 func (h *SyslogHandler) HandleSaveClientConfig(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	current := h.syslog.GetConfig().Client
@@ -112,12 +112,12 @@ func (h *SyslogHandler) HandleSaveClientConfig(w http.ResponseWriter, r *http.Re
 
 func (h *SyslogHandler) HandleAddFacility(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
 	name := strings.ToLower(strings.TrimSpace(r.FormValue("name")))
 	if !allowedFacilities[name] {
-		http.Error(w, "invalid facility", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidFacility")
 		return
 	}
 	if err := h.syslog.AddFacility(name); err != nil {
@@ -133,7 +133,7 @@ func (h *SyslogHandler) HandleAddFacility(w http.ResponseWriter, r *http.Request
 func (h *SyslogHandler) HandleRemoveFacility(w http.ResponseWriter, r *http.Request) {
 	idx, err := strconv.Atoi(r.PathValue("index"))
 	if err != nil {
-		http.Error(w, "invalid index", http.StatusBadRequest)
+		clientError(w, r, http.StatusBadRequest, "error.invalidIndex")
 		return
 	}
 	if err := h.syslog.RemoveFacility(idx); err != nil {
