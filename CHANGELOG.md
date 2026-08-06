@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(web) Request paths can no longer forge log lines**: `RequestLogger`
+  wrote `r.URL.Path` straight into the application log. `net/url`
+  percent-decodes the request target, so `GET /foo%0d%0a...` reached the
+  logger as a literal carriage return and line feed while the request
+  itself stayed well formed and Go's parser accepted it normally. Any
+  client could therefore append arbitrary entries to the appliance log
+  without credentials, and journald captured each forged line as
+  genuine, letting a real request be buried in padding or an
+  investigation be shown fabricated events. The logger now writes
+  `EscapedPath()`, which keeps the on-the-wire form: control bytes stay
+  percent-encoded, and the operator still sees exactly what was
+  requested.
+
 - **(update) A release without a checksum asset no longer installs**:
   `verifyChecksum` failed open. When the release carried no
   `SHA256SUMS` or `checksums.txt` asset it logged one line and returned

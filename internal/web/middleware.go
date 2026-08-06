@@ -206,6 +206,12 @@ func RequestLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
-		log.Printf("%s %s %s %s", r.Method, r.URL.Path, r.RemoteAddr, time.Since(start).Round(time.Millisecond))
+		// EscapedPath, not Path: net/url percent-decodes the target,
+		// so a request for /foo%0d%0a... hands Path a literal CR LF
+		// and any caller could forge extra lines in the appliance log.
+		// EscapedPath keeps the on-the-wire form, which cannot carry
+		// raw control bytes, and shows the operator what was actually
+		// requested.
+		log.Printf("%s %s %s %s", r.Method, r.URL.EscapedPath(), r.RemoteAddr, time.Since(start).Round(time.Millisecond))
 	})
 }

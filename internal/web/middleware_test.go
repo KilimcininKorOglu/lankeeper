@@ -1,6 +1,10 @@
 package web_test
 
 import (
+	"bytes"
+	"fmt"
+	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -91,6 +95,60 @@ func TestLANOnlyMiddleware(t *testing.T) {
 		if rec.Code != tt.wantCode {
 			t.Errorf("LANOnly(%s) = %d, want %d", tt.remoteAddr, rec.Code, tt.wantCode)
 		}
+	}
+}
+
+// TestRequestLoggerDoesNotForgeLogLines drives a real TCP connection so
+// the request target is percent-encoded exactly as an attacker would
+// send it. net/url decodes %0d%0a into a literal CR LF in URL.Path, so
+// logging Path let any client append arbitrary lines to the appliance
+// log without credentials.
+//
+// log output is process-global, so no t.Parallel here.
+func TestRequestLoggerDoesNotForgeLogLines(t *testing.T) {
+	var buf bytes.Buffer
+	prevOut, prevFlags := log.Writer(), log.Flags()
+	log.SetOutput(&buf)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(prevOut)
+		log.SetFlags(prevFlags)
+	})
+
+	served := make(chan struct{})
+	srv := httptest.NewServer(web.RequestLogger(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		defer close(served)
+		w.WriteHeader(http.StatusOK)
+	})))
+	defer srv.Close()
+
+	conn, err := net.Dial("tcp", strings.TrimPrefix(srv.URL, "http://"))
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	_, err = fmt.Fprint(conn,
+		"GET /foo%0d%0aFAKE-LOG-LINE:%20injected HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+	if err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+	if _, err := io.ReadAll(conn); err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	<-served
+
+	logged := buf.String()
+	if strings.Contains(logged, "\nFAKE-LOG-LINE") {
+		t.Errorf("attacker-controlled path forged a second log line: %q", logged)
+	}
+	if got := strings.Count(strings.TrimRight(logged, "\n"), "\n"); got != 0 {
+		t.Errorf("one request produced %d extra log lines: %q", got, logged)
+	}
+	// The request must still be logged, in its on-the-wire form, so
+	// the operator can see what was actually asked for.
+	if !strings.Contains(logged, "/foo%0d%0aFAKE-LOG-LINE:%20injected") {
+		t.Errorf("log line does not show the escaped request target: %q", logged)
 	}
 }
 
