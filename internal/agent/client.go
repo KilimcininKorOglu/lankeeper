@@ -12,26 +12,49 @@ import (
 
 type Client struct {
 	socketPath string
-	timeout    time.Duration
-	mu         sync.Mutex
-	conn       net.Conn
-	enc        *json.Encoder
-	dec        *json.Decoder
-	nextID     atomic.Int64
+	// dialTimeout bounds connecting to a local Unix socket, which is
+	// either immediate or hopeless.
+	dialTimeout time.Duration
+	// callTimeout applies only when the caller's context carries no
+	// deadline of its own. It is a liveness guard, not a policy
+	// ceiling: it exists so a wedged agent cannot hold mu forever.
+	// Responsiveness comes from context cancellation, which Call now
+	// honours, so this can be generous enough for the slowest
+	// privileged command (easyrsa gen-dh and build-ca) instead of
+	// cutting it off at an arbitrary point.
+	callTimeout time.Duration
+	mu          sync.Mutex
+	conn        net.Conn
+	enc         *json.Encoder
+	dec         *json.Decoder
+	nextID      atomic.Int64
 }
 
 func NewClient(socketPath string) *Client {
 	return &Client{
-		socketPath: socketPath,
-		timeout:    10 * time.Second,
+		socketPath:  socketPath,
+		dialTimeout: 10 * time.Second,
+		callTimeout: 10 * time.Minute,
 	}
 }
 
 func (c *Client) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	// Never open a connection or start privileged work for a context
+	// that is already done.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if err := c.ensureConn(); err != nil {
+	// Waiting for the lock can take as long as the call ahead of us,
+	// so re-check before committing to the work.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	if err := c.ensureConn(ctx); err != nil {
 		return nil, err
 	}
 
@@ -55,18 +78,46 @@ func (c *Client) Call(ctx context.Context, method string, params any) (json.RawM
 
 	deadline, ok := ctx.Deadline()
 	if !ok {
-		deadline = time.Now().Add(c.timeout)
+		deadline = time.Now().Add(c.callTimeout)
 	}
 	_ = c.conn.SetDeadline(deadline)
 
+	// Encode and Decode block with no cancellation of their own, so
+	// wire the context to the socket: pulling the deadline into the
+	// past unblocks whichever one is in flight.
+	//
+	// conn is a local copy because the error paths below call c.close,
+	// which nils the field. SetDeadline on a closed connection just
+	// returns an error, which is not interesting here.
+	conn := c.conn
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.SetDeadline(time.Now())
+		case <-stop:
+		}
+	}()
+
+	// A cancelled call must drop the connection, not just return. The
+	// stream is a sequential request/response pipe and Decode does not
+	// match on response ID, so leaving an unread reply behind would
+	// hand it to the next caller. Both error paths already close.
 	if err := c.enc.Encode(req); err != nil {
 		_ = c.close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, fmt.Errorf("send request: %w", err)
 	}
 
 	var resp Response
 	if err := c.dec.Decode(&resp); err != nil {
 		_ = c.close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 
@@ -88,12 +139,13 @@ func (c *Client) Close() error {
 	return c.close()
 }
 
-func (c *Client) ensureConn() error {
+func (c *Client) ensureConn(ctx context.Context) error {
 	if c.conn != nil {
 		return nil
 	}
 
-	conn, err := net.DialTimeout("unix", c.socketPath, c.timeout)
+	d := net.Dialer{Timeout: c.dialTimeout}
+	conn, err := d.DialContext(ctx, "unix", c.socketPath)
 	if err != nil {
 		return fmt.Errorf("dial agent: %w", err)
 	}

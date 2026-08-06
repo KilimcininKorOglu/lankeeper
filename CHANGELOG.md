@@ -94,6 +94,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(agent) The RPC client honours context cancellation**: `Client.Call`
+  never selected on `ctx.Done()`, so the blocking encode and decode ran
+  to completion regardless. Since `SetAgentClient` is wired in
+  production, this is the path for every `netutil.Run`, `WriteFile`,
+  `MkdirAll`, and `ReadFile` call, which meant shutdown and
+  client-disconnect signals could not stop privileged work. A separate
+  consequence: the context reaching this code almost never carries a
+  deadline, so nearly every privileged call silently inherited a fixed
+  10 s socket deadline nobody chose. A command that legitimately runs
+  longer, `easyrsa gen-dh` and `build-ca` being the clearest
+  candidates, failed with a socket timeout while the root-side process
+  carried on to completion. Cancellation is now wired to the socket, an
+  already-cancelled context returns before dialling, dialling itself
+  takes the context, and the fallback is a generous liveness guard
+  rather than a policy ceiling. An abandoned call still drops its
+  connection, so its late reply can never be handed to the next caller.
+
 - **(server) Security rejections now reach the log**: `RequestLogger`
   was the innermost middleware, so it ran only after every gate had
   already passed. `LANOnly`, the rate limiter, and `CSRFProtect` all
