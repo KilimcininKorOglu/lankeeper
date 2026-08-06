@@ -94,6 +94,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(server) Security rejections now reach the log**: `RequestLogger`
+  was the innermost middleware, so it ran only after every gate had
+  already passed. `LANOnly`, the rate limiter, and `CSRFProtect` all
+  short-circuit without calling the next handler, so a 403 for an
+  off-subnet source, a 429 for a rate-limited device, and a rejected
+  CSRF token each produced no log output whatsoever. On an appliance
+  that removed any way to notice repeated rejections from an unexpected
+  source, or to explain a 403 after the fact. The logger is now the
+  outermost wrapper, so every inbound request is logged including the
+  ones a gate refused. The path escaping fix landed first, so widening
+  what reaches the log does not widen log injection with it.
+
 - **(dns) The web server starts again**: two lines in the DNS page held
   a template action nested inside another action,
   `{{ .Stats.{{ t $.Lang "dns.blocked" }}Count }}` and

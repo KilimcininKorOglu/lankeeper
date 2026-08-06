@@ -268,13 +268,20 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 		}
 	}
 
-	handler = RequestLogger(handler)
+	// Wrapping is bottom-up, so the last line runs first. RequestLogger
+	// is applied last on purpose: every gate above it short-circuits
+	// without calling next, so an innermost logger only ever saw
+	// requests that had already passed every check. A 403 from
+	// LANOnly, a 429 from the rate limiter, and a rejected CSRF token
+	// produced no log line at all, which are exactly the events an
+	// operator needs when diagnosing a lockout or an off-subnet probe.
 	handler = SecurityHeaders(handler)
 	handler = CSRFProtect(handler)
 	rateLimiter := NewRateLimiter(30, 60)
 	handler = rateLimiter.Middleware(handler)
 	handler = i18n.Middleware(loc)(handler)
 	handler = LANOnly(allowedNets)(handler)
+	handler = RequestLogger(handler)
 
 	addr := fmt.Sprintf("%s:%d", cfg.System.WebBind, cfg.System.WebPort)
 	s.http = &http.Server{
@@ -289,6 +296,14 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	}
 
 	return s, nil
+}
+
+// Handler exposes the fully wrapped middleware chain so the ordering
+// between the security gates and the request logger can be asserted
+// against the chain that actually ships, rather than against a
+// re-created one.
+func (s *Server) Handler() http.Handler {
+	return s.http.Handler
 }
 
 func (s *Server) Serve(ctx context.Context) error {
