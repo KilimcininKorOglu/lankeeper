@@ -38,6 +38,12 @@ const (
 type loginGuard struct {
 	mu      sync.Mutex
 	clients map[string]*loginRecord
+
+	// stop ends the sweeper, for the same reason the rate limiter has
+	// one: a ticker loop with no cancellation input strands a goroutine
+	// for the life of the process.
+	stop     chan struct{}
+	stopOnce sync.Once
 }
 
 type loginRecord struct {
@@ -47,9 +53,17 @@ type loginRecord struct {
 }
 
 func newLoginGuard() *loginGuard {
-	g := &loginGuard{clients: make(map[string]*loginRecord)}
+	g := &loginGuard{
+		clients: make(map[string]*loginRecord),
+		stop:    make(chan struct{}),
+	}
 	go g.cleanup()
 	return g
+}
+
+// Stop ends the cleanup goroutine. Calling it more than once is safe.
+func (g *loginGuard) Stop() {
+	g.stopOnce.Do(func() { close(g.stop) })
 }
 
 // cleanup drops records that have gone quiet, so a long-lived appliance
@@ -57,15 +71,20 @@ func newLoginGuard() *loginGuard {
 func (g *loginGuard) cleanup() {
 	ticker := time.NewTicker(loginFailureIdleReset)
 	defer ticker.Stop()
-	for range ticker.C {
-		g.mu.Lock()
-		now := time.Now()
-		for ip, rec := range g.clients {
-			if now.Sub(rec.lastSeen) > loginFailureIdleReset && now.After(rec.lockedUntil) {
-				delete(g.clients, ip)
+	for {
+		select {
+		case <-g.stop:
+			return
+		case <-ticker.C:
+			g.mu.Lock()
+			now := time.Now()
+			for ip, rec := range g.clients {
+				if now.Sub(rec.lastSeen) > loginFailureIdleReset && now.After(rec.lockedUntil) {
+					delete(g.clients, ip)
+				}
 			}
+			g.mu.Unlock()
 		}
-		g.mu.Unlock()
 	}
 }
 

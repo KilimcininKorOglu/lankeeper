@@ -18,6 +18,7 @@ import (
 // position: without the header, a refusal reads as "try again now".
 func TestARefusalSaysWhenToRetry(t *testing.T) {
 	rl := web.NewRateLimiter(30*time.Second, 1)
+	t.Cleanup(rl.Stop)
 	wrapped := rl.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -60,6 +61,7 @@ func TestARefusalSaysWhenToRetry(t *testing.T) {
 // told the shorter remainder.
 func TestTheWaitTracksTheBucket(t *testing.T) {
 	rl := web.NewRateLimiter(10*time.Second, 1)
+	t.Cleanup(rl.Stop)
 	const ip = "10.10.10.41"
 
 	if !rl.Allow(ip) {
@@ -81,6 +83,7 @@ func TestTheWaitTracksTheBucket(t *testing.T) {
 // opposite of what a refusal means.
 func TestASubSecondWaitIsRoundedUp(t *testing.T) {
 	rl := web.NewRateLimiter(200*time.Millisecond, 1)
+	t.Cleanup(rl.Stop)
 	const ip = "10.10.10.42"
 
 	if !rl.Allow(ip) {
@@ -95,6 +98,7 @@ func TestASubSecondWaitIsRoundedUp(t *testing.T) {
 // success path, where it would tell a client to back off for no reason.
 func TestAnAllowedRequestCarriesNoRetryAfter(t *testing.T) {
 	rl := web.NewRateLimiter(time.Second, 5)
+	t.Cleanup(rl.Stop)
 	wrapped := rl.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))

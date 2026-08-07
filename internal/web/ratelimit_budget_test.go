@@ -19,6 +19,7 @@ import (
 func TestSustainedRateMatchesTheRefillInterval(t *testing.T) {
 	const refill = 50 * time.Millisecond
 	rl := web.NewRateLimiter(refill, 2)
+	t.Cleanup(rl.Stop)
 	const ip = "10.10.10.7"
 
 	for i := 0; i < 2; i++ {
@@ -76,6 +77,7 @@ func TestTheFloorItselfIsAccepted(t *testing.T) {
 // the two arguments are easy to transpose once both are meaningful.
 func TestBurstIsSpendableAtOnce(t *testing.T) {
 	rl := web.NewRateLimiter(time.Hour, 60)
+	t.Cleanup(rl.Stop)
 	const ip = "10.10.10.8"
 
 	for i := 0; i < 60; i++ {
@@ -96,6 +98,7 @@ func TestBurstIsSpendableAtOnce(t *testing.T) {
 func TestTheConfiguredBudgetsServeABrowsingOperator(t *testing.T) {
 	const perPage = 7 // one HTML document plus six CSS and JS files
 	rl := web.NewRateLimiter(200*time.Millisecond, 60)
+	t.Cleanup(rl.Stop)
 	const ip = "10.10.10.9"
 
 	for page := 0; page < 8; page++ {
@@ -113,6 +116,7 @@ func TestTheConfiguredBudgetsServeABrowsingOperator(t *testing.T) {
 // expensive to an unattended guesser.
 func TestTheLoginBudgetAbsorbsAMistypedPassword(t *testing.T) {
 	rl := web.NewRateLimiter(5*time.Second, 5)
+	t.Cleanup(rl.Stop)
 	const ip = "10.10.10.10"
 
 	for i := 0; i < 5; i++ {

@@ -568,6 +568,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(web) The rate limiter's cleanup ticker can be stopped**: the
+  sweeper ran `for range ticker.C` with no cancellation input, so
+  nothing short of process exit could end it and every limiter ever
+  constructed stranded a goroutine. Three fixed instances that die with
+  the server hid the cost; a test binary, or any future path that
+  rebuilds a limiter on a config reload, does not. Limiters now carry a
+  stop channel and an idempotent `Stop`, the server records every
+  limiter it builds (two were locals nothing else referenced) and stops
+  them on shutdown, and the login guard's sweeper, which had the same
+  shape, was fixed alongside it.
+
 - **(healthcheck) A failing check now says what it tried**: each probe
   was reduced to `ok := err == nil` and the whole check to a single
   bool, so the only record of a failure was the check name and a

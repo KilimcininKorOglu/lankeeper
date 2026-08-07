@@ -74,6 +74,30 @@ type Server struct {
 	// so a guessing run costs only patience. This one lengthens the
 	// wait as the run grows, and names the failures in the log.
 	loginGuard *loginGuard
+	// limiters collects every limiter the server built so shutdown can
+	// stop their sweepers. Each one owns a goroutine, and two of the
+	// three used to be locals that nothing else held a reference to.
+	limiters []*RateLimiter
+}
+
+// newLimiter builds a rate limiter and records it for shutdown, so no
+// call site can create one whose sweeper nothing can stop.
+func (s *Server) newLimiter(refill time.Duration, burst int) *RateLimiter {
+	rl := NewRateLimiter(refill, burst)
+	s.limiters = append(s.limiters, rl)
+	return rl
+}
+
+// stopBackgroundSweepers ends the ticker goroutines the server owns.
+// They hold no work worth draining, so this only has to be ordered
+// before the process exits, not waited on.
+func (s *Server) stopBackgroundSweepers() {
+	for _, rl := range s.limiters {
+		rl.Stop()
+	}
+	if s.loginGuard != nil {
+		s.loginGuard.Stop()
+	}
 }
 
 func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *services.UpdateService) (*Server, error) {
@@ -270,6 +294,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 		dotProbeLimiter: NewRateLimiter(time.Second, 2),
 		loginGuard:      newLoginGuard(),
 	}
+	s.limiters = append(s.limiters, s.dotProbeLimiter)
 
 	mux := http.NewServeMux()
 	s.routes(mux, webFS)
@@ -302,7 +327,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	// to back and the sustained rate keeps a browsing operator well
 	// clear of a 429. It also caps what an unauthenticated scraper can
 	// pull from /metrics, which carries no session of its own.
-	rateLimiter := NewRateLimiter(200*time.Millisecond, 60)
+	rateLimiter := s.newLimiter(200*time.Millisecond, 60)
 	handler = rateLimiter.Middleware(handler)
 	handler = i18n.Middleware(loc)(handler)
 	handler = LANOnly(allowedNets)(handler)
@@ -403,6 +428,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	go func() {
 		<-ctx.Done()
 		close(stopMonitor)
+		s.stopBackgroundSweepers()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := s.http.Shutdown(shutdownCtx); err != nil {
@@ -487,7 +513,7 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	// password without the operator noticing the limiter at all, while
 	// the sustained rate holds an unattended guesser to 17,280 attempts
 	// a day per address instead of 86,400.
-	loginLimiter := NewRateLimiter(5*time.Second, 5)
+	loginLimiter := s.newLimiter(5*time.Second, 5)
 	mux.HandleFunc("GET /login", s.handleLoginPage)
 	mux.Handle("POST /login", loginLimiter.Middleware(http.HandlerFunc(s.handleLogin)))
 	mux.HandleFunc("POST /logout", s.handleLogout)

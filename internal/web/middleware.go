@@ -113,6 +113,14 @@ type RateLimiter struct {
 	clients map[string]*tokenBucket
 	refill  time.Duration
 	burst   int
+
+	// stop ends the sweeper. Without it the ticker loop had no
+	// cancellation input at all, so every limiter ever constructed
+	// stranded a goroutine until the process exited. Three fixed
+	// instances that die with the server hid that; a test binary, or any
+	// future path that rebuilds a limiter on a config reload, does not.
+	stop     chan struct{}
+	stopOnce sync.Once
 }
 
 type tokenBucket struct {
@@ -151,23 +159,41 @@ func NewRateLimiter(refill time.Duration, burst int) *RateLimiter {
 		clients: make(map[string]*tokenBucket),
 		refill:  refill,
 		burst:   burst,
+		stop:    make(chan struct{}),
 	}
 	go rl.cleanup()
 	return rl
 }
 
+// Stop ends the cleanup goroutine. Calling it more than once is safe, so
+// a caller does not have to track whether shutdown already ran.
+func (rl *RateLimiter) Stop() {
+	rl.stopOnce.Do(func() { close(rl.stop) })
+}
+
+// rateLimiterIdleWindow is both how often buckets are swept and how long
+// an address has to go quiet before its bucket is dropped. A bucket that
+// has been idle that long has refilled to burst anyway, so forgetting it
+// costs nothing and keeps the map bounded by active clients.
+const rateLimiterIdleWindow = 5 * time.Minute
+
 func (rl *RateLimiter) cleanup() {
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(rateLimiterIdleWindow)
 	defer ticker.Stop()
-	for range ticker.C {
-		rl.mu.Lock()
-		now := time.Now()
-		for ip, b := range rl.clients {
-			if now.Sub(b.lastCheck) > 5*time.Minute {
-				delete(rl.clients, ip)
+	for {
+		select {
+		case <-rl.stop:
+			return
+		case <-ticker.C:
+			rl.mu.Lock()
+			now := time.Now()
+			for ip, b := range rl.clients {
+				if now.Sub(b.lastCheck) > rateLimiterIdleWindow {
+					delete(rl.clients, ip)
+				}
 			}
+			rl.mu.Unlock()
 		}
-		rl.mu.Unlock()
 	}
 }
 
