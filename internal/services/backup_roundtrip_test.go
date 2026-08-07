@@ -58,10 +58,15 @@ func TestResolveRestoreTargetRefusesToEscapeItsOwnRoot(t *testing.T) {
 	}
 }
 
-// TestImportCapsAMemberAtTheSizeLimit covers the per-entry read bound.
+// TestImportRefusesAnOversizedMember covers the per-entry read bound.
 // Without it a crafted archive could make the unprivileged process
 // buffer an arbitrary amount before handing it to the root agent.
-func TestImportCapsAMemberAtTheSizeLimit(t *testing.T) {
+//
+// This used to assert that the member was written truncated, which is
+// what io.ReadAll(io.LimitReader(tr, cap)) produces: exactly cap bytes
+// and a nil error. That is a silent corruption, not a bound honoured, so
+// the member is now refused and nothing is written.
+func TestImportRefusesAnOversizedMember(t *testing.T) {
 	root := t.TempDir()
 	cfgDir := filepath.Join(root, "lankeeper")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
@@ -71,22 +76,18 @@ func TestImportCapsAMemberAtTheSizeLimit(t *testing.T) {
 	netutil.SetAgentClient(&restoreFakeAgent{})
 	t.Cleanup(func() { netutil.SetAgentClient(nil) })
 
-	// One member larger than the 10 MiB per-entry limit.
+	// One member larger than the per-entry limit.
 	const oversize = 11 << 20
 	archive := filepath.Join(root, "backup.tar.gz")
 	writeSizedArchive(t, archive, "lankeeper/big.bin", oversize)
 
 	svc := NewBackupService(cfgDir)
-	if err := svc.Import(context.Background(), archive, ""); err != nil {
-		t.Fatalf("import: %v", err)
+	if err := svc.Import(context.Background(), archive, ""); err == nil {
+		t.Fatal("an oversized member was accepted")
 	}
 
-	written, err := os.Stat(filepath.Join(cfgDir, "big.bin"))
-	if err != nil {
-		t.Fatalf("member not written: %v", err)
-	}
-	if written.Size() >= oversize {
-		t.Errorf("member written at %d bytes, the per-entry limit did not apply", written.Size())
+	if _, err := os.Stat(filepath.Join(cfgDir, "big.bin")); err == nil {
+		t.Error("a truncated member was written to disk")
 	}
 }
 

@@ -191,6 +191,69 @@ const (
 	restoreDirMode  os.FileMode = 0o755
 )
 
+// Extraction bounds.
+//
+// The per-entry cap was the only size control, and nothing was tracked
+// across iterations, so an archive of very many small and highly
+// compressible entries was unbounded in total. Every member is written
+// through the root agent, so that is an unbounded volume of privileged
+// writes under the config directory from one upload.
+//
+// The figures are far above any real backup. The archive holds the
+// config directory, the two DNS directories and the OpenVPN PKI: a
+// deployment with hundreds of issued client certificates is still in the
+// low thousands of entries, and the largest single file is a DNS
+// blocklist.
+const (
+	maxImportEntryBytes int64 = 10 << 20
+	maxImportTotalBytes int64 = 256 << 20
+	maxImportEntries          = 10000
+)
+
+// importBudget tracks what one extraction has consumed. The limits are
+// fields rather than constants read in place so the accounting can be
+// exercised on its own: proving the cumulative cap through Import would
+// mean actually compressing and extracting a quarter of a gigabyte.
+type importBudget struct {
+	maxEntries int
+	maxEntry   int64
+	maxTotal   int64
+
+	entries int
+	total   int64
+}
+
+func newImportBudget() *importBudget {
+	return &importBudget{
+		maxEntries: maxImportEntries,
+		maxEntry:   maxImportEntryBytes,
+		maxTotal:   maxImportTotalBytes,
+	}
+}
+
+// countEntry records one archive member, whatever its kind. Directories
+// and members this binary skips count too, so an archive padded with the
+// cheapest possible entries is bounded as well.
+func (b *importBudget) countEntry() error {
+	b.entries++
+	if b.entries > b.maxEntries {
+		return fmt.Errorf("archive holds more than %d entries", b.maxEntries)
+	}
+	return nil
+}
+
+// countBytes records the extracted size of one regular file.
+func (b *importBudget) countBytes(name string, n int64) error {
+	if n > b.maxEntry {
+		return fmt.Errorf("tar member %s exceeds the %d byte entry limit", name, b.maxEntry)
+	}
+	b.total += n
+	if b.total > b.maxTotal {
+		return fmt.Errorf("archive extracts more than %d bytes", b.maxTotal)
+	}
+	return nil
+}
+
 func (s *BackupService) Import(ctx context.Context, archivePath, passphrase string) error {
 	data, err := os.ReadFile(archivePath)
 	if err != nil {
@@ -222,6 +285,8 @@ func (s *BackupService) Import(ctx context.Context, archivePath, passphrase stri
 	roots := restoreRoots(s.configDir, backupExtraDirs)
 	tr := tar.NewReader(gz)
 
+	budget := newImportBudget()
+
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -229,6 +294,12 @@ func (s *BackupService) Import(ctx context.Context, archivePath, passphrase stri
 		}
 		if err != nil {
 			return fmt.Errorf("read tar header: %w", err)
+		}
+
+		// Counted before the skip below, so an archive padded with
+		// entries this binary does not restore is bounded too.
+		if err := budget.countEntry(); err != nil {
+			return err
 		}
 
 		clean := filepath.Clean(hdr.Name)
@@ -252,10 +323,19 @@ func (s *BackupService) Import(ctx context.Context, archivePath, passphrase stri
 				return fmt.Errorf("mkdir %s: %w", target, err)
 			}
 		case tar.TypeReg:
-			memberData, err := io.ReadAll(io.LimitReader(tr, 10<<20))
+			// One byte past the cap, so an oversized member is detected
+			// rather than silently truncated. A plain LimitReader at the
+			// cap returns exactly the cap with a nil error, and the
+			// member was written short with nothing reported: a restored
+			// blocklist would come back cut off and look restored.
+			memberData, err := io.ReadAll(io.LimitReader(tr, maxImportEntryBytes+1))
 			if err != nil {
 				return fmt.Errorf("read tar member %s: %w", hdr.Name, err)
 			}
+			if err := budget.countBytes(hdr.Name, int64(len(memberData))); err != nil {
+				return err
+			}
+
 			if err := netutil.WriteFile(target, memberData, restoreFileMode); err != nil {
 				return fmt.Errorf("write tar member %s: %w", hdr.Name, err)
 			}

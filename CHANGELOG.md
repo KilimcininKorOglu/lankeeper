@@ -568,6 +568,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(backup) Config import bounds the whole archive, not just each
+  entry**: the per-entry 10 MiB cap was the only size control and the
+  extraction loop carried no counter, so an archive of very many small
+  and highly compressible entries was unbounded in total. Every member
+  is written through the root agent, which made one authenticated upload
+  an unbounded volume of privileged writes under the config directory.
+  Extraction now enforces an entry count and a cumulative byte budget
+  alongside the per-entry cap, counting skipped entries too so padding
+  with members this binary does not restore is bounded as well. The
+  per-entry cap also stopped truncating silently: `io.ReadAll` over a
+  `LimitReader` returns exactly the cap with no error, so an oversized
+  member was written short and a restored blocklist came back cut off
+  looking restored. It is now refused.
+
 - **(build) `make release` completes instead of failing at the last
   step**: the `checksums` recipe looped `[ -f "$f" ] && shasum ...`,
   which made the loop's exit status the status of its final iteration.
