@@ -65,6 +65,26 @@ const defaultMaxFrameBytes int64 = 1 << 20
 // it would surface as a failed call rather than a transparent redial.
 const defaultFrameTimeout = 30 * time.Second
 
+// defaultMaxConns bounds how many connections the agent serves at once.
+//
+// A connection is served serially, so this is also the bound on
+// concurrent privileged subprocesses: the agent runs as root and every
+// exec.run forks a command, which on a small appliance is the resource
+// worth protecting. That serialisation was previously incidental to how
+// the one caller happens to be written (a single connection behind a
+// mutex) rather than anything the agent enforced, so a pooled client or
+// a second caller would have removed the bound without touching this
+// file.
+//
+// The shipped caller uses exactly one connection. Sixteen leaves room
+// for a pooled client and for a root operator debugging alongside it.
+const defaultMaxConns = 16
+
+// errAgentBusy is what a refused connection is told before it is
+// closed. Writing it costs one small frame and turns an unexplained EOF
+// into a diagnosable message.
+const errAgentBusy = "agent: too many concurrent connections"
+
 type Server struct {
 	socketPath   string
 	serviceUser  string
@@ -77,6 +97,11 @@ type Server struct {
 	// mebibyte or waiting half a minute.
 	maxFrameBytes int64
 	frameTimeout  time.Duration
+
+	// connSlots holds one token per in-flight connection. Its capacity
+	// is the limit; a token is taken at accept and returned when the
+	// connection handler exits.
+	connSlots chan struct{}
 }
 
 func NewServer(socketPath string) *Server {
@@ -94,6 +119,7 @@ func NewServerWithIdentity(socketPath, serviceUser, serviceGroup string) *Server
 		handlers:      make(map[string]Handler),
 		maxFrameBytes: defaultMaxFrameBytes,
 		frameTimeout:  defaultFrameTimeout,
+		connSlots:     make(chan struct{}, defaultMaxConns),
 	}
 }
 
@@ -144,8 +170,36 @@ func (s *Server) Serve(ctx context.Context) error {
 				continue
 			}
 		}
-		go s.handleConn(ctx, conn)
+		// Refuse rather than queue. Queueing an unbounded number of
+		// waiting connections would rebuild the problem behind the
+		// limit, and the client redials on its next call, so a refusal
+		// is recoverable in a way an exhausted appliance is not.
+		select {
+		case s.connSlots <- struct{}{}:
+		default:
+			log.Printf("agent: refusing connection, %d already open", cap(s.connSlots))
+			refuseConn(conn)
+			continue
+		}
+
+		go func() {
+			defer func() { <-s.connSlots }()
+			s.handleConn(ctx, conn)
+		}()
 	}
+}
+
+// refuseConn tells the peer why before hanging up. The caller has not
+// sent its request yet, so the reply carries a null id, which JSON-RPC
+// defines for an error raised before the id is known.
+func refuseConn(conn net.Conn) {
+	defer func() { _ = conn.Close() }()
+
+	_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	_ = json.NewEncoder(conn).Encode(&Response{
+		JSONRPC: "2.0",
+		Error:   &RPCError{Code: -32000, Message: errAgentBusy},
+	})
 }
 
 // restrictSocket confines the socket to root and the service group.

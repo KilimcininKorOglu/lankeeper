@@ -580,6 +580,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(agent) Concurrent connections are bounded**: the accept loop
+  spawned a goroutine per connection with no limit in the loop, the
+  dispatcher or the operations, and the agent runs as root, so each
+  connection can fork a privileged command. Real traffic was already
+  serialised, but only because the shipped client happens to use a
+  single mutex-guarded connection: a pooled client or a second caller
+  would have removed the bound without touching the agent. Sixteen
+  connections are now served at once and further ones are refused with a
+  JSON-RPC error before the socket closes, so the caller gets a
+  diagnosable message instead of an unexplained EOF. A connection is
+  served serially, so this is also the bound on concurrent privileged
+  subprocesses. Refusing rather than queueing keeps the limit from
+  rebuilding the problem behind it, and the client redials on its next
+  call.
+
 - **(server) Event streams are bounded and idle ones are reaped**:
   `Subscribe` inserted a channel unconditionally, so nothing limited how
   many streams one client could hold open, and each costs a goroutine, a
