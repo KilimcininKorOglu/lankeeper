@@ -28,6 +28,25 @@
         }, 3000);
     };
 
+    // Echo the CSRF token into every htmx request.
+    //
+    // The server accepts either the X-CSRF-Token header or a csrf_token
+    // form field, and only the login and logout forms carry the field.
+    // Every other mutating control in the UI is an hx-post on a bare
+    // button, which sends neither, so the whole mutating surface was
+    // answered 403. The cookie is deliberately not HttpOnly for exactly
+    // this reason.
+    //
+    // Safe methods are skipped: the server issues the token on GET, and
+    // sending it back on a request that does not need it only widens
+    // where the value travels.
+    document.addEventListener('htmx:configRequest', function(evt) {
+        var verb = (evt.detail.verb || '').toLowerCase();
+        if (verb === 'get' || verb === 'head') return;
+        var token = getCookie('csrf_token');
+        if (token) evt.detail.headers['X-CSRF-Token'] = token;
+    });
+
     function getCookie(name) {
         var match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
         return match ? match[2] : null;

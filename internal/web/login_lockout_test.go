@@ -47,6 +47,10 @@ func newLockoutTestServer(t *testing.T, password string) *Server {
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
+	// Each server owns four sweeper goroutines. Leaving them running
+	// seeds the next test's measurements with stragglers, and Stop is
+	// idempotent, so the one test that stops them itself is unaffected.
+	t.Cleanup(srv.stopBackgroundSweepers)
 	return srv
 }
 

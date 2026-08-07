@@ -34,7 +34,7 @@ func waitForSweepers(t *testing.T, want int) int {
 	t.Helper()
 
 	var got int
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 200; i++ {
 		got = sweeperGoroutines(t)
 		if got == want {
 			return got
@@ -42,6 +42,29 @@ func waitForSweepers(t *testing.T, want int) int {
 		time.Sleep(10 * time.Millisecond)
 	}
 	return got
+}
+
+// stableSweeperBaseline waits for the count to stop moving before a test
+// measures against it.
+//
+// `go rl.cleanup()` returns before the goroutine is scheduled, and Stop
+// only closes a channel, so a sweeper created or ended by an earlier
+// test can appear or vanish inside the next one's measurement window.
+// Sampling a moving number made these tests fail about one run in eight.
+func stableSweeperBaseline(t *testing.T) int {
+	t.Helper()
+
+	last := sweeperGoroutines(t)
+	for i := 0; i < 200; i++ {
+		time.Sleep(20 * time.Millisecond)
+		got := sweeperGoroutines(t)
+		if got == last {
+			return got
+		}
+		last = got
+	}
+	t.Fatalf("the sweeper count never settled (last %d)", last)
+	return last
 }
 
 // TestAStoppedLimiterReleasesItsGoroutine is the regression test. The
@@ -52,7 +75,7 @@ func waitForSweepers(t *testing.T, want int) int {
 //
 // Counts process-wide goroutines, so no t.Parallel here.
 func TestAStoppedLimiterReleasesItsGoroutine(t *testing.T) {
-	before := sweeperGoroutines(t)
+	before := stableSweeperBaseline(t)
 
 	limiters := make([]*RateLimiter, 0, 20)
 	for i := 0; i < 20; i++ {
@@ -104,7 +127,7 @@ func TestAStoppedLimiterStillDecides(t *testing.T) {
 // TestTheLoginGuardReleasesItsGoroutine covers the second sweeper, which
 // had the same shape.
 func TestTheLoginGuardReleasesItsGoroutine(t *testing.T) {
-	before := sweeperGoroutines(t)
+	before := stableSweeperBaseline(t)
 
 	guards := make([]*loginGuard, 0, 10)
 	for i := 0; i < 10; i++ {
@@ -126,7 +149,7 @@ func TestTheLoginGuardReleasesItsGoroutine(t *testing.T) {
 // three limiters used to be locals that nothing else held a reference
 // to, so even with a Stop method the server could not have called it.
 func TestTheServerStopsEverySweeperItBuilt(t *testing.T) {
-	before := sweeperGoroutines(t)
+	before := stableSweeperBaseline(t)
 
 	srv := newLockoutTestServer(t, "correct-horse")
 	if len(srv.limiters) != 3 {

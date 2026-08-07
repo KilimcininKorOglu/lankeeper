@@ -568,6 +568,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(web) HTMX requests carry the CSRF token, so the admin UI works
+  again**: the server accepts either an `X-CSRF-Token` header or a
+  `csrf_token` form field, and only the login and logout forms carried
+  the field. Every other mutating control is an `hx-post` on a bare
+  button, which sends neither, so the entire mutating surface of the
+  admin interface was answered 403. The token cookie is deliberately not
+  `HttpOnly` for exactly this purpose; nothing was reading it. An
+  `htmx:configRequest` listener now sets the header from the cookie on
+  unsafe methods, leaving safe ones alone so the value does not travel
+  where it is not needed.
+
 - **(middleware) CSRF tokens are compared in constant time**: validation
   used a plain `!=`, which short-circuits at the first differing byte
   and in principle leaks the token one byte at a time. `SameSite=Strict`
