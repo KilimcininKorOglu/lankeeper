@@ -35,9 +35,9 @@ func newS2STestService(t *testing.T) *VPNService {
 func TestSignVerifyTokenRoundTrip(t *testing.T) {
 	svc := newS2STestService(t)
 	payload := S2SInvite{
-		Version: inviteSchemaVersion,
-		Kind:    tokenKindInvite,
-		Name:    "tester",
+		Version:  inviteSchemaVersion,
+		Kind:     tokenKindInvite,
+		Name:     "tester",
 		Endpoint: "1.2.3.4:51820",
 	}
 	tok, err := svc.signToken(payload)

@@ -101,11 +101,11 @@ func TestExpositionEmptyCollectorsOmitFamilies(t *testing.T) {
 
 func TestEscapeLabelValue(t *testing.T) {
 	cases := map[string]string{
-		"plain":             "plain",
-		`with"quote`:        `with\"quote`,
-		`with\backslash`:    `with\\backslash`,
-		"line\nbreak":       `line\nbreak`,
-		"\ttab\rstripped":   "tabstripped",
+		"plain":                              "plain",
+		`with"quote`:                         `with\"quote`,
+		`with\backslash`:                     `with\\backslash`,
+		"line\nbreak":                        `line\nbreak`,
+		"\ttab\rstripped":                    "tabstripped",
 		string([]byte{0x01, 'x', 0x1f, 'y'}): "xy",
 	}
 	for in, want := range cases {

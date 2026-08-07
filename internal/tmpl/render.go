@@ -53,11 +53,11 @@ func NewRenderer(fsys fs.FS, loc *i18n.I18n) (*Renderer, error) {
 }
 
 type PageData struct {
-	Lang       string
-	Page       string
-	CSRFToken  string
-	Error      string
-	Data       any
+	Lang      string
+	Page      string
+	CSRFToken string
+	Error     string
+	Data      any
 }
 
 func (r *Renderer) Render(w http.ResponseWriter, page, layout string, data *PageData) error {

@@ -1,0 +1,20 @@
+version: "2"
+
+# The linter ran on upstream defaults, which do not include any
+# formatter. gofmt drift therefore passed every gate in the project:
+# `make lint` was green, `go vet` says nothing about layout, and CI runs
+# the same default set. Four files sat unformatted across several
+# releases with nothing to report it.
+#
+# Enabling gofmt here rather than adding a separate `gofmt -l` step
+# keeps the check inside the tool contributors already run, so `make
+# lint` and CI catch it at the same moment and with the same message.
+formatters:
+  enable:
+    - gofmt
+
+linters:
+  # Upstream defaults, deliberately. The default set is what every
+  # finding in this repository has been triaged against, and widening it
+  # is a separate decision from fixing the formatting hole above.
+  default: standard

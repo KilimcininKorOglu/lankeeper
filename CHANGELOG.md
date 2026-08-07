@@ -674,6 +674,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(lint) Formatting is enforced by a gate instead of by habit**:
+  golangci-lint ran on its upstream defaults, which contain no
+  formatter, so `gofmt` drift passed everything the project had.
+  `make lint` was green, `go vet` says nothing about layout, and CI ran
+  that same default set, which left four files unformatted across
+  several releases with nothing to report them. A `.golangci.yml` now
+  enables `gofmt`, so the check lives inside the tool contributors
+  already run and CI catches it with the same message. Tests cover both
+  halves: one refuses any unformatted file, the other refuses the config
+  losing the formatter, since deleting it would reopen the hole while
+  the linter kept reporting zero.
+
 - **(deps) The direct and indirect require blocks are held correct**:
   two modules imported by production code, the DHCPv6 lease watcher's
   `fsnotify` and the SFTP backup target's `pkg/sftp`, had been left in
