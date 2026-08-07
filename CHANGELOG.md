@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(agent) The exec RPC no longer accepts a caller-supplied
+  environment**: the request carried an environment slice that was
+  appended verbatim to the child process, while the command whitelist
+  governed only the command name. That gated which binary ran but not
+  the environment it ran under, and the dynamic loader honours
+  `LD_PRELOAD` and its relatives at execve time whatever the binary is,
+  so anything able to reach the socket could steer execution inside a
+  legitimate root command without ever naming a disallowed one. The
+  field is gone from both ends of the RPC. The single real use, the PKI
+  path that `easyrsa` needs, is now decided by the agent from a fixed
+  per-command table, so the environment is governed by the same side
+  that owns the whitelist.
+
 - **(update) Rollback is refused when no update is pending**: it never
   consulted the pending state, and when it had no recorded backup it
   substituted a fixed `lankeeper.bak` path that every apply writes and

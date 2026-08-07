@@ -104,29 +104,28 @@ func (s *OpenVPNService) InitPKI(ctx context.Context) error {
 
 	pkiDir := "/etc/openvpn/pki"
 	easyrsa := "/usr/share/easy-rsa/easyrsa"
-	env := []string{"EASYRSA_PKI=" + pkiDir}
 
 	if err := netutil.MkdirAll(pkiDir, 0o700); err != nil {
 		return fmt.Errorf("mkdir pki: %w", err)
 	}
 
-	if _, err := netutil.RunWithEnv(ctx, env, easyrsa, "init-pki"); err != nil {
+	if _, err := netutil.Run(ctx, easyrsa, "init-pki"); err != nil {
 		return fmt.Errorf("init-pki: %w", err)
 	}
 
-	if _, err := netutil.RunWithEnv(ctx, env, easyrsa, "build-ca", "nopass"); err != nil {
+	if _, err := netutil.Run(ctx, easyrsa, "build-ca", "nopass"); err != nil {
 		return fmt.Errorf("build-ca: %w", err)
 	}
 
-	if _, err := netutil.RunWithEnv(ctx, env, easyrsa, "gen-req", "server", "nopass"); err != nil {
+	if _, err := netutil.Run(ctx, easyrsa, "gen-req", "server", "nopass"); err != nil {
 		return fmt.Errorf("gen-req server: %w", err)
 	}
 
-	if _, err := netutil.RunWithEnv(ctx, env, easyrsa, "sign-req", "server", "server"); err != nil {
+	if _, err := netutil.Run(ctx, easyrsa, "sign-req", "server", "server"); err != nil {
 		return fmt.Errorf("sign-req server: %w", err)
 	}
 
-	if _, err := netutil.RunWithEnv(ctx, env, easyrsa, "gen-dh"); err != nil {
+	if _, err := netutil.Run(ctx, easyrsa, "gen-dh"); err != nil {
 		return fmt.Errorf("gen-dh: %w", err)
 	}
 
@@ -134,7 +133,7 @@ func (s *OpenVPNService) InitPKI(ctx context.Context) error {
 		return fmt.Errorf("gen tls-auth key: %w", err)
 	}
 
-	if _, err := netutil.RunWithEnv(ctx, env, easyrsa, "gen-crl"); err != nil {
+	if _, err := netutil.Run(ctx, easyrsa, "gen-crl"); err != nil {
 		return fmt.Errorf("gen-crl: %w", err)
 	}
 
@@ -148,13 +147,12 @@ func (s *OpenVPNService) AddClient(ctx context.Context, name string, siteToSite 
 	}
 
 	easyrsa := "/usr/share/easy-rsa/easyrsa"
-	env := []string{"EASYRSA_PKI=/etc/openvpn/pki"}
 
-	if _, err := netutil.RunWithEnv(ctx, env, easyrsa, "gen-req", name, "nopass"); err != nil {
+	if _, err := netutil.Run(ctx, easyrsa, "gen-req", name, "nopass"); err != nil {
 		return fmt.Errorf("gen-req %s: %w", name, err)
 	}
 
-	if _, err := netutil.RunWithEnv(ctx, env, easyrsa, "sign-req", "client", name); err != nil {
+	if _, err := netutil.Run(ctx, easyrsa, "sign-req", "client", name); err != nil {
 		return fmt.Errorf("sign-req %s: %w", name, err)
 	}
 
@@ -192,13 +190,12 @@ func (s *OpenVPNService) RevokeClient(ctx context.Context, name string) error {
 	}
 
 	easyrsa := "/usr/share/easy-rsa/easyrsa"
-	env := []string{"EASYRSA_PKI=/etc/openvpn/pki"}
 
-	if _, err := netutil.RunWithEnv(ctx, env, easyrsa, "revoke", name); err != nil {
+	if _, err := netutil.Run(ctx, easyrsa, "revoke", name); err != nil {
 		return fmt.Errorf("revoke %s: %w", name, err)
 	}
 
-	if _, err := netutil.RunWithEnv(ctx, env, easyrsa, "gen-crl"); err != nil {
+	if _, err := netutil.Run(ctx, easyrsa, "gen-crl"); err != nil {
 		return fmt.Errorf("gen-crl: %w", err)
 	}
 

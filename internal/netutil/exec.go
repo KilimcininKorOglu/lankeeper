@@ -82,15 +82,17 @@ type execParams struct {
 	Cmd   string   `json:"cmd"`
 	Args  []string `json:"args"`
 	Stdin string   `json:"stdin,omitempty"`
-	Env   []string `json:"env,omitempty"`
 }
 
 func runViaAgent(ctx context.Context, name string, args ...string) (*ExecResult, error) {
-	return runViaAgentFull(ctx, "", nil, name, args...)
+	return runViaAgentFull(ctx, "", name, args...)
 }
 
-func runViaAgentFull(ctx context.Context, stdin string, env []string, name string, args ...string) (*ExecResult, error) {
-	params := execParams{Cmd: name, Args: args, Stdin: stdin, Env: env}
+// runViaAgentFull carries no environment. The agent decides what a
+// whitelisted command runs under, because a whitelist that gates the
+// binary but not its environment does not gate much.
+func runViaAgentFull(ctx context.Context, stdin string, name string, args ...string) (*ExecResult, error) {
+	params := execParams{Cmd: name, Args: args, Stdin: stdin}
 
 	raw, err := agentClient.Call(ctx, "exec.run", params)
 	if err != nil {
@@ -107,7 +109,7 @@ func runViaAgentFull(ctx context.Context, stdin string, env []string, name strin
 
 func RunWithStdin(ctx context.Context, stdin string, name string, args ...string) (string, error) {
 	if agentClient != nil {
-		result, err := runViaAgentFull(ctx, stdin, nil, name, args...)
+		result, err := runViaAgentFull(ctx, stdin, name, args...)
 		if err != nil {
 			return "", err
 		}
@@ -127,34 +129,6 @@ func RunWithStdin(ctx context.Context, stdin string, name string, args ...string
 		return "", fmt.Errorf("exec %s: %w (stderr: %s)", name, err, stderr.String())
 	}
 	return stdout.String(), nil
-}
-
-func RunWithEnv(ctx context.Context, env []string, name string, args ...string) (*ExecResult, error) {
-	if agentClient != nil {
-		return runViaAgentFull(ctx, "", env, name, args...)
-	}
-	if _, ok := ctx.Deadline(); !ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, defaultTimeout)
-		defer cancel()
-	}
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = append(os.Environ(), env...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	result := &ExecResult{Stdout: stdout.String(), Stderr: stderr.String()}
-	if cmd.ProcessState != nil {
-		result.ExitCode = cmd.ProcessState.ExitCode()
-	}
-	if err != nil {
-		if stderr.Len() > 0 {
-			log.Printf("exec %s stderr: %s", name, stderr.String())
-		}
-		return result, fmt.Errorf("exec %s: %w", name, err)
-	}
-	return result, nil
 }
 
 type fileWriteParams struct {

@@ -184,7 +184,23 @@ type ExecParams struct {
 	Cmd   string   `json:"cmd"`
 	Args  []string `json:"args"`
 	Stdin string   `json:"stdin,omitempty"`
-	Env   []string `json:"env,omitempty"`
+}
+
+// commandEnv supplies the extra environment a whitelisted command needs,
+// decided here rather than accepted from the caller.
+//
+// The RPC used to carry an Env slice that was appended verbatim, while
+// the whitelist governed only the command name. That gated which binary
+// ran but not the environment it ran under, and the loader honours
+// LD_PRELOAD and friends at execve time whatever the binary is. Owning
+// the table on this side keeps the whitelist meaning what it says.
+func commandEnv(cmd string) []string {
+	switch cmd {
+	case "easyrsa":
+		return []string{"EASYRSA_PKI=/etc/openvpn/pki"}
+	default:
+		return nil
+	}
 }
 
 type ExecResult struct {
@@ -242,8 +258,8 @@ func opExecRun(ctx context.Context, raw json.RawMessage) (any, error) {
 	if params.Stdin != "" {
 		cmd.Stdin = strings.NewReader(params.Stdin)
 	}
-	if len(params.Env) > 0 {
-		cmd.Env = append(os.Environ(), params.Env...)
+	if extra := commandEnv(params.Cmd); len(extra) > 0 {
+		cmd.Env = append(os.Environ(), extra...)
 	}
 
 	err = cmd.Run()
