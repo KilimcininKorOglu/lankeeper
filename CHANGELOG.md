@@ -568,6 +568,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(middleware) CSRF tokens are compared in constant time**: validation
+  used a plain `!=`, which short-circuits at the first differing byte
+  and in principle leaks the token one byte at a time. `SameSite=Strict`
+  on both cookies already blocks the cross-origin path this token
+  defends against, so this closes a defence-in-depth gap rather than a
+  practical attack. The empty-token check stays separate from the
+  comparison, because `subtle.ConstantTimeCompare` returns a match for
+  two empty values and a request submitting nothing would otherwise pass
+  against a cookie that failed to be set.
+
 - **(middleware) The CSPRNG read is checked when minting the CSRF token
   and the session secret**: both sites allocated a buffer, called
   `rand.Read`, and encoded the result without looking at the return. On

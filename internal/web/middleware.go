@@ -2,6 +2,7 @@ package web
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -52,7 +53,13 @@ func CSRFProtect(next http.Handler) http.Handler {
 			token = formVal
 		}
 
-		if token == "" || token != cookie.Value {
+		// Constant time, because the compared value is a secret. A plain
+		// != short-circuits at the first differing byte, which in
+		// principle leaks the token one byte at a time. The empty check
+		// stays separate: ConstantTimeCompare returns 1 for two empty
+		// strings, so a request with no token would otherwise match a
+		// cookie that failed to be set.
+		if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(cookie.Value)) != 1 {
 			httpErrorT(w, r, http.StatusForbidden, "error.csrfInvalid")
 			return
 		}
