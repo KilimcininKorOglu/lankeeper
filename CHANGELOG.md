@@ -633,6 +633,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(deps) The direct and indirect require blocks are held correct**:
+  two modules imported by production code, the DHCPv6 lease watcher's
+  `fsnotify` and the SFTP backup target's `pkg/sftp`, had been left in
+  the indirect block when those features landed. The dependency bump
+  earlier in this cycle happened to move them, so the file is already
+  right; nothing had noticed for two releases because no gate runs
+  `go mod tidy`. Module resolution ignores the comment, so no build
+  differed, but it misleads a reader and any tooling that derives the
+  direct set from the marker rather than the import graph, which can
+  make a required dependency look droppable during a review. A test now
+  refuses a marked module that production code imports, and a direct
+  entry nothing imports.
+
 - **(firewall) A pending rollback timer can be disarmed**: the watchdog
   `restorePendingChange` arms runs for the remainder of the
   confirmation window, and nothing could stop it. `Confirm` and
