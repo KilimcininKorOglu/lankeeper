@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/i18n"
@@ -310,12 +311,19 @@ func (h *FirewallHandler) HandleAddOpenPort(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	rateLimit := strings.TrimSpace(r.FormValue("rateLimit"))
+	if err := services.ValidateOpenPortRateLimit(rateLimit); err != nil {
+		clientError(w, r, http.StatusBadRequest, "error.invalidRateLimit")
+		return
+	}
+
 	op := config.OpenPort{
-		Name:     r.FormValue("name"),
-		Protocol: protocol,
-		Port:     port,
-		Source:   source,
-		Enabled:  true,
+		Name:      r.FormValue("name"),
+		Protocol:  protocol,
+		Port:      port,
+		Source:    source,
+		Enabled:   true,
+		RateLimit: rateLimit,
 	}
 
 	if err := h.firewall.AddOpenPort(op); err != nil {

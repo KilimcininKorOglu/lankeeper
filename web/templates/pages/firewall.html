@@ -70,6 +70,11 @@
                     <label class="input-label">{{ t $.Lang "firewall.source" }}</label>
                     <input class="input" name="source" placeholder="0.0.0.0/0" value="0.0.0.0/0">
                 </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "firewall.rateLimit" }}</label>
+                    <input class="input" name="rateLimit" placeholder="{{ t $.Lang "firewall.rateLimit.placeholder" }}">
+                    <span style="color:var(--text-secondary); font-size:var(--font-xs);">{{ t $.Lang "firewall.rateLimit.hint" }}</span>
+                </div>
             </div>
             <div style="margin-top:var(--space-md); display:flex; gap:var(--space-sm);">
                 <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
@@ -82,7 +87,7 @@
             <div>
                 <span style="font-weight:700;">{{ $op.Name }}</span>
                 <span style="color:var(--text-secondary); font-size:var(--font-xs); margin-left:var(--space-sm);">
-                    {{ $op.Protocol }} :{{ $op.Port }}{{ if $op.Source }} ({{ $op.Source }}){{ end }}
+                    {{ $op.Protocol }} :{{ $op.Port }}{{ if $op.Source }} ({{ $op.Source }}){{ end }}{{ if $op.RateLimit }} &middot; {{ $op.RateLimit }}{{ end }}
                 </span>
             </div>
             <div style="display:flex; gap:var(--space-sm);">

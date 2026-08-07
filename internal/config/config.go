@@ -232,12 +232,11 @@ type USBTetherConfig struct {
 }
 
 type FirewallConfig struct {
-	DefaultPolicy string            `yaml:"defaultPolicy"`
-	TTLFix        TTLFixConfig      `yaml:"ttlFix"`
-	OpenPorts     []OpenPort        `yaml:"openPorts"`
-	PortForwards  []PortForward     `yaml:"portForwards"`
-	Rules         []FirewallRule    `yaml:"rules"`
-	RateLimits    map[string]string `yaml:"rateLimits"`
+	DefaultPolicy string         `yaml:"defaultPolicy"`
+	TTLFix        TTLFixConfig   `yaml:"ttlFix"`
+	OpenPorts     []OpenPort     `yaml:"openPorts"`
+	PortForwards  []PortForward  `yaml:"portForwards"`
+	Rules         []FirewallRule `yaml:"rules"`
 }
 
 type OpenPort struct {
@@ -246,6 +245,10 @@ type OpenPort struct {
 	Port     int    `yaml:"port"`
 	Source   string `yaml:"source"`
 	Enabled  bool   `yaml:"enabled"`
+	// RateLimit throttles NEW connections to this port, in nftables
+	// form such as "3/minute". Empty means no limit, which is what
+	// every entry written before this field existed gets.
+	RateLimit string `yaml:"rateLimit,omitempty"`
 }
 
 type FirewallRule struct {

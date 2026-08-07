@@ -3,12 +3,12 @@ package config
 func DefaultConfig() *Config {
 	return &Config{
 		System: SystemConfig{
-			Hostname:  "hermes",
-			Domain:    "lan",
-			Timezone:  "Europe/Istanbul",
-			Language:  "en",
-			WebPort:   8443,
-			WebBind:   "10.10.10.1",
+			Hostname: "hermes",
+			Domain:   "lan",
+			Timezone: "Europe/Istanbul",
+			Language: "en",
+			WebPort:  8443,
+			WebBind:  "10.10.10.1",
 			TLS: TLSConfig{
 				Mode: "self-signed",
 				SelfSigned: SelfSignedConfig{
@@ -30,7 +30,6 @@ func DefaultConfig() *Config {
 		Firewall: FirewallConfig{
 			DefaultPolicy: "drop",
 			TTLFix:        TTLFixConfig{Value: 64},
-			RateLimits:    map[string]string{"ssh": "3/minute", "web": "30/minute"},
 		},
 		QoS: QoSConfig{
 			Profile:           "cake",

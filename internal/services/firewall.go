@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"text/template"
@@ -53,7 +54,6 @@ type nftTemplateData struct {
 	WANDevice         string
 	IsolatedVLANs     []nftVLAN
 	PortForwards      []config.PortForward
-	RateLimits        map[string]string
 	// Custom operator rules, already rendered and validated, grouped by
 	// the chain they belong to. Placed ahead of the built-in accepts so
 	// an explicit rule wins; a drop rule appended after them would never
@@ -452,6 +452,30 @@ func (s *FirewallService) buildOpenPortRules() []string {
 	return out
 }
 
+// openPortRateLimitPattern is the accepted form of a per-port rate,
+// matching what nftables writes after `limit rate`.
+//
+// The value is interpolated straight into the ruleset, and nft parses
+// the file as a whole, so one malformed rate does not fail its own line:
+// it fails the entire load and takes every other rule with it. An
+// allowlist is therefore the only safe treatment, not an escape.
+var openPortRateLimitPattern = regexp.MustCompile(`^[1-9][0-9]{0,5}/(second|minute|hour|day|week)$`)
+
+// ErrInvalidRateLimit rejects a rate before it reaches the ruleset.
+var ErrInvalidRateLimit = errors.New(`rate limit must look like "3/minute" (second, minute, hour, day or week)`)
+
+// ValidateOpenPortRateLimit reports whether s can be rendered after
+// `limit rate`. An empty string is valid and means no limit.
+func ValidateOpenPortRateLimit(s string) error {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	if !openPortRateLimitPattern.MatchString(s) {
+		return ErrInvalidRateLimit
+	}
+	return nil
+}
+
 // renderOpenPortRules turns one entry into the input-chain accept lines
 // it stands for. Protocol "both" yields one line per protocol so each
 // rule stays a plain dport match.
@@ -486,10 +510,22 @@ func renderOpenPortRules(op config.OpenPort) ([]string, error) {
 		comment = " # " + name
 	}
 
+	// Placed after `ct state new` so the budget covers new connections
+	// rather than every packet of an established one. A packet over the
+	// rate simply fails to match this rule and falls through to the
+	// chain's closing drop, so no explicit drop line is needed.
+	var limit string
+	if rate := strings.TrimSpace(op.RateLimit); rate != "" {
+		if err := ValidateOpenPortRateLimit(rate); err != nil {
+			return nil, fmt.Errorf("rate limit: %w", err)
+		}
+		limit = "limit rate " + rate + " "
+	}
+
 	lines := make([]string, 0, len(protocols))
 	for _, proto := range protocols {
-		lines = append(lines, fmt.Sprintf("        %s%s dport %d ct state new accept%s",
-			prefix, proto, op.Port, comment))
+		lines = append(lines, fmt.Sprintf("        %s%s dport %d ct state new %saccept%s",
+			prefix, proto, op.Port, limit, comment))
 	}
 	return lines, nil
 }
@@ -590,7 +626,6 @@ func (s *FirewallService) HasPendingChange() bool {
 func (s *FirewallService) buildTemplateData() *nftTemplateData {
 	data := &nftTemplateData{
 		PortForwards:  s.cfg.Firewall.PortForwards,
-		RateLimits:    s.cfg.Firewall.RateLimits,
 		WebPort:       s.cfg.System.WebPort,
 		IPv6Enabled:   s.cfg.IPv6.Enabled != "off",
 		TTLFixEnabled: s.cfg.Firewall.TTLFix.Enabled,

@@ -62,10 +62,6 @@ func testFirewallConfig(t *testing.T) *config.Config {
 	}
 	cfg.System.WebPort = 8443
 	cfg.Firewall.DefaultPolicy = "drop"
-	cfg.Firewall.RateLimits = map[string]string{
-		"ssh": "3/minute",
-		"web": "30/minute",
-	}
 	cfg.IPv6.Enabled = "auto"
 	return cfg
 }

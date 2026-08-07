@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(firewall) Rate limits moved from a dead config map to the open
+  ports**: `firewall.rateLimits` shipped as `{ssh: 3/minute, web:
+  30/minute}` and was carried through the config into the template data,
+  where nothing ever read it. Reading the defaults therefore suggested
+  brute-force protection at the packet filter that did not exist. The
+  map could not be wired up as written either: SSH and the web UI are
+  deliberately never exposed on WAN, and LAN input is accepted wholesale
+  before any port rule, so there was no rule for a service-keyed limit
+  to attach to. An `openPorts` entry now takes an optional `rateLimit`,
+  which renders as `limit rate` on that port's accept rule, right after
+  `ct state new` so the budget covers new connections rather than every
+  packet of an established one. Packets over the rate fall through to
+  the chain's closing drop. The value is checked against a strict
+  allowlist before it reaches the ruleset, because nft parses the file
+  as a whole and one malformed rate would fail the entire load. Existing
+  configs are unaffected: the old key is ignored on load, and an entry
+  with no rate limit renders exactly as before.
+
 - **(nas) M3U-derived directories stay under the download path**: each
   group directory was built by joining the download path with the
   playlist's group name run through a character replacer that covers
