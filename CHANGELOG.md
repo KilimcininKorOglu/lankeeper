@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(nas) M3U-derived directories stay under the download path**: each
+  group directory was built by joining the download path with the
+  playlist's group name run through a character replacer that covers
+  separators and shell metacharacters but never `.`, so a group of `..`
+  survived verbatim and resolved to the parent directory. The `/srv/`
+  and `/mnt/` prefix check ran once against the configured download path
+  and was never re-applied to the joined result. Only the URL is
+  operator-authored; the playlist body is fetched live from a remote
+  server on every sync, so a hostile or compromised provider could make
+  the router create a directory and write a `.strm` file it controls one
+  level above the configured path. A component that is nothing but dots
+  is now replaced, and both joins are re-validated against their base,
+  which is the check that decides the outcome whatever the replacer
+  missed.
+
 - **(metrics) The client hostname label is gone from `/metrics`**:
   per-client rows hashed the MAC and then published the hostname beside
   it in the clear. `/metrics` is deliberately unauthenticated, because

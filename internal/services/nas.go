@@ -216,14 +216,24 @@ func (s *NASService) SyncM3U(ctx context.Context) error {
 		}
 
 		for _, item := range filtered {
-			groupDir := filepath.Join(source.DownloadPath, sanitizePath(item.Group))
+			groupDir, err := containedJoin(source.DownloadPath, sanitizePath(item.Group))
+			if err != nil {
+				log.Printf("m3u sync: rejected group from %s: %v", source.URL, err)
+				totalErrors++
+				continue
+			}
 			if err := os.MkdirAll(groupDir, 0o755); err != nil {
 				log.Printf("m3u sync: mkdir %s: %v", groupDir, err)
 				totalErrors++
 				continue
 			}
 
-			strmPath := filepath.Join(groupDir, sanitizePath(item.Title)+".strm")
+			strmPath, err := containedJoin(groupDir, sanitizePath(item.Title)+".strm")
+			if err != nil {
+				log.Printf("m3u sync: rejected title from %s: %v", source.URL, err)
+				totalErrors++
+				continue
+			}
 			if err := os.WriteFile(strmPath, []byte(item.URL+"\n"), 0o644); err != nil {
 				totalErrors++
 				continue
@@ -443,7 +453,35 @@ func (s *NASService) DiscoverM3UGroups(ctx context.Context, sourceURL string) ([
 	return groups, nil
 }
 
+// sanitizePath turns an arbitrary string into a single safe path
+// component.
+//
+// The separator replacement alone is not enough: it leaves `.` and `..`
+// untouched, and `filepath.Join(base, "..")` resolves to the parent of
+// base. Playlist bodies are fetched live from a remote server, so a
+// hostile provider controls these strings. A component that is nothing
+// but dots is therefore replaced outright rather than passed along.
 func sanitizePath(s string) string {
 	replacer := strings.NewReplacer("/", "_", "\\", "_", ":", "_", "*", "_", "?", "_", "\"", "_", "<", "_", ">", "_", "|", "_")
-	return replacer.Replace(s)
+	out := strings.TrimSpace(replacer.Replace(s))
+	if out == "" || strings.Trim(out, ".") == "" {
+		return "_"
+	}
+	return out
+}
+
+// containedJoin appends one untrusted component to base and confirms the
+// result stayed underneath it.
+//
+// This is the load-bearing check rather than sanitizePath: a
+// character-replacement helper cannot be relied on to have anticipated
+// every escape, while comparing the cleaned result against the cleaned
+// base is decisive whatever the input was.
+func containedJoin(base, component string) (string, error) {
+	root := filepath.Clean(base)
+	joined := filepath.Join(root, component)
+	if joined != root && !strings.HasPrefix(joined, root+string(filepath.Separator)) {
+		return "", fmt.Errorf("path %q escapes %s", component, root)
+	}
+	return joined, nil
 }
