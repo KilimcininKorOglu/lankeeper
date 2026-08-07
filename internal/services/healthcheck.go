@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -141,7 +142,7 @@ func (s *HealthCheckService) executeCheck(ctx context.Context, check config.Heal
 	}
 	s.mu.RUnlock()
 
-	ok := s.probeTargets(ctx, check.Targets, timeout)
+	ok, failures := s.probeTargets(ctx, check.Targets, timeout)
 
 	s.mu.Lock()
 	if result == nil {
@@ -156,7 +157,8 @@ func (s *HealthCheckService) executeCheck(ctx context.Context, check config.Heal
 	} else {
 		result.FailureCount++
 		result.Status = "failing"
-		log.Printf("health check %s: failure %d/%d", check.Name, result.FailureCount, check.FailureThreshold)
+		log.Printf("health check %s: failure %d/%d (%s)",
+			check.Name, result.FailureCount, check.FailureThreshold, describeFailures(failures))
 	}
 
 	shouldAct := result.FailureCount >= check.FailureThreshold && check.FailureThreshold > 0
@@ -167,49 +169,98 @@ func (s *HealthCheckService) executeCheck(ctx context.Context, check config.Heal
 	}
 }
 
-func (s *HealthCheckService) probeTargets(ctx context.Context, targets []config.HealthCheckTarget, timeout time.Duration) bool {
+// targetFailure records which target failed and why, so a check that
+// fails everywhere can say what it actually tried.
+type targetFailure struct {
+	target config.HealthCheckTarget
+	err    error
+}
+
+func (f targetFailure) String() string {
+	if f.target.Type == "http" {
+		return fmt.Sprintf("http %s: %v", f.target.URL, f.err)
+	}
+	return fmt.Sprintf("%s %s: %v", f.target.Type, f.target.Host, f.err)
+}
+
+// describeFailures renders every failed target onto the single log line
+// the check emits, so one line answers what was tried and what each
+// target said.
+func describeFailures(failures []targetFailure) string {
+	if len(failures) == 0 {
+		return "no targets configured"
+	}
+	parts := make([]string, 0, len(failures))
+	for _, f := range failures {
+		parts = append(parts, f.String())
+	}
+	return strings.Join(parts, "; ")
+}
+
+// probeTargets reports whether any target answered, and when none did,
+// what each one said.
+//
+// The errors used to be reduced to a bool per target and then to one
+// bool for the whole check, so the only record of a failure was the
+// check name and a counter. The shipped wan-internet check probes two
+// independent hosts, and once the counter crosses its threshold the
+// remediation bounces the interface or reboots the router: an operator
+// looking at that afterwards could not tell a genuine WAN outage from an
+// upstream that merely filters ICMP.
+func (s *HealthCheckService) probeTargets(ctx context.Context, targets []config.HealthCheckTarget, timeout time.Duration) (bool, []targetFailure) {
+	failures := make([]targetFailure, 0, len(targets))
+
 	for _, target := range targets {
 		checkCtx, cancel := context.WithTimeout(ctx, timeout)
-		var ok bool
+		var err error
 
 		switch target.Type {
 		case "ping":
-			_, err := netutil.Run(checkCtx, "ping", "-c", "1", "-W", "3", target.Host)
-			ok = err == nil
+			_, err = netutil.Run(checkCtx, "ping", "-c", "1", "-W", "3", target.Host)
 		case "http":
-			ok = httpProbe(checkCtx, target.URL, target.ExpectStatus)
+			err = httpProbe(checkCtx, target.URL, target.ExpectStatus)
+		default:
+			// A misspelled type used to fail silently and for ever,
+			// which reads exactly like an unreachable target.
+			err = fmt.Errorf("unsupported target type %q", target.Type)
 		}
 
 		cancel()
-		if ok {
-			return true
+		if err == nil {
+			return true, nil
 		}
+		failures = append(failures, targetFailure{target: target, err: err})
 	}
-	return false
+	return false, failures
 }
 
-func httpProbe(ctx context.Context, url string, expectStatus int) bool {
+// httpProbe returns nil when the probe answered as expected. It reports
+// its own failures rather than logging them, because only the caller
+// knows which check the target belongs to.
+func httpProbe(ctx context.Context, url string, expectStatus int) error {
 	if expectStatus == 0 {
 		expectStatus = 204
 	}
 
 	if err := validateOutboundURL(url); err != nil {
-		log.Printf("health check: rejecting probe URL %q: %v", url, err)
-		return false
+		return fmt.Errorf("rejected probe URL: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return false
+		return fmt.Errorf("build request: %w", err)
 	}
 
 	resp, err := outboundProbeClient.Do(req)
 	if err != nil {
-		return false
+		return err
 	}
 	_ = resp.Body.Close()
 
-	return resp.StatusCode == expectStatus
+	if resp.StatusCode != expectStatus {
+		return fmt.Errorf("status %d, want %d", resp.StatusCode, expectStatus)
+	}
+	return nil
 }
 
 func (s *HealthCheckService) executeActions(ctx context.Context, check config.HealthCheckEntry, cooldown time.Duration) {

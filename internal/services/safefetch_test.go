@@ -116,15 +116,15 @@ func TestBlocklistFetchRefusesLoopbackServer(t *testing.T) {
 	}
 }
 
-// TestHTTPProbeRefusesLoopbackServer covers the third path. httpProbe
-// reports a boolean, so a refused dial has to read as "down".
+// TestHTTPProbeRefusesLoopbackServer covers the third path. A refused
+// dial has to read as "down", and now says so in the error it returns.
 func TestHTTPProbeRefusesLoopbackServer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
 
-	if httpProbe(context.Background(), srv.URL, http.StatusNoContent) {
+	if err := httpProbe(context.Background(), srv.URL, http.StatusNoContent); err == nil {
 		t.Error("the probe against a loopback server reported success")
 	}
 }
@@ -138,7 +138,7 @@ func TestFetchRefusesNonHTTPScheme(t *testing.T) {
 	if _, err := downloadBlocklist(context.Background(), "file:///etc/shadow"); err == nil {
 		t.Error("a file:// blocklist URL was accepted")
 	}
-	if httpProbe(context.Background(), "file:///etc/shadow", 204) {
+	if err := httpProbe(context.Background(), "file:///etc/shadow", 204); err == nil {
 		t.Error("a file:// probe URL reported success")
 	}
 }

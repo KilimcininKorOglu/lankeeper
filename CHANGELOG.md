@@ -568,6 +568,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(healthcheck) A failing check now says what it tried**: each probe
+  was reduced to `ok := err == nil` and the whole check to a single
+  bool, so the only record of a failure was the check name and a
+  counter. The shipped `wan-internet` check probes two independent
+  hosts, and once the counter crosses its threshold the remediation
+  bounces the interface or reboots the router, leaving the operator no
+  way to tell a genuine WAN outage from an upstream that merely filters
+  ICMP. The failure line now names every target and the error it
+  returned. A misspelled target type used to fall through the switch
+  untouched, failing silently and for ever exactly like an unreachable
+  host; it now reports itself.
+
 - **(server) A throttled response now says when to retry**: the rate
   limiter answered with a bare 429 carrying no `Retry-After`, even
   though the token bucket already held everything needed to compute one.
