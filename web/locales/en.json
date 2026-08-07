@@ -462,6 +462,8 @@
     "auth.login": "Login",
     "auth.password": "Password",
     "auth.wrongPassword": "Invalid password",
+    "auth.lockedOutSeconds": "Too many failed attempts. Try again in {{wait}} seconds.",
+    "auth.lockedOutMinutes": "Too many failed attempts. Try again in {{wait}} minutes.",
     "auth.logout": "Logout",
     "auth.sessionExpired": "Session expired",
 

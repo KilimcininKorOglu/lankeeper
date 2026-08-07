@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"math"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -63,10 +65,15 @@ type Server struct {
 	// dotProbeLimiter throttles `POST /dns/dot/probe` to a tight
 	// per-client budget. ProbeDoT performs a synchronous TLS dial
 	// with a 5-second outer timeout; without this limiter an
-	// authenticated client could ride the global 30/s, burst-60
-	// limiter to keep ~150 HTTP goroutines blocked indefinitely on
-	// filtered upstream IPs and starve the rest of the admin UI.
+	// authenticated client could ride the global rate limiter to keep
+	// ~150 HTTP goroutines blocked indefinitely on filtered upstream
+	// IPs and starve the rest of the admin UI.
 	dotProbeLimiter *RateLimiter
+	// loginGuard adds a cost to a run of wrong passwords that the rate
+	// limiter alone does not: the limiter paces every attempt equally,
+	// so a guessing run costs only patience. This one lengthens the
+	// wait as the run grows, and names the failures in the log.
+	loginGuard *loginGuard
 }
 
 func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *services.UpdateService) (*Server, error) {
@@ -261,6 +268,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 		// per-request blocking budget required to amplify into a
 		// goroutine-exhaustion attack.
 		dotProbeLimiter: NewRateLimiter(time.Second, 2),
+		loginGuard:      newLoginGuard(),
 	}
 
 	mux := http.NewServeMux()
@@ -627,20 +635,30 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	lang := i18n.LangFromContext(r.Context())
 	password := r.FormValue("password")
+	ip := clientIP(r)
 
-	if !s.auth.VerifyPassword(password) {
-		data := &tmpl.PageData{
-			Lang:      lang,
-			Page:      "login",
-			CSRFToken: getOrCreateCSRFToken(w, r),
-			Error:     s.loc.T(lang, "auth.wrongPassword"),
-		}
-		w.WriteHeader(http.StatusUnauthorized)
-		if err := s.renderer.Render(w, "login", "auth", data); err != nil {
-			log.Printf("render login error: %v", err)
-		}
+	// The lockout is checked before the password so a locked-out address
+	// cannot keep guessing and simply ignore the answer it gets.
+	if wait := s.loginGuard.LockedFor(ip); wait > 0 {
+		s.renderLoginError(w, r, lang, s.lockoutMessage(lang, wait), http.StatusTooManyRequests)
 		return
 	}
+
+	if !s.auth.VerifyPassword(password) {
+		lockout := s.loginGuard.RecordFailure(ip)
+		logAuthFailure(ip, s.loginGuard.failureCount(ip), lockout)
+
+		msg := s.loc.T(lang, "auth.wrongPassword")
+		status := http.StatusUnauthorized
+		if lockout > 0 {
+			msg = s.lockoutMessage(lang, lockout)
+			status = http.StatusTooManyRequests
+		}
+		s.renderLoginError(w, r, lang, msg, status)
+		return
+	}
+
+	s.loginGuard.RecordSuccess(ip)
 
 	if err := s.auth.Login(w, r); err != nil {
 		log.Printf("login session error: %v", err)
@@ -655,6 +673,44 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// renderLoginError redraws the login page carrying a message, so the
+// rejected and the locked-out paths answer in one shape.
+func (s *Server) renderLoginError(w http.ResponseWriter, r *http.Request, lang, msg string, status int) {
+	data := &tmpl.PageData{
+		Lang:      lang,
+		Page:      "login",
+		CSRFToken: getOrCreateCSRFToken(w, r),
+		Error:     msg,
+	}
+	w.WriteHeader(status)
+	if err := s.renderer.Render(w, "login", "auth", data); err != nil {
+		log.Printf("render login error: %v", err)
+	}
+}
+
+// lockoutMessage renders the remaining wait for a person. The unit is
+// part of the phrase rather than a separately translated word, because
+// a language that inflects around the number cannot be assembled from
+// two independent lookups. Both durations round up, so the message never
+// tells the operator to retry before they can.
+func (s *Server) lockoutMessage(lang string, d time.Duration) string {
+	key, n := "auth.lockedOutMinutes", int(math.Ceil(d.Minutes()))
+	if d < time.Minute {
+		key, n = "auth.lockedOutSeconds", int(math.Ceil(d.Seconds()))
+	}
+	return s.loc.WithParams(lang, key, map[string]string{"wait": strconv.Itoa(n)})
+}
+
+// clientIP is the key both the rate limiter and the login guard use, so
+// an address is counted the same way by both.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {

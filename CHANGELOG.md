@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(auth) Repeated failed logins now cost more and are named in the
+  log**: the rate limiter was the only control on the login route, and
+  it paces a correct password and a wrong one identically, so a guessing
+  run against the single admin password cost an attacker nothing but
+  patience and left no signal an operator would notice. A failed attempt
+  now logs the address and the length of the run, and five consecutive
+  failures lock that address out for a minute, doubling per further
+  failure to a quarter-hour cap. The count survives an expired lockout,
+  so waiting one out does not buy back the cheap attempts, and a
+  successful login clears it. The key is the client address rather than
+  the account, because with one fixed admin and no username a global
+  counter would let any device on the segment lock the operator out of
+  their own router. Lockouts live in memory, so restarting the service
+  clears them.
+
 - **(server) The enforced request rate now matches the intended
   budget**: `NewRateLimiter` took two plain integers and consumed the
   first as a per-second refill, while the signature read like a

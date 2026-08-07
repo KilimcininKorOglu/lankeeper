@@ -462,6 +462,8 @@
     "auth.login": "Giriş Yap",
     "auth.password": "Şifre",
     "auth.wrongPassword": "Geçersiz şifre",
+    "auth.lockedOutSeconds": "Çok fazla başarısız deneme. {{wait}} saniye sonra tekrar deneyin.",
+    "auth.lockedOutMinutes": "Çok fazla başarısız deneme. {{wait}} dakika sonra tekrar deneyin.",
     "auth.logout": "Çıkış Yap",
     "auth.sessionExpired": "Oturum süresi doldu",
 

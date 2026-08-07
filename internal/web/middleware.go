@@ -200,10 +200,7 @@ func (rl *RateLimiter) Allow(ip string) bool {
 
 func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			host = r.RemoteAddr
-		}
+		host := clientIP(r)
 
 		if !rl.Allow(host) {
 			httpErrorT(w, r, http.StatusTooManyRequests, "error.tooManyRequests")
