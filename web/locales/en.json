@@ -633,6 +633,7 @@
     "error.rootPasswordFailed": "The root password could not be changed",
     "error.saveFailed": "Could not save the change",
     "error.sixInFourNotConfigured": "6in4 is not configured",
+    "error.tooManyStreams": "Too many open event streams",
     "error.streamingUnsupported": "Streaming is not supported here",
     "error.targetNotFound": "Target not found",
     "error.tempFileFailed": "A temporary file could not be created",

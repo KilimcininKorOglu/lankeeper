@@ -633,6 +633,7 @@
     "error.rootPasswordFailed": "Root parolası değiştirilemedi",
     "error.saveFailed": "Değişiklik kaydedilemedi",
     "error.sixInFourNotConfigured": "6in4 yapılandırılmamış",
+    "error.tooManyStreams": "Çok fazla açık olay akışı var",
     "error.streamingUnsupported": "Akış burada desteklenmiyor",
     "error.targetNotFound": "Hedef bulunamadı",
     "error.tempFileFailed": "Geçici dosya oluşturulamadı",

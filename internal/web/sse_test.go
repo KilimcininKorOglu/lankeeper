@@ -9,7 +9,10 @@ import (
 func TestSSEBrokerPubSub(t *testing.T) {
 	broker := web.NewSSEBroker()
 
-	ch := broker.Subscribe()
+	ch, err := broker.Subscribe()
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
 	defer broker.Unsubscribe(ch)
 
 	if broker.ClientCount() != 1 {
@@ -31,7 +34,10 @@ func TestSSEBrokerPubSub(t *testing.T) {
 func TestSSEBrokerUnsubscribe(t *testing.T) {
 	broker := web.NewSSEBroker()
 
-	ch := broker.Subscribe()
+	ch, err := broker.Subscribe()
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
 	broker.Unsubscribe(ch)
 
 	if broker.ClientCount() != 0 {

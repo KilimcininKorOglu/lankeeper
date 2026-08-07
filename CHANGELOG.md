@@ -580,6 +580,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(server) Event streams are bounded and idle ones are reaped**:
+  `Subscribe` inserted a channel unconditionally, so nothing limited how
+  many streams one client could hold open, and each costs a goroutine, a
+  map entry and a buffer for as long as it lives. Both routes sit behind
+  authentication, so this was a hardening gap rather than an exposed
+  surface. Each broker now caps concurrent streams at 32, counted
+  separately, and answers a refusal with 503 and `Retry-After` before
+  the event-stream headers go out. A cap alone would have been worse
+  than none, because a peer that vanished without closing its connection
+  held its slot until the kernel gave up on the socket: an idle stream
+  now writes a keep-alive comment every 30 seconds, so a dead peer is
+  noticed and its slot released. That also closes the bandwidth stream,
+  which publishes nothing at all while sampling is failing and so never
+  wrote anything to fail on.
+
 - **(storage) An fstab record is validated and its write is reported**:
   the entry was composed with `fmt.Sprintf` from a device and a mount
   point and written straight through the root agent, so a newline or a
