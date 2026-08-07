@@ -312,3 +312,19 @@ func macHash(mac string) string {
 	h := sha1.Sum([]byte(strings.ToLower(strings.ReplaceAll(mac, ":", ""))))
 	return hex.EncodeToString(h[:4])
 }
+
+// peerHash shortens a VPN peer name for the exposition, the same way
+// macHash does for LAN clients.
+//
+// The name is operator-chosen free text, so in practice a person's name
+// or a remote site name, and it was previously emitted verbatim on six
+// series covering presence, handshake age and traffic volume. That
+// endpoint carries no authentication, and unlike a LAN client, a remote
+// VPN peer is not otherwise observable from the local segment: there is
+// no ARP or mDNS equivalent to fall back on, so the exposition was the
+// disclosure. The hash keeps each peer a distinct, stable series
+// without naming it.
+func peerHash(name string) string {
+	h := sha1.Sum([]byte(name))
+	return hex.EncodeToString(h[:4])
+}

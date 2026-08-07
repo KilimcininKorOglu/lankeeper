@@ -69,6 +69,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   which is the check that decides the outcome whatever the replacer
   missed.
 
+- **(metrics) VPN peer names are hashed in the exposition**: the
+  operator-chosen peer name was emitted verbatim as the `peer` label on
+  six series covering WireGuard and site-to-site presence, handshake age
+  and cumulative traffic. That endpoint deliberately carries no
+  authentication, so any device that can reach the LAN, including
+  anything on a guest or IoT segment inside the allowed networks, could
+  enumerate every configured peer by name, see which were connected, how
+  long since each handshake, and how much traffic each had moved. The
+  usual argument for per-client metrics does not apply here: a remote
+  VPN peer is by definition not on the local segment, so there is no ARP
+  or mDNS equivalent already exposing it. Peer names now pass through
+  the same truncated-SHA1 treatment MAC addresses already received, so
+  each peer stays a distinct stable series without being named. No key
+  material was ever exposed; the preshared key field in the `wg` dump is
+  parsed past and never surfaced. NOTE for scrapers: the `peer` label
+  value changes to an 8-character hash, so queries matching a literal
+  peer name need updating.
+
 - **(metrics) The client hostname label is gone from `/metrics`**:
   per-client rows hashed the MAC and then published the hostname beside
   it in the clear. `/metrics` is deliberately unauthenticated, because

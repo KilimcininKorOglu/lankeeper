@@ -74,7 +74,7 @@ func (s *MetricsService) collectRoadWarriorPeers(ctx context.Context) []WGPeerMe
 		}
 		row, ok := dump[p.PublicKey]
 		m := WGPeerMetric{
-			Name:         p.Name,
+			Name:         peerHash(p.Name),
 			HandshakeAge: -1,
 		}
 		if ok {
@@ -107,7 +107,7 @@ func (s *MetricsService) collectS2SPeers(ctx context.Context) []S2SPeerMetric {
 		health, err := s.vpn.S2SHealth(ctx, p.Name)
 		if err != nil || health == nil {
 			out = append(out, S2SPeerMetric{
-				Name:         p.Name,
+				Name:         peerHash(p.Name),
 				HandshakeAge: -1,
 			})
 			continue
@@ -117,7 +117,7 @@ func (s *MetricsService) collectS2SPeers(ctx context.Context) []S2SPeerMetric {
 			online = 1
 		}
 		out = append(out, S2SPeerMetric{
-			Name:         health.Name,
+			Name:         peerHash(health.Name),
 			HandshakeAge: health.HandshakeAgeSec,
 			Online:       online,
 			RxBytes:      health.RxBytes,
