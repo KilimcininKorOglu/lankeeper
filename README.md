@@ -97,11 +97,15 @@ make release-all
 
 Generated artifacts are written to `dist/`:
 
-- `lankeeper-vX.Y.Z-linux-{amd64,arm64}` — static binaries
+- `lankeeper-linux-{amd64,arm64}` — static binaries, no version in the name
 - `lankeeper-vX.Y.Z-linux-{amd64,arm64}.tar.gz` — release tarballs
 - `lankeeper-vX.Y.Z-installer-{amd64,arm64}.iso` — offline installer ISOs
+- `release-{amd64,arm64}/lankeeper` — tarball staging copies
 - `dist/packages/{amd64,arm64}/` — cached `.deb` package pools
-- `SHA256SUMS` — SHA-256 of every published artifact
+- `SHA256SUMS` — SHA-256 of the published tarballs and ISOs
+
+`make dev` and `make build` write `dist/lankeeper` for the host platform.
+Only the tarballs and ISOs carry the version in their filename.
 
 ## Architecture
 
