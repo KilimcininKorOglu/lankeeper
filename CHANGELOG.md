@@ -568,6 +568,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(middleware) The CSPRNG read is checked when minting the CSRF token
+  and the session secret**: both sites allocated a buffer, called
+  `rand.Read`, and encoded the result without looking at the return. On
+  the current toolchain `crypto/rand.Read` never returns an error and
+  crashes the program if its source fails, so the zero-filled buffer
+  that would follow is not reachable today; the discarded return still
+  read as an unchecked error, and both values feed a security decision,
+  so a failure now refuses rather than proceeding. The server declines
+  to start without a session secret, and a login page that cannot mint a
+  token answers 500 instead of presenting a form every submission would
+  fail. A repository-wide test keeps the other eight CSPRNG reads
+  checked too.
+
 - **(backup) Config import bounds the whole archive, not just each
   entry**: the per-entry 10 MiB cap was the only size control and the
   extraction loop carried no counter, so an archive of very many small

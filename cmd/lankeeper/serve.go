@@ -33,8 +33,15 @@ func runServe() error {
 	}
 
 	if cfg.System.SessionSecret == "" {
+		// Checked even though crypto/rand.Read on this toolchain never
+		// returns an error and crashes the program if its source fails.
+		// This value signs every session cookie, so refusing to start is
+		// the only acceptable answer to a failure here: a secret built
+		// from an unfilled buffer would let anyone mint a valid session.
 		b := make([]byte, 32)
-		crypto_rand.Read(b)
+		if _, err := crypto_rand.Read(b); err != nil {
+			return fmt.Errorf("generate session secret: %w", err)
+		}
 		cfg.System.SessionSecret = fmt.Sprintf("%x", b)
 		if err := cfg.SaveToFile(); err != nil {
 			log.Printf("failed to persist session secret: %v", err)

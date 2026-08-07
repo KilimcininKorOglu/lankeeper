@@ -28,7 +28,12 @@ func AuthRequired(auth *Auth) func(http.Handler) http.Handler {
 func CSRFProtect(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet || r.Method == http.MethodHead {
-			token := getOrCreateCSRFToken(w, r)
+			token, err := getOrCreateCSRFToken(w, r)
+			if err != nil {
+				log.Printf("csrf: %v", err)
+				httpErrorT(w, r, http.StatusInternalServerError, "error.internal")
+				return
+			}
 			w.Header().Set("X-CSRF-Token", token)
 			next.ServeHTTP(w, r)
 			return
@@ -56,13 +61,24 @@ func CSRFProtect(next http.Handler) http.Handler {
 	})
 }
 
-func getOrCreateCSRFToken(w http.ResponseWriter, r *http.Request) string {
+// getOrCreateCSRFToken returns the caller's existing token or mints a
+// new one.
+//
+// The read is checked even though crypto/rand.Read on this toolchain
+// never returns an error and crashes the program if its source fails.
+// The discarded return read as an unchecked error to anyone reviewing
+// it, and it is one reader swap away from being one: the value goes
+// straight into a security decision, so the failure has to be a refusal
+// rather than a token built from whatever was in the buffer.
+func getOrCreateCSRFToken(w http.ResponseWriter, r *http.Request) (string, error) {
 	if c, err := r.Cookie("csrf_token"); err == nil {
-		return c.Value
+		return c.Value, nil
 	}
 
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate csrf token: %w", err)
+	}
 	token := hex.EncodeToString(b)
 
 	http.SetCookie(w, &http.Cookie{
@@ -74,7 +90,7 @@ func getOrCreateCSRFToken(w http.ResponseWriter, r *http.Request) string {
 		SameSite: http.SameSiteStrictMode,
 	})
 
-	return token
+	return token, nil
 }
 
 func LANOnly(allowedNets []*net.IPNet) func(http.Handler) http.Handler {

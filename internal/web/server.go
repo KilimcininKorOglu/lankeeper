@@ -647,10 +647,16 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	lang := i18n.LangFromContext(r.Context())
+	token, err := getOrCreateCSRFToken(w, r)
+	if err != nil {
+		log.Printf("login page: %v", err)
+		httpErrorT(w, r, http.StatusInternalServerError, "error.internal")
+		return
+	}
 	data := &tmpl.PageData{
 		Lang:      lang,
 		Page:      "login",
-		CSRFToken: getOrCreateCSRFToken(w, r),
+		CSRFToken: token,
 	}
 	if err := s.renderer.Render(w, "login", "auth", data); err != nil {
 		log.Printf("render login: %v", err)
@@ -706,10 +712,18 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 // renderLoginError redraws the login page carrying a message, so the
 // rejected and the locked-out paths answer in one shape.
 func (s *Server) renderLoginError(w http.ResponseWriter, r *http.Request, lang, msg string, status int) {
+	// A login page rendered without a usable token would present a form
+	// every submission then fails, so the failure is reported instead.
+	token, err := getOrCreateCSRFToken(w, r)
+	if err != nil {
+		log.Printf("login page: %v", err)
+		httpErrorT(w, r, http.StatusInternalServerError, "error.internal")
+		return
+	}
 	data := &tmpl.PageData{
 		Lang:      lang,
 		Page:      "login",
-		CSRFToken: getOrCreateCSRFToken(w, r),
+		CSRFToken: token,
 		Error:     msg,
 	}
 	w.WriteHeader(status)
