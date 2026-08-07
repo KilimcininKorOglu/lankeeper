@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
@@ -19,12 +20,12 @@ func NewStorageService(cfg *config.Config) *StorageService {
 }
 
 type RAIDStatus struct {
-	Device     string
-	Level      string
-	State      string
+	Device      string
+	Level       string
+	State       string
 	ActiveDisks int
 	TotalDisks  int
-	Members    []DiskMember
+	Members     []DiskMember
 }
 
 type DiskMember struct {
@@ -33,12 +34,12 @@ type DiskMember struct {
 }
 
 type SMARTInfo struct {
-	Device      string
-	Model       string
-	Temperature int
+	Device       string
+	Model        string
+	Temperature  int
 	PowerOnHours int
-	HealthOK    bool
-	Errors      int
+	HealthOK     bool
+	Errors       int
 }
 
 type DiskUsage struct {
@@ -260,7 +261,9 @@ func (s *StorageService) CreateRAID(ctx context.Context, level int, devices []st
 		return fmt.Errorf("mount: %w", err)
 	}
 
-	appendFstabEntry(mdDevice, mountPoint, "ext4")
+	if err := appendFstabEntry(mdDevice, mountPoint, "ext4"); err != nil {
+		return fmt.Errorf("persist mount: %w", err)
+	}
 
 	// Persist the new array's state to mdadm.conf (best-effort: the
 	// scan runs even if previous state is incomplete).
@@ -289,19 +292,80 @@ func (s *StorageService) FormatAndMount(ctx context.Context, device, mountPoint 
 		return fmt.Errorf("mount %s: %w", device, err)
 	}
 
-	appendFstabEntry(device, mountPoint, "ext4")
+	if err := appendFstabEntry(device, mountPoint, "ext4"); err != nil {
+		return fmt.Errorf("persist mount: %w", err)
+	}
 
 	return nil
 }
 
-func appendFstabEntry(device, mountPoint, fsType string) {
-	entry := fmt.Sprintf("%s %s %s defaults 0 2", device, mountPoint, fsType)
-	existing, _ := netutil.ReadFile("/etc/fstab")
-	if strings.Contains(string(existing), entry) {
-		return
+// fstab fields are whitespace-separated and one entry occupies one line,
+// so a value carrying either ends the field or the record early. A
+// newline in a device or mount point appends a second entry that the
+// system honours at the next boot, which is a mount of the attacker's
+// choosing performed by init.
+//
+// Both patterns are allowlists rather than escapes: fstab does have an
+// escape form for spaces, but a value needing one is a value this
+// product never produces, so refusing is both simpler and stricter.
+var (
+	fstabDevicePattern = regexp.MustCompile(`^/dev/[a-zA-Z0-9][a-zA-Z0-9/_.-]*$`)
+	fstabMountPattern  = regexp.MustCompile(`^/[a-zA-Z0-9][a-zA-Z0-9/_.-]*$`)
+	fstabTypePattern   = regexp.MustCompile(`^[a-z0-9]+$`)
+)
+
+// validateFstabEntry rejects anything that would not compose into
+// exactly one well-formed record.
+func validateFstabEntry(device, mountPoint, fsType string) error {
+	if !fstabDevicePattern.MatchString(device) {
+		return fmt.Errorf("refusing fstab entry: %q is not a device path", device)
 	}
+	if !fstabMountPattern.MatchString(mountPoint) {
+		return fmt.Errorf("refusing fstab entry: %q is not a mount point", mountPoint)
+	}
+	if !fstabTypePattern.MatchString(fsType) {
+		return fmt.Errorf("refusing fstab entry: %q is not a filesystem type", fsType)
+	}
+	// The character classes above already exclude "..", but a traversal
+	// is worth naming separately: it would mount somewhere other than
+	// where the caller believes.
+	for _, part := range strings.Split(mountPoint, "/") {
+		if part == ".." {
+			return fmt.Errorf("refusing fstab entry: mount point %q escapes upward", mountPoint)
+		}
+	}
+	return nil
+}
+
+// appendFstabEntry adds one record, or reports why it did not.
+//
+// The result used to be discarded: the write error was logged and the
+// callers were told the mount succeeded, so a filesystem the operator
+// had just created came back unmounted at the next boot with nothing to
+// explain it.
+//
+// The read error was discarded too, which was worse. A failed read left
+// `existing` empty, and the composition below would then have replaced
+// the whole of /etc/fstab with this single line, dropping the root
+// filesystem entry and everything else.
+func appendFstabEntry(device, mountPoint, fsType string) error {
+	if err := validateFstabEntry(device, mountPoint, fsType); err != nil {
+		return err
+	}
+
+	existing, err := netutil.ReadFile("/etc/fstab")
+	if err != nil {
+		return fmt.Errorf("read fstab: %w", err)
+	}
+
+	entry := fmt.Sprintf("%s %s %s defaults 0 2", device, mountPoint, fsType)
+	if strings.Contains(string(existing), entry) {
+		return nil
+	}
+
 	newContent := strings.TrimRight(string(existing), "\n") + "\n" + entry + "\n"
 	if err := netutil.WriteFile("/etc/fstab", []byte(newContent), 0o644); err != nil {
-		log.Printf("storage: write fstab: %v", err)
+		return fmt.Errorf("write fstab: %w", err)
 	}
+	return nil
 }

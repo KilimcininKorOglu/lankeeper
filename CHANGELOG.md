@@ -580,6 +580,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(storage) An fstab record is validated and its write is reported**:
+  the entry was composed with `fmt.Sprintf` from a device and a mount
+  point and written straight through the root agent, so a newline or a
+  space in either value ended the record early or shifted every field
+  after it, and the system honours the result at the next boot. Two
+  discarded errors made it worse. The read error was dropped, so a
+  failed read left the existing content empty and the composition
+  replaced the whole of `/etc/fstab` with the single new line, taking
+  the root filesystem entry with it. The write error was only logged, so
+  a filesystem the operator had just created came back unmounted at the
+  next boot with nothing to explain it. The device, the mount point and
+  the filesystem type now go through allowlist patterns, a failed read
+  aborts before any write, and both `CreateRAID` and `FormatAndMount`
+  propagate the failure instead of reporting success.
+
 - **(middleware) The CSRF token is rotated at authentication
   boundaries**: the token was reused whenever a cookie was present and
   the cookie carried no expiry, so one value survived an entire login
