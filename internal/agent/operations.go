@@ -278,6 +278,27 @@ func opExecRun(ctx context.Context, raw json.RawMessage) (any, error) {
 	return result, nil
 }
 
+// validateFileMode rejects a requested mode the agent will not create
+// anything with, whatever the path.
+//
+// The agent writes every one of these files as root, so the mode is the
+// only thing standing between a config file and the rest of the system.
+// Nothing this binary writes needs to be group- or world-writable, and
+// nothing it writes is an executable that could want a set-id or sticky
+// bit, so a request carrying any of them did not come from a caller
+// serving a purpose the agent supports. Refusing is preferred over
+// quietly narrowing: a caller that asked for the wrong thing should hear
+// about it rather than have the request half-honoured.
+func validateFileMode(mode os.FileMode) error {
+	if mode&^os.FileMode(0o777) != 0 {
+		return fmt.Errorf("mode %v carries bits outside the permission set", mode)
+	}
+	if mode&0o022 != 0 {
+		return fmt.Errorf("mode %v is group- or world-writable", mode)
+	}
+	return nil
+}
+
 func opFileWrite(_ context.Context, raw json.RawMessage) (any, error) {
 	var params FileWriteParams
 	if err := json.Unmarshal(raw, &params); err != nil {
@@ -291,6 +312,9 @@ func opFileWrite(_ context.Context, raw json.RawMessage) (any, error) {
 	mode := os.FileMode(params.Mode)
 	if mode == 0 {
 		mode = 0o644
+	}
+	if err := validateFileMode(mode); err != nil {
+		return nil, err
 	}
 
 	if params.MkdirP {
@@ -340,6 +364,9 @@ func opFileMkdir(_ context.Context, raw json.RawMessage) (any, error) {
 	mode := os.FileMode(params.Mode)
 	if mode == 0 {
 		mode = 0o755
+	}
+	if err := validateFileMode(mode); err != nil {
+		return nil, err
 	}
 
 	if err := os.MkdirAll(params.Path, mode); err != nil {

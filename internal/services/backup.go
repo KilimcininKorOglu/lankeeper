@@ -171,6 +171,26 @@ func resolveRestoreTarget(roots map[string]string, clean string) (string, bool) 
 	return target, true
 }
 
+// Restore permissions are decided here rather than read from the tar
+// header. An archive is untrusted input: it may have been edited on the
+// operator's machine or fetched back from remote storage that was
+// compromised, and only two of its fields, the member name and the
+// content, describe something this binary cannot supply itself. Taking
+// the mode as well let a tampered archive rewrite router.yaml
+// world-writable, which turns a one-time restore into a standing local
+// path onto the session secret and the admin password hash, outside the
+// web authentication model entirely.
+//
+// Every archived path is read by a daemon that starts as root (unbound,
+// dnsmasq and openvpn all read their configuration before dropping
+// privileges) and none of them is an executable, so a single tight file
+// mode serves all of them. It matches what the config writer already
+// uses for router.yaml.
+const (
+	restoreFileMode os.FileMode = 0o600
+	restoreDirMode  os.FileMode = 0o755
+)
+
 func (s *BackupService) Import(ctx context.Context, archivePath, passphrase string) error {
 	data, err := os.ReadFile(archivePath)
 	if err != nil {
@@ -228,7 +248,7 @@ func (s *BackupService) Import(ctx context.Context, archivePath, passphrase stri
 
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			if err := netutil.MkdirAll(target, os.FileMode(hdr.Mode)|0o755); err != nil {
+			if err := netutil.MkdirAll(target, restoreDirMode); err != nil {
 				return fmt.Errorf("mkdir %s: %w", target, err)
 			}
 		case tar.TypeReg:
@@ -236,7 +256,7 @@ func (s *BackupService) Import(ctx context.Context, archivePath, passphrase stri
 			if err != nil {
 				return fmt.Errorf("read tar member %s: %w", hdr.Name, err)
 			}
-			if err := netutil.WriteFile(target, memberData, os.FileMode(hdr.Mode)); err != nil {
+			if err := netutil.WriteFile(target, memberData, restoreFileMode); err != nil {
 				return fmt.Errorf("write tar member %s: %w", hdr.Name, err)
 			}
 		default:

@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(backup) Restore no longer takes file permissions from the
+  archive**: extraction rejected path traversal but applied the tar
+  header's mode verbatim, and the agent's write operation had no ceiling
+  of its own, substituting a default only when the mode was zero. An
+  operator restoring a tampered archive, one edited locally or fetched
+  back from remote storage that was compromised, therefore rewrote
+  `router.yaml` with whatever mode the archive named, world-writable
+  included. That turned a one-time restore into a standing local path
+  onto the session secret and the admin password hash, outside the web
+  authentication model entirely. Only the member name and the content
+  are now taken from the archive; the mode comes from a fixed policy
+  matching the 0600 the config writer already uses. The agent
+  additionally refuses any write or mkdir asking for a group- or
+  world-writable mode, or for a bit outside the permission set, since no
+  call site has ever needed one.
+
 - **(agent) The exec RPC no longer accepts a caller-supplied
   environment**: the request carried an environment slice that was
   appended verbatim to the child process, while the command whitelist
