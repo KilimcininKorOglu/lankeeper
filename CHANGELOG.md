@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(deploy) The ISO builder no longer gets the repository writable**:
+  both ISO targets mounted the repository root read-write, and the
+  builder image declares no `USER`, so its entrypoint ran as root over
+  `internal/`, `cmd/`, `web/` and `.git` for no functional reason. The
+  script reads only `configs/` and `deploy/`, and writes only the output
+  image and the package cache under `dist/`, which is now exactly what
+  it gets. The exposure mattered as an amplifier rather than on its own:
+  a container compromised through another vector, such as a repackaged
+  source image handed to `xorriso`, could have edited Go source or git
+  history so that the maintainer's next host-side build compiled the
+  change faithfully, turning a one-time break into a persistent one. A
+  test refuses a root mount, refuses any writable mount other than
+  `dist/`, and pins the rest of the invocation, which was already free
+  of `--privileged`, added capabilities, host networking and the Docker
+  socket.
+
 - **(ci) The lint and vulnerability tools are pinned**: the linter took
   `version: latest` and govulncheck was installed at `@latest`, so the
   binaries the gate actually ran were not determined by the committed

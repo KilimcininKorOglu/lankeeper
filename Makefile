@@ -78,19 +78,31 @@ docker-builder-arm64:
 
 docker-builders: docker-builder-amd64 docker-builder-arm64
 
+# The builder runs as root and its entrypoint parses an ISO image with
+# xorriso, fdisk and dd, so the repository is mounted by part rather than
+# whole. The script reads configs/ and deploy/, and writes only the
+# output image and the package cache under dist/. Mounting the root
+# writable also exposed internal/, cmd/, web/ and .git, which would let a
+# container compromise edit Go source the next host-side build compiles
+# faithfully: a one-time break turned into a persistent one.
+ISO_MOUNTS = \
+	-v $(CURDIR)/configs:/build/configs:ro \
+	-v $(CURDIR)/deploy:/build/deploy:ro \
+	-v $(CURDIR)/$(DIST_DIR):/build/$(DIST_DIR)
+
 iso: iso-amd64
 
 iso-amd64: cross-amd64 docker-builder-amd64
 	@test -n "$(DEBIAN_AMD64_ISO)" || (echo "DEBIAN_AMD64_ISO or DEBIAN_ISO is required" >&2; exit 1)
 	$(DOCKER) run --platform linux/amd64 --rm \
-		-v $(CURDIR):/build \
+		$(ISO_MOUNTS) \
 		-v $(CURDIR)/$(DEBIAN_AMD64_ISO):/debian.iso:ro \
 		$(ISO_BUILDER_AMD64) /debian.iso /build/$(AMD64_BINARY) amd64 /build/$(AMD64_ISO) $(VERSION)
 
 iso-arm64: cross-arm64 docker-builder-arm64
 	@test -n "$(DEBIAN_ARM64_ISO)" || (echo "DEBIAN_ARM64_ISO is required" >&2; exit 1)
 	$(DOCKER) run --platform linux/arm64 --rm \
-		-v $(CURDIR):/build \
+		$(ISO_MOUNTS) \
 		-v $(CURDIR)/$(DEBIAN_ARM64_ISO):/debian.iso:ro \
 		$(ISO_BUILDER_ARM64) /debian.iso /build/$(ARM64_BINARY) arm64 /build/$(ARM64_ISO) $(VERSION)
 
