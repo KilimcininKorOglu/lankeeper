@@ -566,6 +566,7 @@
     "error.dohUpstreamRequired": "A DoH upstream is required",
     "error.dotUpstreamRequired": "A DoT upstream is required",
     "error.duplicateName": "That name is already in use",
+    "error.peerSubnetConflict": "That remote subnet overlaps a network this router already serves",
     "error.emptyOrderEntry": "The order list has an empty entry",
     "error.endpointFormat": "The endpoint must be in host:port form",
     "error.exportFailed": "The export failed",

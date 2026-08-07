@@ -261,6 +261,16 @@ func (s *VPNService) RenderAllClientConfigs(ctx context.Context) error {
 }
 
 func (s *VPNService) AddPeer(ctx context.Context, name string, siteToSite bool, remoteSubnets []string, endpoint string) (*config.WGServerPeer, string, error) {
+	// The same overlap guard the invite wizard applies. Both forms write
+	// into the same peer list and the same AllowedIPs mechanism, and the
+	// rendered server config re-validates nothing, so a peer that claims
+	// the LAN subnet here is authoritative for LAN traffic in WireGuard's
+	// routing table. Checked before the keypair so a rejected request
+	// costs no privileged commands.
+	if conflict, bad := s.subnetsConflict(remoteSubnets); bad {
+		return nil, "", fmt.Errorf("%w: %s", ErrPeerSubnetConflict, conflict)
+	}
+
 	privKey, pubKey, err := s.GenerateKeypair(ctx)
 	if err != nil {
 		return nil, "", err
@@ -276,6 +286,12 @@ func (s *VPNService) AddPeer(ctx context.Context, name string, siteToSite bool, 
 	// the peer slice while another caller is appending to it.
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Inside the lock so two concurrent adds cannot both pass the check
+	// and then both append.
+	if s.peerNameTakenLocked(name) {
+		return nil, "", fmt.Errorf("%w: %s", ErrPeerNameInUse, name)
+	}
 
 	nextIP, err := s.nextTunnelIP()
 	if err != nil {

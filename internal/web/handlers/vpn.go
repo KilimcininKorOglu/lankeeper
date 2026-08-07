@@ -83,7 +83,14 @@ func (h *VPNHandler) HandleAddPeer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	peer, privKey, err := h.vpn.AddPeer(r.Context(), name, siteToSite, remoteSubnets, endpoint)
-	if err != nil {
+	switch {
+	case errors.Is(err, services.ErrPeerSubnetConflict):
+		clientError(w, r, http.StatusBadRequest, "error.peerSubnetConflict")
+		return
+	case errors.Is(err, services.ErrPeerNameInUse):
+		clientError(w, r, http.StatusBadRequest, "error.duplicateName")
+		return
+	case err != nil:
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}

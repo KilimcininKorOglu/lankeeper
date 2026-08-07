@@ -566,6 +566,7 @@
     "error.dohUpstreamRequired": "DoH üst sunucusu gerekli",
     "error.dotUpstreamRequired": "DoT üst sunucusu gerekli",
     "error.duplicateName": "Bu ad zaten kullanımda",
+    "error.peerSubnetConflict": "Bu uzak alt ağ, yönlendiricinin zaten hizmet verdiği bir ağla çakışıyor",
     "error.emptyOrderEntry": "Sıra listesinde boş girdi var",
     "error.endpointFormat": "Uç nokta host:port biçiminde olmalı",
     "error.exportFailed": "Dışa aktarma başarısız",

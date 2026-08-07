@@ -89,7 +89,25 @@ var (
 	ErrInviteMalformed    = errors.New("s2s invite token malformed")
 	ErrPeerNotPending     = errors.New("s2s peer is not in pending state")
 	ErrPeerSubnetConflict = errors.New("s2s peer subnet conflicts with a local subnet")
+	ErrPeerNameInUse      = errors.New("a peer with that name already exists")
 )
+
+// peerNameTakenLocked reports whether name is already claimed, pending
+// peers included. Caller must hold s.mu.
+//
+// Both the manual Add Peer form and the invite wizard append to the same
+// peer list, and every name-keyed lookup (RemovePeer, the client
+// lookup) stops at the first match, so a duplicate makes those lookups
+// ambiguous. One helper rather than two loops keeps the two paths from
+// drifting apart again.
+func (s *VPNService) peerNameTakenLocked(name string) bool {
+	for _, existing := range s.cfg.VPN.Server.Peers {
+		if existing.Name == name {
+			return true
+		}
+	}
+	return false
+}
 
 // s2sKeyPath resolves the token signing key location. It lives beside
 // the credential encryption key rather than in router.yaml: the service
@@ -390,11 +408,9 @@ func (s *VPNService) CreateS2SInvite(
 	}
 
 	s.mu.Lock()
-	for _, existing := range s.cfg.VPN.Server.Peers {
-		if existing.Name == peerName {
-			s.mu.Unlock()
-			return "", nil, fmt.Errorf("peer %q already exists", peerName)
-		}
+	if s.peerNameTakenLocked(peerName) {
+		s.mu.Unlock()
+		return "", nil, fmt.Errorf("%w: %s", ErrPeerNameInUse, peerName)
 	}
 	s.cfg.VPN.Server.Peers = append(s.cfg.VPN.Server.Peers, pending)
 	s.mu.Unlock()

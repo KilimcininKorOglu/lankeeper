@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(vpn) Manual peer creation applies the same guards as the invite
+  wizard**: the Add Peer form checked only that each remote subnet
+  parsed as a CIDR, then wrote the values straight into the peer's
+  `AllowedIPs`. The wizard path rejects a remote subnet overlapping a
+  network this router already serves, and that check was never
+  back-ported, so through the ordinary UI an operator could hand a peer
+  the router's own LAN. The rendered server config re-validates nothing,
+  so WireGuard then treats that peer as authoritative for LAN-address
+  traffic and the key holder can inject and receive traffic as a LAN
+  host. Peer-name uniqueness had drifted the same way: the wizard
+  rejected a name already in use while the manual form appended
+  unconditionally, and since every name-keyed lookup stops at the first
+  match, a duplicate made removal and the client lookup ambiguous. Both
+  checks now come from one shared helper rather than two copies, and a
+  rejected request is answered as a client error instead of a server
+  one.
+
 - **(vpn) Site-to-site tokens no longer share the web session secret**:
   invite and acknowledgement tokens were HMAC-signed with
   `System.SessionSecret`, the same value that authenticates web session
