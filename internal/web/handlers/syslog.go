@@ -147,10 +147,5 @@ func (h *SyslogHandler) HandleRemoveFacility(w http.ResponseWriter, r *http.Requ
 }
 
 func syslogResponse(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/syslog", http.StatusSeeOther)
+	respondRefresh(w, r, "/syslog")
 }

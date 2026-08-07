@@ -108,12 +108,7 @@ func (h *VLANHandler) HandleAdd(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/network", http.StatusSeeOther)
+	respondRefresh(w, r, "/network")
 }
 
 func (h *VLANHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
@@ -143,10 +138,5 @@ func (h *VLANHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/network", http.StatusSeeOther)
+	respondRefresh(w, r, "/network")
 }

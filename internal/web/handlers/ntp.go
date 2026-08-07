@@ -46,12 +46,7 @@ func (h *NTPHandler) HandleForceSync(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/ntp", http.StatusSeeOther)
+	respondRefresh(w, r, "/ntp")
 }
 
 func (h *NTPHandler) HandleAddSource(w http.ResponseWriter, r *http.Request) {
@@ -71,12 +66,7 @@ func (h *NTPHandler) HandleAddSource(w http.ResponseWriter, r *http.Request) {
 	if err := h.ntp.ApplyConfig(r.Context()); err != nil {
 		log.Printf("ntp apply after add source: %v", err)
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/ntp", http.StatusSeeOther)
+	respondRefresh(w, r, "/ntp")
 }
 
 func (h *NTPHandler) HandleRemoveSource(w http.ResponseWriter, r *http.Request) {
@@ -92,12 +82,7 @@ func (h *NTPHandler) HandleRemoveSource(w http.ResponseWriter, r *http.Request) 
 	if err := h.ntp.ApplyConfig(r.Context()); err != nil {
 		log.Printf("ntp apply after remove source: %v", err)
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/ntp", http.StatusSeeOther)
+	respondRefresh(w, r, "/ntp")
 }
 
 func (h *NTPHandler) HandleAddAllowSubnet(w http.ResponseWriter, r *http.Request) {
@@ -117,12 +102,7 @@ func (h *NTPHandler) HandleAddAllowSubnet(w http.ResponseWriter, r *http.Request
 	if err := h.ntp.ApplyConfig(r.Context()); err != nil {
 		log.Printf("ntp apply after add allow: %v", err)
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/ntp", http.StatusSeeOther)
+	respondRefresh(w, r, "/ntp")
 }
 
 func (h *NTPHandler) HandleRemoveAllowSubnet(w http.ResponseWriter, r *http.Request) {
@@ -138,12 +118,7 @@ func (h *NTPHandler) HandleRemoveAllowSubnet(w http.ResponseWriter, r *http.Requ
 	if err := h.ntp.ApplyConfig(r.Context()); err != nil {
 		log.Printf("ntp apply after remove allow: %v", err)
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/ntp", http.StatusSeeOther)
+	respondRefresh(w, r, "/ntp")
 }
 
 func (h *NTPHandler) HandleSaveSettings(w http.ResponseWriter, r *http.Request) {
@@ -163,10 +138,5 @@ func (h *NTPHandler) HandleSaveSettings(w http.ResponseWriter, r *http.Request) 
 	if err := h.ntp.ApplyConfig(r.Context()); err != nil {
 		log.Printf("ntp apply after save settings: %v", err)
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/ntp", http.StatusSeeOther)
+	respondRefresh(w, r, "/ntp")
 }

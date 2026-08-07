@@ -97,12 +97,7 @@ func (h *NASHandler) HandleAddShare(w http.ResponseWriter, r *http.Request) {
 		log.Printf("nas apply after add share: %v", err)
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/nas", http.StatusSeeOther)
+	respondRefresh(w, r, "/nas")
 }
 
 func (h *NASHandler) HandleDeleteShare(w http.ResponseWriter, r *http.Request) {
@@ -115,12 +110,7 @@ func (h *NASHandler) HandleDeleteShare(w http.ResponseWriter, r *http.Request) {
 		log.Printf("nas apply after delete share: %v", err)
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/nas", http.StatusSeeOther)
+	respondRefresh(w, r, "/nas")
 }
 
 func (h *NASHandler) HandleSyncM3U(w http.ResponseWriter, r *http.Request) {
@@ -130,12 +120,7 @@ func (h *NASHandler) HandleSyncM3U(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Trigger", "m3uSyncStarted")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/nas", http.StatusSeeOther)
+	respondTrigger(w, r, "m3uSyncStarted", "/nas")
 }
 
 func (h *NASHandler) HandleDiscoverGroups(w http.ResponseWriter, r *http.Request) {

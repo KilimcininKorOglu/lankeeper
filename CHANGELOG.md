@@ -566,6 +566,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   The socket path and the service user/group are settable with
   `-socket`, `-service-user`, and `-service-group`.
 
+### Changed
+
+- **(handlers) The htmx response block lives in one place**: the branch
+  that answers an htmx submission with a header and a bare 200, and
+  falls through to a redirect otherwise, was written out in full at 67
+  call sites across 16 handler files. Nothing detected drift between
+  them, and any change to the contract meant editing every one. Two
+  helpers now carry it, one per contract the call sites actually used
+  (`HX-Refresh` for a page reload, `HX-Trigger` for a named event), and
+  a test fails if a handler writes the block out by hand again. The
+  transformation is exactly reversible, so behaviour is unchanged.
+
 ### Fixed
 
 - **(middleware) The CSRF token is rotated at authentication

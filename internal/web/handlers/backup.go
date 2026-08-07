@@ -83,12 +83,7 @@ func (h *BackupHandler) HandleSaveSchedule(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/backup", http.StatusSeeOther)
+	respondRefresh(w, r, "/backup")
 }
 
 // HandleAddTarget appends a new target. Type-specific fields are
@@ -142,12 +137,7 @@ func (h *BackupHandler) HandleAddTarget(w http.ResponseWriter, r *http.Request) 
 		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/backup", http.StatusSeeOther)
+	respondRefresh(w, r, "/backup")
 }
 
 // HandleDeleteTarget removes a target by name. Idempotent - 404 if
@@ -176,12 +166,7 @@ func (h *BackupHandler) HandleDeleteTarget(w http.ResponseWriter, r *http.Reques
 		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/backup", http.StatusSeeOther)
+	respondRefresh(w, r, "/backup")
 }
 
 // HandleRunNow fires an immediate backup. Synchronous so the
@@ -193,12 +178,7 @@ func (h *BackupHandler) HandleRunNow(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintf(w, `<div class="alert alert-error">%s</div>`, html.EscapeString(err.Error()))
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/backup", http.StatusSeeOther)
+	respondRefresh(w, r, "/backup")
 }
 
 // HandleHistory returns the last N runs as JSON for HTMX-driven

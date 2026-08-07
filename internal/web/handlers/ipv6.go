@@ -189,12 +189,7 @@ func (h *IPv6Handler) HandleSave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/ipv6", http.StatusSeeOther)
+	respondRefresh(w, r, "/ipv6")
 }
 
 // HandleTunnelUpdateNow asks HE.net to re-register our current IPv4
@@ -302,10 +297,5 @@ func (h *IPv6Handler) HandleStop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *IPv6Handler) respondOK(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/ipv6", http.StatusSeeOther)
+	respondRefresh(w, r, "/ipv6")
 }

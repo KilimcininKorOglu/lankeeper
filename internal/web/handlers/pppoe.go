@@ -23,12 +23,7 @@ func (h *PPPoEHandler) HandleConnect(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/network", http.StatusSeeOther)
+	respondRefresh(w, r, "/network")
 }
 
 func (h *PPPoEHandler) HandleDisconnect(w http.ResponseWriter, r *http.Request) {
@@ -36,12 +31,7 @@ func (h *PPPoEHandler) HandleDisconnect(w http.ResponseWriter, r *http.Request) 
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/network", http.StatusSeeOther)
+	respondRefresh(w, r, "/network")
 }
 
 func (h *PPPoEHandler) HandleStatus(w http.ResponseWriter, r *http.Request) {
@@ -64,12 +54,7 @@ func (h *PPPoEHandler) HandleSniffStart(w http.ResponseWriter, r *http.Request) 
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/network", http.StatusSeeOther)
+	respondRefresh(w, r, "/network")
 }
 
 func (h *PPPoEHandler) HandleSniffStop(w http.ResponseWriter, r *http.Request) {
@@ -77,10 +62,5 @@ func (h *PPPoEHandler) HandleSniffStop(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/network", http.StatusSeeOther)
+	respondRefresh(w, r, "/network")
 }

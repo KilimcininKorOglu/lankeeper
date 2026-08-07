@@ -62,23 +62,13 @@ func (h *FirewallHandler) HandleApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Trigger", "firewallApplied")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/firewall", http.StatusSeeOther)
+	respondTrigger(w, r, "firewallApplied", "/firewall")
 }
 
 func (h *FirewallHandler) HandleConfirm(w http.ResponseWriter, r *http.Request) {
 	h.firewall.Confirm()
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Trigger", "firewallConfirmed")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/firewall", http.StatusSeeOther)
+	respondTrigger(w, r, "firewallConfirmed", "/firewall")
 }
 
 func (h *FirewallHandler) HandleRollback(w http.ResponseWriter, r *http.Request) {
@@ -87,12 +77,7 @@ func (h *FirewallHandler) HandleRollback(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Trigger", "firewallRolledBack")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/firewall", http.StatusSeeOther)
+	respondTrigger(w, r, "firewallRolledBack", "/firewall")
 }
 
 func (h *FirewallHandler) HandleAddPortForward(w http.ResponseWriter, r *http.Request) {
@@ -137,12 +122,7 @@ func (h *FirewallHandler) HandleAddPortForward(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Trigger", "portForwardAdded")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/firewall", http.StatusSeeOther)
+	respondTrigger(w, r, "portForwardAdded", "/firewall")
 }
 
 func (h *FirewallHandler) HandleDeletePortForward(w http.ResponseWriter, r *http.Request) {
@@ -157,12 +137,7 @@ func (h *FirewallHandler) HandleDeletePortForward(w http.ResponseWriter, r *http
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Trigger", "portForwardDeleted")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/firewall", http.StatusSeeOther)
+	respondTrigger(w, r, "portForwardDeleted", "/firewall")
 }
 
 func (h *FirewallHandler) HandleAddRule(w http.ResponseWriter, r *http.Request) {
@@ -240,12 +215,7 @@ func (h *FirewallHandler) HandleAddRule(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/firewall", http.StatusSeeOther)
+	respondRefresh(w, r, "/firewall")
 }
 
 func (h *FirewallHandler) HandleDeleteRule(w http.ResponseWriter, r *http.Request) {
@@ -260,12 +230,7 @@ func (h *FirewallHandler) HandleDeleteRule(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/firewall", http.StatusSeeOther)
+	respondRefresh(w, r, "/firewall")
 }
 
 func (h *FirewallHandler) HandleToggleRule(w http.ResponseWriter, r *http.Request) {
@@ -281,12 +246,7 @@ func (h *FirewallHandler) HandleToggleRule(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/firewall", http.StatusSeeOther)
+	respondRefresh(w, r, "/firewall")
 }
 
 func (h *FirewallHandler) HandleAddOpenPort(w http.ResponseWriter, r *http.Request) {
@@ -331,12 +291,7 @@ func (h *FirewallHandler) HandleAddOpenPort(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/firewall", http.StatusSeeOther)
+	respondRefresh(w, r, "/firewall")
 }
 
 func (h *FirewallHandler) HandleDeleteOpenPort(w http.ResponseWriter, r *http.Request) {
@@ -351,12 +306,7 @@ func (h *FirewallHandler) HandleDeleteOpenPort(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/firewall", http.StatusSeeOther)
+	respondRefresh(w, r, "/firewall")
 }
 
 func (h *FirewallHandler) HandleToggleOpenPort(w http.ResponseWriter, r *http.Request) {
@@ -372,10 +322,5 @@ func (h *FirewallHandler) HandleToggleOpenPort(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/firewall", http.StatusSeeOther)
+	respondRefresh(w, r, "/firewall")
 }

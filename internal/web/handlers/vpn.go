@@ -108,12 +108,7 @@ func (h *VPNHandler) HandleRemovePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/vpn", http.StatusSeeOther)
+	respondRefresh(w, r, "/vpn")
 }
 
 func (h *VPNHandler) HandleServerStart(w http.ResponseWriter, r *http.Request) {
@@ -125,12 +120,7 @@ func (h *VPNHandler) HandleServerStart(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/vpn", http.StatusSeeOther)
+	respondRefresh(w, r, "/vpn")
 }
 
 func (h *VPNHandler) HandleServerStop(w http.ResponseWriter, r *http.Request) {
@@ -138,12 +128,7 @@ func (h *VPNHandler) HandleServerStop(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/vpn", http.StatusSeeOther)
+	respondRefresh(w, r, "/vpn")
 }
 
 func (h *VPNHandler) HandleConnectClient(w http.ResponseWriter, r *http.Request) {
@@ -156,12 +141,7 @@ func (h *VPNHandler) HandleConnectClient(w http.ResponseWriter, r *http.Request)
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/vpn", http.StatusSeeOther)
+	respondRefresh(w, r, "/vpn")
 }
 
 // --- Site-to-site wizard ---
@@ -289,12 +269,7 @@ func (h *VPNHandler) HandleS2SFinalize(w http.ResponseWriter, r *http.Request) {
 	if err := h.vpn.SyncWGServer(r.Context()); err != nil {
 		log.Printf("vpn s2s syncconf: %v", err)
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/vpn", http.StatusSeeOther)
+	respondRefresh(w, r, "/vpn")
 }
 
 // HandleS2SCancel aborts a pending invite.
@@ -308,12 +283,7 @@ func (h *VPNHandler) HandleS2SCancel(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/vpn/s2s", http.StatusSeeOther)
+	respondRefresh(w, r, "/vpn/s2s")
 }
 
 // HandleS2SRotateKey replaces the token signing key. This is the
@@ -326,12 +296,7 @@ func (h *VPNHandler) HandleS2SRotateKey(w http.ResponseWriter, r *http.Request) 
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/vpn/s2s", http.StatusSeeOther)
+	respondRefresh(w, r, "/vpn/s2s")
 }
 
 // HandleS2SHealth returns the current handshake/transfer state
@@ -425,10 +390,5 @@ func (h *VPNHandler) HandleDisconnectClient(w http.ResponseWriter, r *http.Reque
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/vpn", http.StatusSeeOther)
+	respondRefresh(w, r, "/vpn")
 }

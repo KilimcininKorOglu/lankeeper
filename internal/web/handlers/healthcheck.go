@@ -37,10 +37,5 @@ func (h *HealthCheckHandler) HandleReset(w http.ResponseWriter, r *http.Request)
 	name := r.PathValue("name")
 	h.health.ResetCounter(name)
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/network", http.StatusSeeOther)
+	respondRefresh(w, r, "/network")
 }

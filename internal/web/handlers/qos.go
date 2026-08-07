@@ -89,12 +89,7 @@ func (h *QoSHandler) HandleApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/qos", http.StatusSeeOther)
+	respondRefresh(w, r, "/qos")
 }
 
 func (h *QoSHandler) HandleClear(w http.ResponseWriter, r *http.Request) {
@@ -109,10 +104,5 @@ func (h *QoSHandler) HandleClear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/qos", http.StatusSeeOther)
+	respondRefresh(w, r, "/qos")
 }

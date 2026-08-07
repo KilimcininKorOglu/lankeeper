@@ -126,12 +126,7 @@ func (h *SystemHandler) HandleChangeWebPassword(w http.ResponseWriter, r *http.R
 		}
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Trigger", "settingsUpdated")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+	respondTrigger(w, r, "settingsUpdated", "/settings")
 }
 
 func (h *SystemHandler) HandleChangeRootPassword(w http.ResponseWriter, r *http.Request) {
@@ -156,12 +151,7 @@ func (h *SystemHandler) HandleChangeRootPassword(w http.ResponseWriter, r *http.
 
 	log.Println("root password changed via web UI")
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Trigger", "settingsUpdated")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+	respondTrigger(w, r, "settingsUpdated", "/settings")
 }
 
 func (h *SystemHandler) HandleUpdateHostname(w http.ResponseWriter, r *http.Request) {
@@ -201,12 +191,7 @@ func (h *SystemHandler) HandleUpdateHostname(w http.ResponseWriter, r *http.Requ
 	}
 	log.Printf("hostname changed to %s.%s", hostname, h.cfg.System.Domain)
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Trigger", "settingsUpdated")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+	respondTrigger(w, r, "settingsUpdated", "/settings")
 }
 
 func (h *SystemHandler) HandleUpdateTimezone(w http.ResponseWriter, r *http.Request) {
@@ -233,12 +218,7 @@ func (h *SystemHandler) HandleUpdateTimezone(w http.ResponseWriter, r *http.Requ
 
 	log.Printf("timezone changed to %s", tz)
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Trigger", "settingsUpdated")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+	respondTrigger(w, r, "settingsUpdated", "/settings")
 }
 
 func (h *SystemHandler) HandleReboot(w http.ResponseWriter, r *http.Request) {
@@ -341,12 +321,7 @@ func (h *SystemHandler) HandleImport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Println("config imported via web UI")
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+	respondRefresh(w, r, "/settings")
 }
 
 func (h *SystemHandler) HandleCheckUpdate(w http.ResponseWriter, r *http.Request) {
@@ -405,12 +380,7 @@ func (h *SystemHandler) HandleConfirmUpdate(w http.ResponseWriter, r *http.Reque
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+	respondRefresh(w, r, "/settings")
 }
 
 func (h *SystemHandler) HandleRollbackUpdate(w http.ResponseWriter, r *http.Request) {

@@ -71,12 +71,7 @@ func (h *DHCPHandler) HandleAddStatic(w http.ResponseWriter, r *http.Request) {
 		log.Printf("dhcp apply after add: %v", err)
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/dhcp", http.StatusSeeOther)
+	respondRefresh(w, r, "/dhcp")
 }
 
 func (h *DHCPHandler) HandleDeleteStatic(w http.ResponseWriter, r *http.Request) {
@@ -94,10 +89,5 @@ func (h *DHCPHandler) HandleDeleteStatic(w http.ResponseWriter, r *http.Request)
 		log.Printf("dhcp apply after delete: %v", err)
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/dhcp", http.StatusSeeOther)
+	respondRefresh(w, r, "/dhcp")
 }

@@ -67,12 +67,7 @@ func (h *OpenVPNHandler) HandleInitPKI(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/openvpn", http.StatusSeeOther)
+	respondRefresh(w, r, "/openvpn")
 }
 
 func (h *OpenVPNHandler) HandleAddClient(w http.ResponseWriter, r *http.Request) {
@@ -118,12 +113,7 @@ func (h *OpenVPNHandler) HandleAddClient(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/openvpn", http.StatusSeeOther)
+	respondRefresh(w, r, "/openvpn")
 }
 
 func (h *OpenVPNHandler) HandleDownloadOVPN(w http.ResponseWriter, r *http.Request) {
@@ -150,12 +140,7 @@ func (h *OpenVPNHandler) HandleServerStart(w http.ResponseWriter, r *http.Reques
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/openvpn", http.StatusSeeOther)
+	respondRefresh(w, r, "/openvpn")
 }
 
 func (h *OpenVPNHandler) HandleServerStop(w http.ResponseWriter, r *http.Request) {
@@ -163,12 +148,7 @@ func (h *OpenVPNHandler) HandleServerStop(w http.ResponseWriter, r *http.Request
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/openvpn", http.StatusSeeOther)
+	respondRefresh(w, r, "/openvpn")
 }
 
 func (h *OpenVPNHandler) HandleRevokeClient(w http.ResponseWriter, r *http.Request) {
@@ -181,12 +161,7 @@ func (h *OpenVPNHandler) HandleRevokeClient(w http.ResponseWriter, r *http.Reque
 		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/openvpn", http.StatusSeeOther)
+	respondRefresh(w, r, "/openvpn")
 }
 
 func (h *OpenVPNHandler) HandleAddOutboundClient(w http.ResponseWriter, r *http.Request) {
@@ -253,12 +228,7 @@ func (h *OpenVPNHandler) HandleAddOutboundClient(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/openvpn", http.StatusSeeOther)
+	respondRefresh(w, r, "/openvpn")
 }
 
 func (h *OpenVPNHandler) HandleConnectOutbound(w http.ResponseWriter, r *http.Request) {
@@ -271,12 +241,7 @@ func (h *OpenVPNHandler) HandleConnectOutbound(w http.ResponseWriter, r *http.Re
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/openvpn", http.StatusSeeOther)
+	respondRefresh(w, r, "/openvpn")
 }
 
 func (h *OpenVPNHandler) HandleDisconnectOutbound(w http.ResponseWriter, r *http.Request) {
@@ -289,10 +254,5 @@ func (h *OpenVPNHandler) HandleDisconnectOutbound(w http.ResponseWriter, r *http
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/openvpn", http.StatusSeeOther)
+	respondRefresh(w, r, "/openvpn")
 }

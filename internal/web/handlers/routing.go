@@ -94,12 +94,7 @@ func (h *RoutingHandler) HandleAddPolicy(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/routing", http.StatusSeeOther)
+	respondRefresh(w, r, "/routing")
 }
 
 func (h *RoutingHandler) HandleDeletePolicy(w http.ResponseWriter, r *http.Request) {
@@ -109,12 +104,7 @@ func (h *RoutingHandler) HandleDeletePolicy(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/routing", http.StatusSeeOther)
+	respondRefresh(w, r, "/routing")
 }
 
 func (h *RoutingHandler) HandleReorder(w http.ResponseWriter, r *http.Request) {

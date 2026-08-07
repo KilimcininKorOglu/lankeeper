@@ -70,12 +70,7 @@ func (h *DNSHandler) HandleClearLog(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/dns", http.StatusSeeOther)
+	respondRefresh(w, r, "/dns")
 }
 
 func (h *DNSHandler) HandleUpdateBlocklist(w http.ResponseWriter, r *http.Request) {
@@ -83,12 +78,7 @@ func (h *DNSHandler) HandleUpdateBlocklist(w http.ResponseWriter, r *http.Reques
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/dns", http.StatusSeeOther)
+	respondRefresh(w, r, "/dns")
 }
 
 // HandleProbeDoT runs a one-shot connectivity check against the supplied
@@ -184,12 +174,7 @@ func (h *DNSHandler) HandleSaveDoT(w http.ResponseWriter, r *http.Request) {
 	}
 
 	applyDNSPlane(enableDoH, applyDoH, applyDNS)
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/dns", http.StatusSeeOther)
+	respondRefresh(w, r, "/dns")
 }
 
 // HandleProbeDoH is the DoH counterpart to HandleProbeDoT. Catalogue
@@ -252,12 +237,7 @@ func (h *DNSHandler) HandleAddRecord(w http.ResponseWriter, r *http.Request) {
 		log.Printf("dns apply after add record: %v", err)
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/dns", http.StatusSeeOther)
+	respondRefresh(w, r, "/dns")
 }
 
 func (h *DNSHandler) HandleDeleteRecord(w http.ResponseWriter, r *http.Request) {
@@ -274,12 +254,7 @@ func (h *DNSHandler) HandleDeleteRecord(w http.ResponseWriter, r *http.Request) 
 		log.Printf("dns apply after delete record: %v", err)
 	}
 
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("HX-Refresh", "true")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/dns", http.StatusSeeOther)
+	respondRefresh(w, r, "/dns")
 }
 
 // applyDNSPlane runs the two applies in the order the transition needs.
