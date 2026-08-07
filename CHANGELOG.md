@@ -568,6 +568,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(server) A throttled response now says when to retry**: the rate
+  limiter answered with a bare 429 carrying no `Retry-After`, even
+  though the token bucket already held everything needed to compute one.
+  A browser shows the operator the error and stops, but `/metrics`
+  carries no session and exists for a scraper, and any automation is in
+  the same position: with no backoff signal, a refusal reads as "try
+  again now" and a throttled client turns into a tight retry loop
+  against the endpoint that was already overloaded. The header now
+  carries the real remaining wait, rounded up so a sub-second interval
+  cannot encode as zero, and the login lockout answers the same way.
+
 - **(handlers) System settings go through a service like everything
   else**: the settings handler was the only one in the tree that called
   `netutil` directly, issuing `openssl passwd`, `usermod`,

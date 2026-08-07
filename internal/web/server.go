@@ -640,6 +640,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// The lockout is checked before the password so a locked-out address
 	// cannot keep guessing and simply ignore the answer it gets.
 	if wait := s.loginGuard.LockedFor(ip); wait > 0 {
+		setRetryAfter(w, wait)
 		s.renderLoginError(w, r, lang, s.lockoutMessage(lang, wait), http.StatusTooManyRequests)
 		return
 	}
@@ -651,6 +652,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		msg := s.loc.T(lang, "auth.wrongPassword")
 		status := http.StatusUnauthorized
 		if lockout > 0 {
+			setRetryAfter(w, lockout)
 			msg = s.lockoutMessage(lang, lockout)
 			status = http.StatusTooManyRequests
 		}

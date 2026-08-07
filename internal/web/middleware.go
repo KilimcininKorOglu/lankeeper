@@ -5,8 +5,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -170,6 +172,15 @@ func (rl *RateLimiter) cleanup() {
 }
 
 func (rl *RateLimiter) Allow(ip string) bool {
+	allowed, _ := rl.allow(ip)
+	return allowed
+}
+
+// allow decides the request and, when it refuses, reports how long the
+// address must wait to earn its next token. The bucket already holds
+// everything needed to answer that, so a refusal that says only "no"
+// leaves a client guessing.
+func (rl *RateLimiter) allow(ip string) (bool, time.Duration) {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
@@ -180,7 +191,7 @@ func (rl *RateLimiter) Allow(ip string) bool {
 			tokens:    float64(rl.burst) - 1,
 			lastCheck: now,
 		}
-		return true
+		return true, 0
 	}
 
 	elapsed := now.Sub(b.lastCheck)
@@ -191,18 +202,39 @@ func (rl *RateLimiter) Allow(ip string) bool {
 	b.lastCheck = now
 
 	if b.tokens < 1 {
-		return false
+		return false, time.Duration((1 - b.tokens) * float64(rl.refill))
 	}
 
 	b.tokens--
-	return true
+	return true, 0
+}
+
+// setRetryAfter states how long the caller should wait before trying
+// again.
+//
+// A browser shows the operator the error and stops, but /metrics carries
+// no session and is meant for a scraper, and any automation against this
+// API is in the same position: without the header a refusal reads as
+// "try again now", which is how a throttled client turns into a tight
+// retry loop against the thing that was already overloaded.
+//
+// RFC 9110 defines the delta-seconds form as a non-negative integer, and
+// a sub-second wait rounds down to zero, which would say the opposite of
+// what is meant. Round up, and never emit less than one second.
+func setRetryAfter(w http.ResponseWriter, wait time.Duration) {
+	secs := int64(math.Ceil(wait.Seconds()))
+	if secs < 1 {
+		secs = 1
+	}
+	w.Header().Set("Retry-After", strconv.FormatInt(secs, 10))
 }
 
 func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := clientIP(r)
 
-		if !rl.Allow(host) {
+		if allowed, wait := rl.allow(host); !allowed {
+			setRetryAfter(w, wait)
 			httpErrorT(w, r, http.StatusTooManyRequests, "error.tooManyRequests")
 			return
 		}

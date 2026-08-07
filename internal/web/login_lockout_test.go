@@ -104,6 +104,11 @@ func TestALockedOutAddressIsRejectedEvenWithTheRightPassword(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "Too many failed attempts") {
 		t.Errorf("the response does not explain the lockout: %s", rec.Body.String())
 	}
+	// The lockout knows exactly how long it has left, so the refusal
+	// should say so rather than leaving a client to guess.
+	if got := rec.Header().Get("Retry-After"); got == "" {
+		t.Error("the lockout response carries no Retry-After")
+	}
 }
 
 // TestTheFifthFailureAnswersWithTheLockout covers the response the
