@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(web) The policy now restricts `base-uri` and `form-action`**:
+  neither directive falls back to `default-src`, so leaving them out of
+  the Content-Security-Policy left both unrestricted however strict the
+  rest of it looked. Nothing exploits that today, since template
+  auto-escaping is intact throughout and the renderer makes no
+  `template.HTML` casts, so there is no HTML injection primitive to pair
+  it with. They are defence in depth: if one is ever introduced, these
+  are what stop an injected `<base>` from repointing every relative URL
+  on the page and an injected form from posting the admin's credentials
+  off-site. No template carries a `<base>` tag and every form target is
+  same-origin, so `'self'` costs nothing, and a test holds both facts
+  true.
+
 - **(deploy) The ISO builder no longer gets the repository writable**:
   both ISO targets mounted the repository root read-write, and the
   builder image declares no `USER`, so its entrypoint ran as root over

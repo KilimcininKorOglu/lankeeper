@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -186,3 +190,66 @@ func TestSecurityHeaders(t *testing.T) {
 		t.Errorf("X-Frame-Options = %q, want DENY", xfo)
 	}
 }
+
+// TestTheCSPRestrictsTheDirectivesThatDoNotFallBack is the regression
+// test. base-uri and form-action do not inherit from default-src, so
+// leaving them out left both unrestricted however strict the rest of
+// the policy looked.
+//
+// Nothing exploits that today: template auto-escaping is intact and
+// there is no HTML injection primitive to pair it with. These are the
+// two directives that would matter if one were ever introduced, so the
+// point of the test is that they cannot quietly disappear again.
+func TestTheCSPRestrictsTheDirectivesThatDoNotFallBack(t *testing.T) {
+	handler := web.SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	csp := rec.Header().Get("Content-Security-Policy")
+
+	for _, directive := range []string{"base-uri 'self'", "form-action 'self'"} {
+		if !strings.Contains(csp, directive) {
+			t.Errorf("CSP missing %q, got %q", directive, csp)
+		}
+	}
+}
+
+// TestNoTemplateNeedsAWiderPolicy backs the two directives above with
+// the reason they cost nothing here: a <base> tag would stop resolving
+// and an off-site form target would stop submitting.
+func TestNoTemplateNeedsAWiderPolicy(t *testing.T) {
+	root := filepath.Join("..", "..", "web", "templates")
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".html") {
+			return nil
+		}
+
+		raw, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		body := string(raw)
+
+		if strings.Contains(body, "<base ") {
+			t.Errorf("%s carries a <base> tag, which base-uri 'self' constrains", path)
+		}
+		for _, m := range formAction.FindAllStringSubmatch(body, -1) {
+			if target := m[1]; !strings.HasPrefix(target, "/") {
+				t.Errorf("%s posts to %q, which form-action 'self' would block", path, target)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", root, err)
+	}
+}
+
+var formAction = regexp.MustCompile(`action="([^"]*)"`)
