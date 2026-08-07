@@ -71,6 +71,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the way to revoke an invite already handed out. Established tunnels
   authenticate with WireGuard keys and are unaffected by a rotation.
 
+- **(openvpn) The client name is validated everywhere it is used**: the
+  handler file defined a character allowlist and applied it when adding
+  a client and when downloading a profile, but the revoke, connect and
+  disconnect handlers read the name straight from the URL and passed it
+  on unchecked. Disconnect was the serious one: it built
+  `/var/run/openvpn-<name>.pid` from that value, read the file, handed
+  the contents to `kill` through the root agent, then removed the path.
+  Pointing the name at any readable file whose contents parse as a
+  number therefore terminated an arbitrary process as root, and the
+  removal was a deletion primitive bounded only by the service
+  account's permissions. Argument injection in the shell sense was never
+  possible, since the agent executes an argv array rather than a shell.
+  The check now lives beside the code that builds those paths and
+  arguments, so every entry point shares one validator instead of each
+  handler remembering to apply its own, and it also covers the two PKI
+  file paths the profile download indexes.
+
 - **(dns) DoT and DoH probes check the address they actually dial**: the
   upstream guard resolved the hostname once and rejected internal
   answers, but neither probe pinned that result. The DoH transport had no

@@ -3,11 +3,13 @@ package services
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"text/template"
@@ -16,6 +18,29 @@ import (
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 )
+
+// ovpnClientNamePattern is the character allowlist for an OpenVPN
+// client name. The same expression previously lived only in the
+// handlers package and was applied by some handlers and not others,
+// which is why it now sits beside the code that turns a name into a
+// file path and a command argument.
+var ovpnClientNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+// maxOVPNClientNameLen matches the cap the handlers already applied.
+const maxOVPNClientNameLen = 64
+
+// ErrInvalidClientName rejects a name before it reaches a path or an
+// argv entry.
+var ErrInvalidClientName = errors.New("client name must be 1-64 characters of letters, digits, underscores and hyphens")
+
+// ValidateOpenVPNClientName reports whether name is safe to interpolate
+// into a PKI command argument or a pid/config file path.
+func ValidateOpenVPNClientName(name string) error {
+	if len(name) > maxOVPNClientNameLen || !ovpnClientNamePattern.MatchString(name) {
+		return ErrInvalidClientName
+	}
+	return nil
+}
 
 type OpenVPNService struct {
 	cfg *config.Config
@@ -118,6 +143,10 @@ func (s *OpenVPNService) InitPKI(ctx context.Context) error {
 }
 
 func (s *OpenVPNService) AddClient(ctx context.Context, name string, siteToSite bool, remoteSubnets []string, fixedIP string) error {
+	if err := ValidateOpenVPNClientName(name); err != nil {
+		return err
+	}
+
 	easyrsa := "/usr/share/easy-rsa/easyrsa"
 	env := []string{"EASYRSA_PKI=/etc/openvpn/pki"}
 
@@ -158,6 +187,10 @@ func (s *OpenVPNService) persist() error {
 }
 
 func (s *OpenVPNService) RevokeClient(ctx context.Context, name string) error {
+	if err := ValidateOpenVPNClientName(name); err != nil {
+		return err
+	}
+
 	easyrsa := "/usr/share/easy-rsa/easyrsa"
 	env := []string{"EASYRSA_PKI=/etc/openvpn/pki"}
 
@@ -194,6 +227,12 @@ func (s *OpenVPNService) ListServerClients() []config.OVPNClientEntry {
 }
 
 func (s *OpenVPNService) GenerateClientOVPN(name string) (string, error) {
+	// The name indexes two PKI files below, so a traversing value would
+	// read an arbitrary file and hand it back as a downloadable profile.
+	if err := ValidateOpenVPNClientName(name); err != nil {
+		return "", err
+	}
+
 	pkiDir := "/etc/openvpn/pki"
 
 	ca, err := os.ReadFile(pkiDir + "/ca.crt")
@@ -503,6 +542,10 @@ func (s *OpenVPNService) renderClientConfig(c config.OVPNClientConfig, confPath 
 }
 
 func (s *OpenVPNService) ConnectClient(ctx context.Context, name string) error {
+	if err := ValidateOpenVPNClientName(name); err != nil {
+		return err
+	}
+
 	for _, c := range s.cfg.OpenVPN.Clients {
 		if c.Name == name {
 			confPath := fmt.Sprintf("/etc/openvpn/client/%s.conf", name)
@@ -523,6 +566,13 @@ func (s *OpenVPNService) ConnectClient(ctx context.Context, name string) error {
 }
 
 func (s *OpenVPNService) DisconnectClient(ctx context.Context, name string) error {
+	// The name becomes a path here, and whatever that path holds is
+	// handed to kill through the root agent. Validate at this boundary
+	// rather than trusting every caller to have done it.
+	if err := ValidateOpenVPNClientName(name); err != nil {
+		return err
+	}
+
 	pidFile := fmt.Sprintf("/var/run/openvpn-%s.pid", name)
 	pidData, err := os.ReadFile(pidFile)
 	if err == nil {

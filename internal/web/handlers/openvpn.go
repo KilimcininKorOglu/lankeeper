@@ -173,6 +173,10 @@ func (h *OpenVPNHandler) HandleServerStop(w http.ResponseWriter, r *http.Request
 
 func (h *OpenVPNHandler) HandleRevokeClient(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	if len(name) > 64 || !ovpnNamePattern.MatchString(name) {
+		clientError(w, r, http.StatusBadRequest, "error.invalidClientName")
+		return
+	}
 	if err := h.ovpn.RevokeClient(r.Context(), name); err != nil {
 		fail(w, r, http.StatusBadRequest, err)
 		return
@@ -259,6 +263,10 @@ func (h *OpenVPNHandler) HandleAddOutboundClient(w http.ResponseWriter, r *http.
 
 func (h *OpenVPNHandler) HandleConnectOutbound(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	if len(name) > 64 || !ovpnNamePattern.MatchString(name) {
+		clientError(w, r, http.StatusBadRequest, "error.invalidClientName")
+		return
+	}
 	if err := h.ovpn.ConnectClient(r.Context(), name); err != nil {
 		fail(w, r, http.StatusInternalServerError, err)
 		return
@@ -273,6 +281,10 @@ func (h *OpenVPNHandler) HandleConnectOutbound(w http.ResponseWriter, r *http.Re
 
 func (h *OpenVPNHandler) HandleDisconnectOutbound(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	if len(name) > 64 || !ovpnNamePattern.MatchString(name) {
+		clientError(w, r, http.StatusBadRequest, "error.invalidClientName")
+		return
+	}
 	if err := h.ovpn.DisconnectClient(r.Context(), name); err != nil {
 		fail(w, r, http.StatusInternalServerError, err)
 		return
