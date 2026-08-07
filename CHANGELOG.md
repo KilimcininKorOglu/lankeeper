@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(server) The enforced request rate now matches the intended
+  budget**: `NewRateLimiter` took two plain integers and consumed the
+  first as a per-second refill, while the signature read like a
+  per-window request count. The global limiter written as `(30, 60)`
+  therefore permitted thirty requests a second sustained rather than
+  thirty a minute, sixty times its author's intent, and the login
+  limiter written as `(1, 5)` permitted an attempt every second rather
+  than every five, 86,400 guesses a day per address. The constructor now
+  takes a `time.Duration` refill interval. The global limiter allows
+  five requests a second with a burst of sixty, which absorbs eight
+  cold page loads back to back (the limiter counts static assets) while
+  cutting what an unauthenticated scraper can pull from `/metrics`, and
+  login allows one attempt every five seconds with a burst of five,
+  invisible to a person mistyping a password. A bare integer still
+  compiles as a Duration, so the interval has a 1ms floor and anything
+  below it panics at startup rather than serving traffic behind a
+  throttle that does nothing.
+
 - **(backup) Restore no longer takes file permissions from the
   archive**: extraction rejected path traversal but applied the tar
   header's mode verbatim, and the agent's write operation had no ceiling

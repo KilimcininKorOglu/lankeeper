@@ -10,12 +10,16 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/web"
 )
 
 func TestRateLimiter(t *testing.T) {
-	rl := web.NewRateLimiter(10, 5)
+	// One token back every 100ms, five spendable at once. The interval
+	// is long enough that the six calls below cannot earn a token back
+	// mid-test, so the sixth is denied on the burst alone.
+	rl := web.NewRateLimiter(100*time.Millisecond, 5)
 
 	for i := 0; i < 5; i++ {
 		if !rl.Allow("192.168.1.1") {
@@ -39,7 +43,7 @@ func TestRateLimiter(t *testing.T) {
 // blocking inner handler is never invoked, so the per-IP request
 // rate caps the per-IP goroutine count.
 func TestRateLimiterMiddlewareReturns429(t *testing.T) {
-	rl := web.NewRateLimiter(1, 2)
+	rl := web.NewRateLimiter(time.Second, 2)
 	calls := 0
 	wrapped := rl.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++

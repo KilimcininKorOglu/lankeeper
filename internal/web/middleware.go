@@ -3,6 +3,7 @@ package web
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -108,7 +109,7 @@ func LANOnly(allowedNets []*net.IPNet) func(http.Handler) http.Handler {
 type RateLimiter struct {
 	mu      sync.Mutex
 	clients map[string]*tokenBucket
-	rate    int
+	refill  time.Duration
 	burst   int
 }
 
@@ -117,10 +118,36 @@ type tokenBucket struct {
 	lastCheck time.Time
 }
 
-func NewRateLimiter(rate, burst int) *RateLimiter {
+// NewRateLimiter builds a per-IP token bucket. refill is the time it
+// takes to earn one request back, and burst is how many can be spent at
+// once, so the sustained allowance is one request per refill and the
+// instant allowance is burst.
+//
+// The interval is a Duration rather than a count because the two
+// arguments used to be plain integers, and a signature reading
+// NewRateLimiter(30, 60) invited exactly one reading: thirty requests
+// per sixty seconds. The implementation consumed the first argument as a
+// per-second refill instead, so that call site permitted thirty requests
+// a second sustained, sixty times the rate its author intended, and the
+// login limiter written as (1, 5) allowed an attempt every second rather
+// than every five. A Duration cannot be misread as a request count.
+//
+// A Duration parameter does not by itself stop the old spelling from
+// compiling, because an untyped constant converts to it silently and
+// NewRateLimiter(30, 60) would mean thirty nanoseconds. So the interval
+// also has a floor: below a millisecond the bucket refills faster than
+// any HTTP client could drain it, which is a throttle that does nothing
+// rather than a throttle set low. Anything at or under that floor, zero
+// and negative values included, panics. Every call site passes a
+// constant, which makes this a startup failure and not a runtime one.
+func NewRateLimiter(refill time.Duration, burst int) *RateLimiter {
+	if refill < time.Millisecond {
+		panic(fmt.Sprintf("web: rate limiter refill interval %v is below the 1ms floor; "+
+			"a bare integer is read as nanoseconds, pass a time.Duration such as 200*time.Millisecond", refill))
+	}
 	rl := &RateLimiter{
 		clients: make(map[string]*tokenBucket),
-		rate:    rate,
+		refill:  refill,
 		burst:   burst,
 	}
 	go rl.cleanup()
@@ -156,8 +183,8 @@ func (rl *RateLimiter) Allow(ip string) bool {
 		return true
 	}
 
-	elapsed := now.Sub(b.lastCheck).Seconds()
-	b.tokens += elapsed * float64(rl.rate)
+	elapsed := now.Sub(b.lastCheck)
+	b.tokens += float64(elapsed) / float64(rl.refill)
 	if b.tokens > float64(rl.burst) {
 		b.tokens = float64(rl.burst)
 	}

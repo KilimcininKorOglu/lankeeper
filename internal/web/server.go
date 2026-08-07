@@ -260,7 +260,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 		// clicking the Test button in the UI, well below the 5s
 		// per-request blocking budget required to amplify into a
 		// goroutine-exhaustion attack.
-		dotProbeLimiter: NewRateLimiter(1, 2),
+		dotProbeLimiter: NewRateLimiter(time.Second, 2),
 	}
 
 	mux := http.NewServeMux()
@@ -288,7 +288,13 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	// operator needs when diagnosing a lockout or an off-subnet probe.
 	handler = SecurityHeaders(handler)
 	handler = CSRFProtect(handler)
-	rateLimiter := NewRateLimiter(30, 60)
+	// 5 requests/sec sustained, burst 60. The limiter counts static
+	// assets too, and a cold page load costs seven requests (the page
+	// plus six CSS and JS files), so the burst covers eight pages back
+	// to back and the sustained rate keeps a browsing operator well
+	// clear of a 429. It also caps what an unauthenticated scraper can
+	// pull from /metrics, which carries no session of its own.
+	rateLimiter := NewRateLimiter(200*time.Millisecond, 60)
 	handler = rateLimiter.Middleware(handler)
 	handler = i18n.Middleware(loc)(handler)
 	handler = LANOnly(allowedNets)(handler)
@@ -468,7 +474,12 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	staticFS, _ := fs.Sub(webFS, "static")
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
-	loginLimiter := NewRateLimiter(1, 5)
+	// One attempt every 5 seconds sustained, burst 5. A person signing
+	// in makes one or two attempts, so the burst absorbs a mistyped
+	// password without the operator noticing the limiter at all, while
+	// the sustained rate holds an unattended guesser to 17,280 attempts
+	// a day per address instead of 86,400.
+	loginLimiter := NewRateLimiter(5*time.Second, 5)
 	mux.HandleFunc("GET /login", s.handleLoginPage)
 	mux.Handle("POST /login", loginLimiter.Middleware(http.HandlerFunc(s.handleLogin)))
 	mux.HandleFunc("POST /logout", s.handleLogout)
