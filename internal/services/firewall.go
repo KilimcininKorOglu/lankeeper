@@ -249,8 +249,13 @@ func (s *FirewallService) Apply(ctx context.Context) error {
 
 	ac := netutil.NewAtomicChange("firewall")
 
+	// The snapshot IS the safety net. Applying without one arms a
+	// watchdog that cannot revert anything, so a ruleset that locks the
+	// operator out would stay in force while the log records a rollback
+	// failure nobody is present to read. Refusing leaves the previous,
+	// working ruleset untouched, which is the safe outcome.
 	if err := ac.Snapshot(ctx); err != nil {
-		log.Printf("firewall snapshot failed (first apply?): %v", err)
+		return fmt.Errorf("snapshot current ruleset: %w", err)
 	}
 
 	if err := ac.Validate(ctx, tmpFile); err != nil {

@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(firewall) An apply without a rollback snapshot is refused**: the
+  snapshot error was logged and the apply continued, so the rules were
+  validated, applied and a watchdog armed against nothing. Rollback
+  returns immediately when it has no snapshot, so both the automatic and
+  the manual revert were guaranteed to do nothing, and a ruleset that
+  locked the operator out would stay in force while the log recorded a
+  failure nobody was present to read. The apply is now refused, which
+  leaves the previous working ruleset untouched. The same root cause had
+  a second half: on a system with no rules `nft list ruleset` succeeds
+  and prints nothing, so a perfectly good snapshot was stored as the
+  empty string and became indistinguishable from one that was never
+  captured. An empty ruleset is now recorded as an applicable
+  placeholder, so the first apply on a fresh install, the one an
+  operator is most likely to need to undo, can actually be rolled back.
+
 - **(firewall) Rate limits moved from a dead config map to the open
   ports**: `firewall.rateLimits` shipped as `{ssh: 3/minute, web:
   30/minute}` and was carried through the config into the template data,

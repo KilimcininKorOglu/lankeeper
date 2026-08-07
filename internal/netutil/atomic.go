@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -46,6 +47,16 @@ func (ac *AtomicChange) Snapshot(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("snapshot firewall: %w", err)
 		}
+		// An empty ruleset is a legitimate state to roll back TO, and
+		// on a fresh system it is the state. Storing the raw empty
+		// string would make it indistinguishable from "no snapshot was
+		// ever captured", which Rollback refuses to act on, so the most
+		// important apply of all would have had no safety net. A
+		// comment is a valid nft file that applies as a no-op after the
+		// rollback flush, which is exactly the desired result.
+		if strings.TrimSpace(out) == "" {
+			out = emptyRulesetSnapshot
+		}
 		ac.snapshot = out
 	default:
 		return fmt.Errorf("unknown service: %s", ac.Service)
@@ -53,6 +64,11 @@ func (ac *AtomicChange) Snapshot(ctx context.Context) error {
 
 	return nil
 }
+
+// emptyRulesetSnapshot represents "there were no rules" as a non-empty,
+// applicable file, so it survives the empty-string check that means
+// "nothing was captured".
+const emptyRulesetSnapshot = "# empty ruleset\n"
 
 func (ac *AtomicChange) Validate(ctx context.Context, configPath string) error {
 	switch ac.Service {
