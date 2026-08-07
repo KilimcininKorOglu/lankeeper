@@ -84,6 +84,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `..._rx_bps` and `..._tx_bps` now carry only a `mac` label, so a query
   or dashboard grouping on `hostname` needs updating.
 
+- **(vpn) Site-to-site finalize enforces the invite expiry**: the
+  consuming side rejects an expired invite through the token parser, but
+  the originating side checked only the peer's pending flag when the ack
+  came back. That flag is cleared by a garbage collector on a
+  five-minute ticker, and the ack token carries no expiry of its own, so
+  a leaked or delayed invite could still be converted into a permanent
+  trusted peer for up to one sweep past the deadline the invite
+  published. Finalize now compares the recorded expiry itself, so the
+  limit holds the instant it passes rather than whenever the sweep
+  happens to run. A peer carrying no recorded expiry, as written by a
+  release predating the field, is still accepted.
+
 - **(vpn) Manual peer creation applies the same guards as the invite
   wizard**: the Add Peer form checked only that each remote subnet
   parsed as a CIDR, then wrote the values straight into the peer's

@@ -546,6 +546,16 @@ func (s *VPNService) FinalizeInvite(ctx context.Context, peerName, ackToken stri
 		s.mu.Unlock()
 		return nil, ErrPeerNotPending
 	}
+	// The Pending flag alone is not the expiry. It is cleared by the GC
+	// ticker, which runs every five minutes, so trusting it let a leaked
+	// or delayed invite become a permanent trusted peer for up to one
+	// sweep past its deadline. The ack token carries no expiry of its
+	// own, so this is the only place the originating side can enforce
+	// the limit it published.
+	if expires := s.cfg.VPN.Server.Peers[idx].InviteExpiresAt; !expires.IsZero() && time.Now().After(expires) {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("%w: expired at %s", ErrInviteExpired, expires.UTC().Format(time.RFC3339))
+	}
 	s.cfg.VPN.Server.Peers[idx].PublicKey = ack.PublicKey
 	s.cfg.VPN.Server.Peers[idx].Pending = false
 	s.cfg.VPN.Server.Peers[idx].InviteExpiresAt = time.Time{}
