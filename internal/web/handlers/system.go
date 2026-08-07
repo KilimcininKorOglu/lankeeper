@@ -33,6 +33,10 @@ type SystemHandler struct {
 	// direct reference because Auth lives in the parent web package,
 	// which already imports this one. May be nil.
 	passwordSink func(hash string)
+	// csrfRotator issues a fresh CSRF token on the response. Injected
+	// for the same reason as passwordSink: the cookie is minted in the
+	// parent web package, which already imports this one. May be nil.
+	csrfRotator func(w http.ResponseWriter) error
 }
 
 // SetPasswordSink wires the callback that refreshes the live password
@@ -40,6 +44,11 @@ type SystemHandler struct {
 // SetRunner elsewhere in the tree.
 func (h *SystemHandler) SetPasswordSink(fn func(hash string)) {
 	h.passwordSink = fn
+}
+
+// SetCSRFRotator wires the callback that reissues the CSRF token.
+func (h *SystemHandler) SetCSRFRotator(fn func(w http.ResponseWriter) error) {
+	h.csrfRotator = fn
 }
 
 func NewSystemHandler(renderer *tmpl.Renderer, cfg *config.Config, loc *i18n.I18n, dhcp *services.DHCPService, backup *services.BackupService, update *services.UpdateService, system *services.SystemService) *SystemHandler {
@@ -104,6 +113,18 @@ func (h *SystemHandler) HandleChangeWebPassword(w http.ResponseWriter, r *http.R
 		h.passwordSink(string(hashBytes))
 	}
 	log.Println("web UI admin password changed")
+
+	// A credential change is an authentication boundary, so the token
+	// that served the session before it does not carry over. Written
+	// before the status, since a cookie set afterwards never reaches the
+	// browser. A failure is logged rather than fatal: the password has
+	// already changed, and reporting failure now would tell the operator
+	// the opposite of what happened.
+	if h.csrfRotator != nil {
+		if err := h.csrfRotator(w); err != nil {
+			log.Printf("password change: rotate csrf token: %v", err)
+		}
+	}
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Trigger", "settingsUpdated")

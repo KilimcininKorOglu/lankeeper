@@ -81,7 +81,21 @@ func getOrCreateCSRFToken(w http.ResponseWriter, r *http.Request) (string, error
 	if c, err := r.Cookie("csrf_token"); err == nil {
 		return c.Value, nil
 	}
+	return rotateCSRFToken(w)
+}
 
+// rotateCSRFToken issues a fresh token whether or not one exists.
+//
+// Called at every authentication boundary. getOrCreateCSRFToken reuses
+// an existing cookie and the cookie carries no expiry, so without this
+// one value survived an entire login and logout cycle for as long as the
+// browser kept it. That is the classic token fixation shape: the cookie
+// is deliberately not HttpOnly so client code can echo it, so anyone
+// able to plant a value before authentication would keep it valid across
+// the authenticated session afterwards. SameSite=Strict on both cookies
+// and the LAN-only, single-admin model close the realistic delivery
+// path, which is why this is defence in depth rather than a live hole.
+func rotateCSRFToken(w http.ResponseWriter) (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generate csrf token: %w", err)

@@ -240,6 +240,10 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	// captured at startup, so a password change would report success
 	// while the old credential still worked.
 	settingsHandler.SetPasswordSink(auth.SetPasswordHash)
+	settingsHandler.SetCSRFRotator(func(w http.ResponseWriter) error {
+		_, err := rotateCSRFToken(w)
+		return err
+	})
 	backupHandler := handlers.NewBackupHandler(renderer, cfg, loc, backupSvc)
 	// MetricsService composes runtime state from every domain
 	// service into a single Prometheus-shaped snapshot. We wire
@@ -694,6 +698,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	s.loginGuard.RecordSuccess(ip)
 
+	// Rotate before the session is granted, so a token that existed
+	// before authentication cannot remain valid after it.
+	if _, err := rotateCSRFToken(w); err != nil {
+		log.Printf("login: %v", err)
+		httpErrorT(w, r, http.StatusInternalServerError, "error.internal")
+		return
+	}
+
 	if err := s.auth.Login(w, r); err != nil {
 		log.Printf("login session error: %v", err)
 		httpErrorT(w, r, http.StatusInternalServerError, "error.internal")
@@ -757,6 +769,14 @@ func clientIP(r *http.Request) string {
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if err := s.auth.Logout(w, r); err != nil {
+		log.Printf("logout: %v", err)
+	}
+	// The token that served the authenticated session does not outlive
+	// it. A failure here is logged rather than fatal: refusing to log
+	// out would leave the operator holding the session they asked to
+	// drop, which is worse than carrying the old token to the login
+	// page, where the next GET reissues one anyway.
+	if _, err := rotateCSRFToken(w); err != nil {
 		log.Printf("logout: %v", err)
 	}
 	if r.Header.Get("HX-Request") == "true" {

@@ -568,6 +568,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(middleware) The CSRF token is rotated at authentication
+  boundaries**: the token was reused whenever a cookie was present and
+  the cookie carried no expiry, so one value survived an entire login
+  and logout cycle for as long as the browser kept it. That is the
+  classic token fixation shape, and the cookie is deliberately not
+  `HttpOnly` so client code can echo it, which is what makes a planted
+  value worth rotating away. `SameSite=Strict` on both cookies and the
+  LAN-only single-admin model close the realistic delivery path, so this
+  is defence in depth rather than a live hole. A fresh token is now
+  issued on successful login, on logout, and after a web password
+  change. A rejected attempt does not rotate, since invalidating the
+  token the page already rendered would fail the operator's next attempt
+  on CSRF rather than on the password.
+
 - **(ui) The theme preference is stored only in a cookie**: it was kept
   in browser storage and in a cookie at once, and read back from storage
   first, so the two could disagree. The cookie was already carrying the
