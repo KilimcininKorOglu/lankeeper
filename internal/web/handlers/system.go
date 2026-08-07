@@ -166,6 +166,16 @@ func (h *SystemHandler) HandleUpdateHostname(w http.ResponseWriter, r *http.Requ
 		clientError(w, r, http.StatusBadRequest, "error.invalidHostname")
 		return
 	}
+	// Validate before anything is assigned. The domain is rendered
+	// into dnsmasq.conf and the RA drop-in by text/template, which
+	// escapes nothing, so an unchecked value here reaches a file the
+	// root agent writes.
+	if domain != "" {
+		if err := services.ValidateDomain(domain); err != nil {
+			clientError(w, r, http.StatusBadRequest, "error.invalidDomain")
+			return
+		}
+	}
 
 	oldDomain := h.cfg.System.Domain
 	h.cfg.System.Hostname = hostname

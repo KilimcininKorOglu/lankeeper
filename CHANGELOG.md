@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(settings) The domain field is validated before it is rendered**:
+  the hostname beside it on the settings form went through an RFC 1123
+  check and the domain went through nothing, even though it lands
+  somewhere sharper. `dnsmasq.conf.tmpl` renders `domain={{ .Domain }}`
+  and the IPv6 RA drop-in renders it into a `dhcp-option` line, and
+  every `configs/sysconf` template is `text/template`, which escapes
+  nothing. A newline therefore ended the directive and appended another
+  one to a file the root agent writes, and dnsmasq directives include
+  `dhcp-script`, which runs a program. Reaching it needs the
+  authenticated admin session on a LAN-only appliance, so the exposure
+  was bounded, but the field was the one input on that form with no
+  guard at all. `ValidateDomain` now applies dot-separated RFC 1123
+  labels with a 253 character ceiling, and the handler refuses before
+  assigning, so a rejected request leaves the stored value untouched.
+
 - **(web) The policy now restricts `base-uri` and `form-action`**:
   neither directive falls back to `default-src`, so leaving them out of
   the Content-Security-Policy left both unrestricted however strict the

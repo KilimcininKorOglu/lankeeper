@@ -279,3 +279,69 @@ func TestRebootReportsAFailure(t *testing.T) {
 		t.Error("a failed reboot was reported as success")
 	}
 }
+
+// TestADomainCannotCarryAConfigDirective is the regression test. The
+// hostname beside this field on the settings form was validated and the
+// domain was not, even though it lands somewhere sharper:
+// dnsmasq.conf.tmpl renders `domain={{ .Domain }}` and the RA drop-in
+// renders it into a dhcp-option line. Every configs/sysconf template is
+// text/template, which escapes nothing, so a newline ended the
+// directive and appended another one to a file the root agent writes.
+// dnsmasq directives include dhcp-script, which runs a program.
+func TestADomainCannotCarryAConfigDirective(t *testing.T) {
+	rejected := map[string]string{
+		"newline then a directive": "lan\ndhcp-script=/tmp/evil.sh",
+		"carriage return":          "lan\rdhcp-script=/tmp/evil.sh",
+		"leading newline":          "\ndhcp-script=/tmp/evil.sh",
+		"space splits the value":   "lan dhcp-script=/tmp/evil.sh",
+		"tab":                      "lan\tevil",
+		"comment then directive":   "lan#\ndhcp-script=/tmp/evil.sh",
+		"quote":                    `lan"evil`,
+		"empty":                    "",
+		"leading dot":              ".lan",
+		"trailing dot":             "lan.",
+		"double dot":               "a..b",
+		"leading hyphen":           "-lan",
+		"trailing hyphen":          "lan-",
+		"underscore":               "my_lan",
+		"label over 63":            strings.Repeat("a", 64),
+	}
+
+	for name, domain := range rejected {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidateDomain(domain); err == nil {
+				t.Errorf("ValidateDomain(%q) was accepted", domain)
+			}
+		})
+	}
+}
+
+// TestTheWholeDomainIsBounded covers the length the per-label pattern
+// cannot: many short valid labels still exceed the RFC 1035 limit.
+func TestTheWholeDomainIsBounded(t *testing.T) {
+	long := strings.TrimSuffix(strings.Repeat("ab.", 100), ".")
+	if len(long) <= maxDomainLength {
+		t.Fatalf("test fixture is %d chars, needs to exceed %d", len(long), maxDomainLength)
+	}
+	if err := ValidateDomain(long); err == nil {
+		t.Errorf("a %d character domain was accepted", len(long))
+	}
+}
+
+// TestARealDomainIsAccepted keeps the guard from blocking the work it
+// protects. The shipped default is the first entry.
+func TestARealDomainIsAccepted(t *testing.T) {
+	for _, domain := range []string{
+		"lan",
+		"hermes.lan",
+		"home.arpa",
+		"a",
+		"my-network.local",
+		"a1.b2.c3",
+		strings.Repeat("a", 63),
+	} {
+		if err := ValidateDomain(domain); err != nil {
+			t.Errorf("ValidateDomain(%q) was refused: %v", domain, err)
+		}
+	}
+}

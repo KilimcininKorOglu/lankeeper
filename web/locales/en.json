@@ -595,6 +595,7 @@
     "error.invalidDownloadBandwidth": "Invalid download bandwidth",
     "error.invalidFacility": "Invalid facility",
     "error.invalidFixedIP": "Invalid fixed IP address",
+    "error.invalidDomain": "Invalid domain",
     "error.invalidHostname": "Invalid hostname",
     "error.invalidIP": "Invalid IP address",
     "error.invalidIndex": "Invalid index",

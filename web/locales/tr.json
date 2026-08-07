@@ -595,6 +595,7 @@
     "error.invalidDownloadBandwidth": "Geçersiz indirme bant genişliği",
     "error.invalidFacility": "Geçersiz kayıt birimi",
     "error.invalidFixedIP": "Geçersiz sabit IP adresi",
+    "error.invalidDomain": "Geçersiz alan adı",
     "error.invalidHostname": "Geçersiz sunucu adı",
     "error.invalidIP": "Geçersiz IP adresi",
     "error.invalidIndex": "Geçersiz sıra numarası",

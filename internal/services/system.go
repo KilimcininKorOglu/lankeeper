@@ -36,12 +36,29 @@ var hostnamePattern = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z
 // persisted into the config.
 var timezonePattern = regexp.MustCompile(`^[A-Za-z0-9+_-]+(/[A-Za-z0-9+_-]+){0,2}$`)
 
+// domainPattern is a sequence of RFC 1123 labels separated by dots.
+//
+// The hostname beside it on the settings form was validated and this
+// was not, even though it lands somewhere sharper: dnsmasq.conf.tmpl
+// renders `domain={{ .Domain }}` and the RA drop-in renders it into a
+// dhcp-option line. Every configs/sysconf template is text/template,
+// which performs no escaping, so a newline here ended the directive and
+// appended another one to a file the root agent writes. dnsmasq
+// directives include dhcp-script, which runs a program.
+var domainPattern = regexp.MustCompile(
+	`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)
+
+// maxDomainLength is the RFC 1035 limit on a fully qualified name. The
+// pattern bounds each label; this bounds the whole.
+const maxDomainLength = 253
+
 // minRootPasswordLength matches the web password rule so the two
 // account paths do not disagree on what is acceptable.
 const minRootPasswordLength = 8
 
 var (
 	ErrInvalidHostname   = fmt.Errorf("hostname must be 1-63 characters of letters, digits and interior hyphens")
+	ErrInvalidDomain     = fmt.Errorf("domain must be dot-separated labels of letters, digits and interior hyphens")
 	ErrInvalidTimezone   = fmt.Errorf("timezone must be a tz database name such as Europe/Istanbul")
 	ErrPasswordTooShort  = fmt.Errorf("password must be at least %d characters", minRootPasswordLength)
 	ErrPasswordNotHashed = fmt.Errorf("password hashing produced no output")
@@ -51,6 +68,19 @@ var (
 func ValidateHostname(s string) error {
 	if !hostnamePattern.MatchString(s) {
 		return ErrInvalidHostname
+	}
+	return nil
+}
+
+// ValidateDomain reports whether s is usable as the system domain.
+//
+// An empty string is refused here rather than treated as "leave it
+// alone": the caller decides whether the field was submitted, and a
+// validator that accepts "" would let one through into the rendered
+// `domain=` directive.
+func ValidateDomain(s string) error {
+	if len(s) > maxDomainLength || !domainPattern.MatchString(s) {
+		return ErrInvalidDomain
 	}
 	return nil
 }
