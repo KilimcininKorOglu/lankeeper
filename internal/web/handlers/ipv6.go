@@ -163,11 +163,13 @@ func (h *IPv6Handler) HandleSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Mode crossover: if the operator switched away from 6in4, tear
-	// the tunnel down before re-applying the new plane.
-	if previousMode == "6in4" && mode != "6in4" && h.sixinfour != nil {
+	// Tear the tunnel down BEFORE the other plane is applied whenever it
+	// is no longer wanted, whether that is a mode swap or IPv6 being
+	// switched off outright.
+	tunnelWanted := enabled != "off" && mode == "6in4"
+	if h.sixinfour != nil && !tunnelWanted && previousMode == "6in4" {
 		if err := h.sixinfour.Stop(r.Context()); err != nil {
-			log.Printf("ipv6 mode swap: tunnel stop: %v", err)
+			log.Printf("ipv6: tunnel stop: %v", err)
 		}
 	}
 
@@ -176,10 +178,12 @@ func (h *IPv6Handler) HandleSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Bring the new plane up.
-	if mode == "6in4" && h.sixinfour != nil {
-		if err := h.sixinfour.Restart(r.Context()); err != nil {
-			log.Printf("6in4 restart on save: %v", err)
+	// Converge the tunnel plane. ApplyConfig consults both the mode and
+	// the enabled flag, so a disabled tunnel is stopped rather than
+	// rebuilt.
+	if h.sixinfour != nil {
+		if err := h.sixinfour.ApplyConfig(r.Context()); err != nil {
+			log.Printf("6in4 apply on save: %v", err)
 			// Don't 500 — the YAML is saved and the operator can
 			// inspect the failure on the status card.
 		}

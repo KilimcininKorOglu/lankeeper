@@ -155,6 +155,11 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	// Wire PPPoE -> IPv6 cross-service callbacks. The behaviour is
 	// mode-aware: PD restarts dhcp6c, 6in4 pushes the new IPv4 to
 	// HE.net (when AutoUpdate is on) and rebuilds the sit interface.
+	// Both hooks branch on the mode, but the tunnel calls go through
+	// SixInFourService.ApplyConfig, which also consults the enabled
+	// flag. Without that, turning IPv6 off while the mode stayed at
+	// 6in4 left every reconnect rebuilding a tunnel the operator had
+	// switched off.
 	pppoeSvc.SetOnConnect(func(ctx context.Context) error {
 		if cfg.IPv6.Mode == "6in4" {
 			st, _ := pppoeSvc.Status(ctx)
@@ -163,8 +168,8 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 					log.Printf("6in4: nic/update on connect: %v", err)
 				}
 			}
-			if err := sixInFourSvc.Restart(ctx); err != nil {
-				return fmt.Errorf("6in4 restart on connect: %w", err)
+			if err := sixInFourSvc.ApplyConfig(ctx); err != nil {
+				return fmt.Errorf("6in4 apply on connect: %w", err)
 			}
 			// Refresh the dnsmasq RA drop-in so RoutedPrefix-derived
 			// /64 sub-prefixes follow the rebuilt tunnel.

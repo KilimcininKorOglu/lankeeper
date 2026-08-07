@@ -277,6 +277,29 @@ func (s *SixInFourService) Restart(ctx context.Context) error {
 	return s.Start(ctx)
 }
 
+// wanted reports whether the tunnel should exist at all, given the
+// operator's settings. Both conditions matter: the plane is selected by
+// Mode, but IPv6 as a whole can be switched off without touching it.
+func (s *SixInFourService) wanted() bool {
+	return s.cfg.IPv6.Enabled != "off" && s.cfg.IPv6.Mode == "6in4"
+}
+
+// ApplyConfig converges the tunnel to the configured state, mirroring
+// IPv6Service.ApplyConfig for the prefix-delegation plane.
+//
+// Start and stop used to be decided at each call site, keyed on Mode
+// alone, so turning IPv6 off while the mode stayed at 6in4 skipped the
+// teardown (the mode had not changed) and still ran the bring-up. The
+// sit interface and default route survived, and every WAN reconnect
+// rebuilt them. Deciding here means the handler and both PPPoE hooks
+// cannot disagree about it.
+func (s *SixInFourService) ApplyConfig(ctx context.Context) error {
+	if !s.wanted() {
+		return s.Stop(ctx)
+	}
+	return s.Restart(ctx)
+}
+
 // IsRunning reports whether the last Apply succeeded. Cheap accessor
 // for the /ipv6 status card.
 func (s *SixInFourService) IsRunning() bool {

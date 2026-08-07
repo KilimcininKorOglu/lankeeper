@@ -84,6 +84,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `..._rx_bps` and `..._tx_bps` now carry only a `mac` label, so a query
   or dashboard grouping on `hostname` needs updating.
 
+- **(ipv6) Turning IPv6 off tears the 6in4 tunnel down**: the save
+  handler tore the tunnel down only when the mode changed away from
+  6in4, and brought it up whenever the mode equalled 6in4, without ever
+  consulting the enabled flag. Switching IPv6 off while leaving the mode
+  at 6in4 therefore skipped the teardown, because the mode had not
+  changed, and still ran the bring-up. The sit interface and the default
+  route persisted, and both PPPoE hooks branched on the mode alone, so
+  every WAN reconnect actively rebuilt them, leaving the router
+  persistently IPv6-active against the setting the operator chose. The
+  decision now lives in the tunnel service, which consults both the mode
+  and the enabled flag the way the prefix-delegation plane already did,
+  so the handler and both hooks cannot disagree about it.
+
 - **(vpn) Site-to-site finalize enforces the invite expiry**: the
   consuming side rejects an expired invite through the token parser, but
   the originating side checked only the peer's pending flag when the ack
