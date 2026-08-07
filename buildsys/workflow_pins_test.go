@@ -100,3 +100,55 @@ func TestTheWorkflowStillReferencesTheLinter(t *testing.T) {
 		t.Error("the lint gate no longer runs golangci-lint-action")
 	}
 }
+
+// toolAtLatest finds a tool version resolved at run time rather than
+// named in the tree. Both forms appear here: an `@latest` module suffix
+// on a `go install`, and a `version: latest` input to an action.
+var toolAtLatest = regexp.MustCompile(`(?i)(@latest\b|version:\s*latest\b)`)
+
+// TestCIToolsAreVersioned is the regression test. The linter took
+// `version: latest` and govulncheck was installed at `@latest`, so the
+// binaries the gate actually ran were not determined by the committed
+// workflow. Two runs of an identical tree could disagree, which makes a
+// red build hard to bisect and a green one worth less.
+//
+// Pinning govulncheck does not stale its advisories: it queries
+// https://vuln.go.dev at run time, so freshness belongs to the database
+// rather than to the binary.
+func TestCIToolsAreVersioned(t *testing.T) {
+	for _, path := range workflowFiles(t) {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+
+		for i, line := range strings.Split(string(raw), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "#") {
+				continue
+			}
+			if m := toolAtLatest.FindString(line); m != "" {
+				t.Errorf("%s:%d: %q resolves a tool version at run time: %s",
+					path, i+1, m, strings.TrimSpace(line))
+			}
+		}
+	}
+}
+
+// TestTheVersionedToolsAreStillInvoked guards against the pin being
+// applied by deleting the step it protects.
+func TestTheVersionedToolsAreStillInvoked(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatalf("read ci.yml: %v", err)
+	}
+	body := string(raw)
+
+	for _, want := range []string{
+		"golang.org/x/vuln/cmd/govulncheck@v",
+		"govulncheck ./...",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the vulnerability gate no longer contains %q", want)
+		}
+	}
+}

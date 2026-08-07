@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(ci) The lint and vulnerability tools are pinned**: the linter took
+  `version: latest` and govulncheck was installed at `@latest`, so the
+  binaries the gate actually ran were not determined by the committed
+  workflow. Two runs of an identical tree could disagree, which makes a
+  red build hard to bisect and a green one worth less. Both now name an
+  explicit version, and the linter matches the release `make lint` uses
+  locally so a contributor reproduces what CI saw. Pinning govulncheck
+  does not stale its advisories: it queries `https://vuln.go.dev` at run
+  time, so freshness belongs to the database rather than to the binary.
+  A test refuses either form of run-time version resolution.
+
 - **(ci) The third-party action is pinned to a commit**: every `uses:`
   reference was a moveable version tag, and one of the six is
   third-party. A tag can be repointed by whoever controls the publishing

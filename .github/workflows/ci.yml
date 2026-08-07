@@ -136,7 +136,12 @@ jobs:
       #   gh api repos/golangci/golangci-lint-action/git/tags/<sha>
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: latest
+          # An explicit version, not `latest`. With `latest` the gate
+          # could start or stop failing with no change to the tree,
+          # which makes a red build hard to bisect and a green one worth
+          # less. It also keeps CI on the same release `make lint` runs
+          # locally, so a contributor reproduces what CI saw.
+          version: v2.12.2
 
   govulncheck:
     name: govulncheck
@@ -150,6 +155,12 @@ jobs:
           check-latest: true
           cache: true
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        # An explicit version, for the same reproducibility reason as
+        # the linter above. Pinning the tool does not stale the
+        # advisories: govulncheck queries https://vuln.go.dev at run
+        # time, so the database stays current regardless of which
+        # release of the binary asks it. Freshness belongs to the data,
+        # not to the tool.
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
       - name: Scan
         run: govulncheck ./...
