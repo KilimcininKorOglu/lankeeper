@@ -113,6 +113,25 @@ func (ac *AtomicChange) StartWatchdog(timeout time.Duration, rollbackFn func() e
 	})
 }
 
+// StopWatchdog disarms the revert timer without settling the change.
+//
+// Confirm and Rollback both stop the timer, but both also mean
+// something: that the change was accepted, or that it was reverted. A
+// caller tearing down a service that still holds an unconfirmed change
+// means neither, and had no way to say so, so the timer outlived its
+// owner and fired into a process that had moved on. The persisted
+// record is what re-arms the rollback on the next start, and this does
+// not touch it.
+func (ac *AtomicChange) StopWatchdog() {
+	ac.mu.Lock()
+	defer ac.mu.Unlock()
+
+	if ac.timer != nil {
+		ac.timer.Stop()
+		ac.timer = nil
+	}
+}
+
 func (ac *AtomicChange) Confirm() {
 	ac.mu.Lock()
 	defer ac.mu.Unlock()

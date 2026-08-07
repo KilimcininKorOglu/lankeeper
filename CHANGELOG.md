@@ -580,6 +580,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(firewall) A pending rollback timer can be disarmed**: the watchdog
+  `restorePendingChange` arms runs for the remainder of the
+  confirmation window, and nothing could stop it. `Confirm` and
+  `Rollback` both stop the timer, but both also assert something about
+  the change, so a caller tearing down a service that still holds an
+  unconfirmed one had no way to say neither. The timer then outlived its
+  owner and issued privileged commands from its own goroutine into a
+  process that had moved on. In the test suite that surfaced as an
+  intermittent data race, where the rollback read the process-global
+  agent client while an unrelated test's cleanup wrote it, which would
+  have failed CI at random. `AtomicChange.StopWatchdog` disarms the
+  timer without settling the change, and the persisted record is left
+  in place, since that is what re-arms the rollback on the next start.
+
 - **(agent) Concurrent connections are bounded**: the accept loop
   spawned a goroutine per connection with no limit in the loop, the
   dispatcher or the operations, and the agent runs as root, so each

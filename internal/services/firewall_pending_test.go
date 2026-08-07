@@ -40,6 +40,11 @@ func newTestFirewallService(t *testing.T) *FirewallService {
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
+	// A restored change arms a timer for the rest of the confirmation
+	// window, and it fires from its own goroutine into netutil.Run.
+	// Left running it outlives the test and reads the process-global
+	// agent client while a later test's cleanup writes it.
+	t.Cleanup(svc.stopWatchdog)
 	return svc
 }
 
@@ -246,5 +251,42 @@ func TestRestoreRollsBackExpiredWindow(t *testing.T) {
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Error("state file survived the watchdog rollback; the next start would replay it")
+	}
+}
+
+// TestAStoppedWatchdogIssuesNoCommands is the regression test. The
+// timer restorePendingChange arms ran for the rest of the confirmation
+// window with nothing able to stop it, so it outlived whoever built the
+// service and fired into netutil.Run from its own goroutine. In the
+// suite that surfaced as an intermittent data race: the rollback read
+// the process-global agent client while an unrelated test's cleanup
+// wrote it.
+//
+// Mutates the process-global agent client, so no t.Parallel here.
+func TestAStoppedWatchdogIssuesNoCommands(t *testing.T) {
+	path := pendingStatePath(t)
+	// Barely inside the window, so an un-stopped timer fires well
+	// within the wait below.
+	writePendingState(t, path, "table inet filter {}",
+		time.Now().Add(-firewallConfirmWindow+150*time.Millisecond))
+
+	agent := &execRecordingAgent{}
+	netutil.SetAgentClient(agent)
+	t.Cleanup(func() { netutil.SetAgentClient(nil) })
+
+	svc := newTestFirewallService(t)
+	if !svc.HasPendingChange() {
+		t.Fatal("the restored service reports no pending change, so nothing was armed")
+	}
+
+	svc.stopWatchdog()
+
+	time.Sleep(time.Second)
+
+	if calls := agent.snapshotCalls(); len(calls) != 0 {
+		t.Errorf("a stopped watchdog still ran commands: %v", calls)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("stopping the watchdog dropped the record that re-arms it: %v", err)
 	}
 }

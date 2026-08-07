@@ -187,6 +187,23 @@ func (s *FirewallService) armWatchdog(ac *netutil.AtomicChange, timeout time.Dur
 	})
 }
 
+// stopWatchdog disarms a pending rollback timer.
+//
+// The timer restorePendingChange arms runs for the remainder of the
+// confirmation window, which is most of a minute, and nothing could
+// stop it. It fires from its own goroutine into netutil.Run, so a
+// service whose owner has gone away still issues privileged commands.
+// The persisted record is left in place: it is what re-arms the
+// rollback on the next start, which is the whole point of writing it.
+func (s *FirewallService) stopWatchdog() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.change != nil {
+		s.change.StopWatchdog()
+	}
+}
+
 func (s *FirewallService) persistPendingState(snapshot string) {
 	if snapshot == "" {
 		// Apply logs its own warning when the snapshot could not be
