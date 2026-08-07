@@ -551,8 +551,7 @@ func TestIPv6LeaseWatcherFiresOnFileChange(t *testing.T) {
 		return nil
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := svc.StartLeaseWatcher(ctx, nil); err != nil {
 		t.Fatalf("StartLeaseWatcher: %v", err)
@@ -613,8 +612,7 @@ func TestIPv6LeaseWatcherDedupesIdenticalEvents(t *testing.T) {
 		return nil
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := svc.StartLeaseWatcher(ctx, nil); err != nil {
 		t.Fatalf("StartLeaseWatcher: %v", err)
@@ -743,7 +741,7 @@ func TestGenerateULAPrefixIsValid(t *testing.T) {
 	// return the same prefix twice (40 random bits) and must always
 	// match the fdXX:XXXX:XXXX::/48 shape.
 	seen := map[string]bool{}
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		p, err := services.GenerateULAPrefixForTest()
 		if err != nil {
 			t.Fatalf("generate: %v", err)

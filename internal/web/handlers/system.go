@@ -288,8 +288,7 @@ const maxBackupFormMemory = 4 << 20
 func (h *SystemHandler) HandleImport(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBackupUploadBytes)
 	if err := r.ParseMultipartForm(maxBackupFormMemory); err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			clientError(w, r, http.StatusRequestEntityTooLarge, "error.backupTooLarge")
 			return
 		}
@@ -314,8 +313,7 @@ func (h *SystemHandler) HandleImport(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := io.Copy(tmpFile, file); err != nil {
 		_ = tmpFile.Close()
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			clientError(w, r, http.StatusRequestEntityTooLarge, "error.backupTooLarge")
 			return
 		}

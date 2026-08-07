@@ -210,10 +210,7 @@ func (s *IPv6Service) AnnouncedInterfaces() ([]AnnouncedInterface, error) {
 	if err != nil {
 		return nil, err
 	}
-	slaLen := 64 - delegatedLen
-	if slaLen < 0 {
-		slaLen = 0
-	}
+	slaLen := max(64-delegatedLen, 0)
 
 	prefixes := s.buildPrefixInterfaces(lan, slaLen)
 	out := make([]AnnouncedInterface, 0, len(prefixes))
@@ -274,10 +271,7 @@ func (s *IPv6Service) RenderRAConfig() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	slaLen := 64 - delegatedLen
-	if slaLen < 0 {
-		slaLen = 0
-	}
+	slaLen := max(64-delegatedLen, 0)
 
 	raInterval := s.cfg.IPv6.LAN.RAInterval
 	if raInterval <= 0 {
@@ -368,7 +362,7 @@ func (s *IPv6Service) rdnssAddrs() []string {
 	if err == nil && len(bytes.TrimSpace(raw)) > 0 {
 		var st PrefixState
 		if jsonErr := json.Unmarshal(raw, &st); jsonErr == nil && st.RDNSS != "" {
-			for _, f := range strings.Fields(st.RDNSS) {
+			for f := range strings.FieldsSeq(st.RDNSS) {
 				if f == "" {
 					continue
 				}
@@ -449,10 +443,7 @@ func (s *IPv6Service) RenderConfig() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	slaLen := 64 - delegatedLen
-	if slaLen < 0 {
-		slaLen = 0
-	}
+	slaLen := max(64-delegatedLen, 0)
 
 	data := dhcp6cTemplateData{
 		WANInterface:     wan,

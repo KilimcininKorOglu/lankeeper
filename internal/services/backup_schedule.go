@@ -117,7 +117,7 @@ func parseField(spec string, min, max int) (fieldSet, error) {
 		return makeFieldSet(min, max, true), nil
 	}
 	var out fieldSet
-	for _, atom := range strings.Split(spec, ",") {
+	for atom := range strings.SplitSeq(spec, ",") {
 		atom = strings.TrimSpace(atom)
 		if atom == "" {
 			continue

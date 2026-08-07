@@ -118,7 +118,7 @@ func TestSixInFourDDNSDedupesIdenticalIP(t *testing.T) {
 		Transport: &rewriteRT{target: srv.URL, inner: http.DefaultTransport},
 	})
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_, err := svc.UpdateRemoteIPv4(context.Background(), "198.51.100.7")
 		if err != nil {
 			t.Fatalf("call %d: %v", i, err)

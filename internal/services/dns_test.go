@@ -166,7 +166,7 @@ func TestDNSAddStaticRecordEnforcesCap(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
 	svc := services.NewDNSService(cfg)
-	for i := 0; i < services.MaxStaticDNSRecords; i++ {
+	for i := range services.MaxStaticDNSRecords {
 		rec := config.StaticDNSRecord{
 			Name: fmt.Sprintf("h%d.hermes.lan", i),
 			IP:   "10.10.10.5",

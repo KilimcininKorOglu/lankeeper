@@ -143,7 +143,7 @@ func TestParseFieldErrorMessages(t *testing.T) {
 
 func TestTrimHistoryRingBuffer(t *testing.T) {
 	var entries []historyEntry
-	for i := 0; i < MaxBackupHistory+10; i++ {
+	for i := range MaxBackupHistory + 10 {
 		entries = append(entries, historyEntry{
 			StartedAt: time.Unix(int64(i), 0),
 			Status:    "ok",

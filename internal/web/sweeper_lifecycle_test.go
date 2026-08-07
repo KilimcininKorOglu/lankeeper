@@ -34,7 +34,7 @@ func waitForSweepers(t *testing.T, want int) int {
 	t.Helper()
 
 	var got int
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		got = sweeperGoroutines(t)
 		if got == want {
 			return got
@@ -55,7 +55,7 @@ func stableSweeperBaseline(t *testing.T) int {
 	t.Helper()
 
 	last := sweeperGoroutines(t)
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		time.Sleep(20 * time.Millisecond)
 		got := sweeperGoroutines(t)
 		if got == last {
@@ -78,7 +78,7 @@ func TestAStoppedLimiterReleasesItsGoroutine(t *testing.T) {
 	before := stableSweeperBaseline(t)
 
 	limiters := make([]*RateLimiter, 0, 20)
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		limiters = append(limiters, NewRateLimiter(time.Hour, 1))
 	}
 	if got := waitForSweepers(t, before+20); got != before+20 {
@@ -130,7 +130,7 @@ func TestTheLoginGuardReleasesItsGoroutine(t *testing.T) {
 	before := stableSweeperBaseline(t)
 
 	guards := make([]*loginGuard, 0, 10)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		guards = append(guards, newLoginGuard())
 	}
 	if got := waitForSweepers(t, before+10); got != before+10 {

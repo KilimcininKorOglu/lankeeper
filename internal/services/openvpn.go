@@ -613,7 +613,7 @@ func countOVPNSessions(status string) int {
 	var count int
 	inClientList := false
 
-	for _, line := range strings.Split(status, "\n") {
+	for line := range strings.SplitSeq(status, "\n") {
 		line = strings.TrimRight(line, "\r")
 		switch {
 		case strings.HasPrefix(line, "CLIENT_LIST,"):

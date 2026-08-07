@@ -47,11 +47,11 @@ func inputChain(t *testing.T, rendered string) string {
 		t.Fatal("input chain not found in rendered ruleset")
 	}
 	rest := rendered[i:]
-	j := strings.Index(rest, "chain forward {")
-	if j < 0 {
+	before, _, ok := strings.Cut(rest, "chain forward {")
+	if !ok {
 		t.Fatal("forward chain not found, cannot bound the input chain")
 	}
-	return rest[:j]
+	return before
 }
 
 // TestOpenPortsReachTheInputChain is the regression test. The CRUD, the

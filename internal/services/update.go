@@ -460,10 +460,7 @@ func (s *UpdateService) restorePendingUpdate() {
 	s.configSnapshot = state.ConfigSnapshot
 
 	elapsed := time.Since(state.AppliedAt)
-	remaining := updateConfirmWindow - elapsed
-	if remaining < 0 {
-		remaining = 0
-	}
+	remaining := max(updateConfirmWindow-elapsed, 0)
 
 	watchCtx, cancel := context.WithCancel(context.Background())
 	s.watchdogCancel = cancel
@@ -658,7 +655,7 @@ func CompareSemver(a, b string) int {
 	aParts := parseSemver(a)
 	bParts := parseSemver(b)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if aParts[i] > bParts[i] {
 			return 1
 		}
@@ -702,7 +699,7 @@ func (s *UpdateService) verifyChecksum(ctx context.Context, info *UpdateInfo, ar
 
 	archiveName := filepath.Base(archivePath)
 	var expectedHash string
-	for _, line := range strings.Split(string(body), "\n") {
+	for line := range strings.SplitSeq(string(body), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) >= 2 && strings.Contains(fields[1], archiveName) {
 			expectedHash = strings.ToLower(fields[0])

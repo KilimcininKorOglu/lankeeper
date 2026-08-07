@@ -145,7 +145,7 @@ func TestAnOversizedMemberIsRefusedRatherThanTruncated(t *testing.T) {
 func TestTheCumulativeBudgetIsEnforced(t *testing.T) {
 	b := &importBudget{maxEntries: 100, maxEntry: 10, maxTotal: 25}
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if err := b.countBytes("f", 10); err != nil {
 			t.Fatalf("member %d was refused inside the budget: %v", i, err)
 		}
@@ -175,7 +175,7 @@ func TestThePerEntryCapIsEnforcedByTheBudget(t *testing.T) {
 func TestTheEntryCountIsEnforcedByTheBudget(t *testing.T) {
 	b := &importBudget{maxEntries: 2, maxEntry: 10, maxTotal: 1000}
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if err := b.countEntry(); err != nil {
 			t.Fatalf("entry %d was refused inside the cap: %v", i, err)
 		}
@@ -203,7 +203,7 @@ func TestARealisticArchiveStillRestores(t *testing.T) {
 	archive := filepath.Join(root, "backup.tar.gz")
 	writeArchive(t, archive, func(tw *tar.Writer) {
 		addFile(t, tw, "lankeeper/router.yaml", 64<<10)
-		for i := 0; i < 500; i++ {
+		for i := range 500 {
 			addFile(t, tw, fmt.Sprintf("lankeeper/pki/issued/client%03d.crt", i), 2<<10)
 			addFile(t, tw, fmt.Sprintf("lankeeper/pki/private/client%03d.key", i), 2<<10)
 		}

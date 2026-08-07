@@ -156,7 +156,7 @@ func TestSnapshotOfAnEmptyRulesetIsApplicable(t *testing.T) {
 	if strings.TrimSpace(snap) == "" {
 		t.Fatal("an empty ruleset produced an empty snapshot, which Rollback refuses to use")
 	}
-	for _, line := range strings.Split(strings.TrimSpace(snap), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(snap), "\n") {
 		if trimmed := strings.TrimSpace(line); trimmed != "" && !strings.HasPrefix(trimmed, "#") {
 			t.Errorf("the placeholder carries a live directive: %q", line)
 		}

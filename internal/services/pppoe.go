@@ -266,9 +266,9 @@ func processExists(pid int) bool {
 }
 
 type SniffStatus struct {
-	Active          bool
-	CapturedUser    string
-	CapturedPass    string
+	Active       bool
+	CapturedUser string
+	CapturedPass string
 }
 
 func (s *PPPoEService) SniffStart(ctx context.Context) error {
@@ -322,20 +322,20 @@ func (s *PPPoEService) SniffStatus() *SniffStatus {
 
 	logData, err := os.ReadFile("/var/log/pppoe-sniff.log")
 	if err == nil {
-		lines := strings.Split(string(logData), "\n")
-		for _, line := range lines {
+		lines := strings.SplitSeq(string(logData), "\n")
+		for line := range lines {
 			if strings.Contains(line, "user=") {
-				for _, part := range strings.Fields(line) {
-					if strings.HasPrefix(part, "user=") {
-						status.CapturedUser = strings.TrimPrefix(part, "user=")
+				for part := range strings.FieldsSeq(line) {
+					if after, ok := strings.CutPrefix(part, "user="); ok {
+						status.CapturedUser = after
 						status.CapturedUser = strings.Trim(status.CapturedUser, "\"")
 					}
 				}
 			}
 			if strings.Contains(line, "PAP") && strings.Contains(line, "password") {
-				for _, part := range strings.Fields(line) {
-					if strings.HasPrefix(part, "password=") {
-						status.CapturedPass = strings.TrimPrefix(part, "password=")
+				for part := range strings.FieldsSeq(line) {
+					if after, ok := strings.CutPrefix(part, "password="); ok {
+						status.CapturedPass = after
 						status.CapturedPass = strings.Trim(status.CapturedPass, "\"")
 					}
 				}

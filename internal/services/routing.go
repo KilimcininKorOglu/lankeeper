@@ -15,10 +15,10 @@ import (
 )
 
 type RoutingService struct {
-	cfg            *config.Config
-	mu             sync.RWMutex
-	domainSets     map[string]map[string]bool
-	domainCancel   context.CancelFunc
+	cfg          *config.Config
+	mu           sync.RWMutex
+	domainSets   map[string]map[string]bool
+	domainCancel context.CancelFunc
 }
 
 func NewRoutingService(cfg *config.Config) *RoutingService {
@@ -276,7 +276,7 @@ func (s *RoutingService) resolveDomains(ctx context.Context, setName string, dom
 		if err != nil {
 			continue
 		}
-		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 			ip := strings.TrimSpace(line)
 			if ip == "" || strings.Contains(ip, ":") {
 				continue

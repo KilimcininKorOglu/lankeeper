@@ -151,8 +151,7 @@ func TestLeaseWatcherCanRestartAfterACancel(t *testing.T) {
 	// watcher has a genuinely new state to report on its initial pass.
 	writeLease(t, statePath, "2001:db8:1::")
 
-	restarted, restartCancel := context.WithCancel(context.Background())
-	defer restartCancel()
+	restarted := t.Context()
 	if err := svc.StartLeaseWatcher(restarted, nil); err != nil {
 		t.Fatalf("second StartLeaseWatcher: %v", err)
 	}

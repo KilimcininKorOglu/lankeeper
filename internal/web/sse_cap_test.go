@@ -30,7 +30,7 @@ func TestSubscribeIsBounded(t *testing.T) {
 	b := newTestBroker(3, time.Hour)
 
 	var held []chan []byte
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		ch, err := b.Subscribe()
 		if err != nil {
 			t.Fatalf("subscriber %d was refused below the cap: %v", i, err)

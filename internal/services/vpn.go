@@ -56,7 +56,7 @@ func (s *VPNService) ListClientTunnels(ctx context.Context) ([]WGTunnelStatus, e
 		out, err := netutil.RunSimple(ctx, "wg", "show", iface)
 		if err == nil && strings.Contains(out, "public key") {
 			status.Active = true
-			for _, line := range strings.Split(out, "\n") {
+			for line := range strings.SplitSeq(out, "\n") {
 				line = strings.TrimSpace(line)
 				if strings.HasPrefix(line, "public key:") {
 					status.PublicKey = strings.TrimPrefix(line, "public key: ")
@@ -155,8 +155,8 @@ type WGServerStatus struct {
 	Active     bool
 	ListenPort int
 	PublicKey  string
-	PeerCount int
-	Peers     []WGPeerStatus
+	PeerCount  int
+	Peers      []WGPeerStatus
 }
 
 type WGPeerStatus struct {
@@ -179,7 +179,7 @@ func (s *VPNService) ServerStatus(ctx context.Context) (*WGServerStatus, error) 
 	out, err := netutil.RunSimple(ctx, "wg", "show", "wgs0")
 	if err == nil && strings.Contains(out, "public key") {
 		status.Active = true
-		for _, line := range strings.Split(out, "\n") {
+		for line := range strings.SplitSeq(out, "\n") {
 			line = strings.TrimSpace(line)
 			if strings.HasPrefix(line, "public key:") {
 				status.PublicKey = strings.TrimPrefix(line, "public key: ")
@@ -191,7 +191,7 @@ func (s *VPNService) ServerStatus(ctx context.Context) (*WGServerStatus, error) 
 		ps := WGPeerStatus{
 			Name:          peer.Name,
 			PublicKey:     peer.PublicKey,
-			AllowedIPs:   peer.AllowedIPs,
+			AllowedIPs:    peer.AllowedIPs,
 			IsSiteToSite:  peer.IsSiteToSite,
 			RemoteSubnets: peer.RemoteSubnets,
 		}

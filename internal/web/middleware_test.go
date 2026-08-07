@@ -25,7 +25,7 @@ func TestRateLimiter(t *testing.T) {
 	// mid-test, so the sixth is denied on the burst alone.
 	rl := web.NewRateLimiter(100*time.Millisecond, 5)
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if !rl.Allow("192.168.1.1") {
 			t.Errorf("request %d should be allowed (within burst)", i)
 		}
@@ -62,7 +62,7 @@ func TestRateLimiterMiddlewareReturns429(t *testing.T) {
 		return rec.Code
 	}
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if code := doRequest(); code != http.StatusOK {
 			t.Fatalf("burst request %d: code = %d, want 200", i, code)
 		}

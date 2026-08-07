@@ -114,8 +114,7 @@ func TestHealthCheckEnabledGatesStart(t *testing.T) {
 	t.Run("disabled", func(t *testing.T) {
 		svc := services.NewHealthCheckService(newCfg(false))
 
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 		svc.Start(ctx)
 
 		if results := svc.GetResults(); len(results) != 0 {
@@ -129,8 +128,7 @@ func TestHealthCheckEnabledGatesStart(t *testing.T) {
 	t.Run("enabled", func(t *testing.T) {
 		svc := services.NewHealthCheckService(newCfg(true))
 
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 		svc.Start(ctx)
 
 		result := svc.GetResult("wan-internet")
@@ -153,8 +151,7 @@ func TestHealthCheckResetCounter(t *testing.T) {
 
 	svc := services.NewHealthCheckService(cfg)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	svc.Start(ctx)
 
 	svc.ResetCounter("test")

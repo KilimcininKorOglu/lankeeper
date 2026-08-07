@@ -30,12 +30,12 @@ func TestValidateLocalPath(t *testing.T) {
 		spec    string
 		wantErr bool
 	}{
-		{"", false},                  // default → root
-		{tmp, false},                  // exact root
-		{tmp + "/sub", false},         // child
-		{"/etc/passwd", true},         // outside root
-		{"relative/path", true},       // not absolute
-		{tmp + "/../escape", true},    // traversal cleaned
+		{"", false},                // default → root
+		{tmp, false},               // exact root
+		{tmp + "/sub", false},      // child
+		{"/etc/passwd", true},      // outside root
+		{"relative/path", true},    // not absolute
+		{tmp + "/../escape", true}, // traversal cleaned
 	}
 	for _, tc := range cases {
 		_, err := validateLocalPath(tc.spec)
@@ -85,7 +85,7 @@ func TestCleanupLocalRetention(t *testing.T) {
 
 	// 5 backup files with stair-stepped mtimes (older first).
 	now := time.Now()
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		p := filepath.Join(tmp, "lankeeper-backup-2026-05-0"+string(rune('1'+i))+".tar.gz.enc")
 		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)

@@ -80,7 +80,7 @@ func (h *RoutingHandler) HandleAddPolicy(w http.ResponseWriter, r *http.Request)
 	}
 	if domains := r.FormValue("domains"); domains != "" {
 		var cleaned []string
-		for _, d := range strings.Split(domains, "\n") {
+		for d := range strings.SplitSeq(domains, "\n") {
 			d = strings.TrimSpace(d)
 			if d != "" {
 				cleaned = append(cleaned, d)

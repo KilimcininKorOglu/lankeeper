@@ -320,7 +320,7 @@ func (s *VPNService) nextTunnelIP() (string, error) {
 		"10.10.11.1": {},
 	}
 	for _, p := range s.cfg.VPN.Server.Peers {
-		ip := strings.SplitN(p.AllowedIPs, "/", 2)[0]
+		ip, _, _ := strings.Cut(p.AllowedIPs, "/")
 		ip = strings.SplitN(strings.TrimSpace(ip), ",", 2)[0]
 		used[strings.TrimSpace(ip)] = struct{}{}
 	}
@@ -696,7 +696,7 @@ func (s *VPNService) S2SHealth(ctx context.Context, peerName string) (*S2SHealth
 		Endpoint:        wantPeer.Endpoint,
 		RemoteSubnets:   append([]string(nil), wantPeer.RemoteSubnets...),
 	}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Split(line, "\t")
 		if len(fields) < 8 {
 			continue

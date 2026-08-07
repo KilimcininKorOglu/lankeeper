@@ -318,10 +318,10 @@ func downloadAndParseM3U(ctx context.Context, url string) ([]M3UItem, error) {
 		if strings.HasPrefix(line, "#EXTINF:") {
 			info := line[len("#EXTINF:"):]
 
-			if idx := strings.Index(info, "group-title=\""); idx != -1 {
-				rest := info[idx+len("group-title=\""):]
-				if end := strings.Index(rest, "\""); end != -1 {
-					currentGroup = rest[:end]
+			if _, after, ok := strings.Cut(info, "group-title=\""); ok {
+				rest := after
+				if before, _, ok := strings.Cut(rest, "\""); ok {
+					currentGroup = before
 				}
 			}
 
@@ -363,16 +363,16 @@ func ParseM3UData(data string) []M3UItem {
 	var items []M3UItem
 	var currentGroup, currentTitle string
 
-	for _, line := range strings.Split(data, "\n") {
+	for line := range strings.SplitSeq(data, "\n") {
 		line = strings.TrimSpace(line)
 
 		if strings.HasPrefix(line, "#EXTINF:") {
 			info := line[len("#EXTINF:"):]
 
-			if idx := strings.Index(info, "group-title=\""); idx != -1 {
-				rest := info[idx+len("group-title=\""):]
-				if end := strings.Index(rest, "\""); end != -1 {
-					currentGroup = rest[:end]
+			if _, after, ok := strings.Cut(info, "group-title=\""); ok {
+				rest := after
+				if before, _, ok := strings.Cut(rest, "\""); ok {
+					currentGroup = before
 				}
 			}
 

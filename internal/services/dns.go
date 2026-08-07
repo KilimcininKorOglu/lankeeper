@@ -211,7 +211,7 @@ func (s *DNSService) GetStats(ctx context.Context) (*DNSStats, error) {
 	}
 
 	stats := &DNSStats{}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
 			continue
@@ -339,10 +339,7 @@ func (s *DNSService) GetRecentQueries(limit, offset int) []QueryLogEntry {
 	}
 
 	end := total - offset
-	start := end - limit
-	if start < 0 {
-		start = 0
-	}
+	start := max(end-limit, 0)
 
 	result := make([]QueryLogEntry, end-start)
 	copy(result, s.queryBuf[start:end])

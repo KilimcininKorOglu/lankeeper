@@ -206,7 +206,7 @@ func ParseLeaseData(data string) []Lease {
 	var leases []Lease
 	now := time.Now()
 
-	for _, line := range strings.Split(data, "\n") {
+	for line := range strings.SplitSeq(data, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

@@ -45,9 +45,9 @@ type TunnelStatus struct {
 	RoutedPrefix string    `json:"routedPrefix"`
 	MTU          int       `json:"mtu"`
 	LocalIPv4    string    `json:"localIPv4"`
-	LastApplied  time.Time `json:"lastApplied,omitempty"`
+	LastApplied  time.Time `json:"lastApplied"`
 	LastDDNS     string    `json:"lastDDNS,omitempty"`
-	LastDDNSTime time.Time `json:"lastDDNSTime,omitempty"`
+	LastDDNSTime time.Time `json:"lastDDNSTime"`
 	RxBytes      uint64    `json:"rxBytes,omitempty"`
 	TxBytes      uint64    `json:"txBytes,omitempty"`
 }

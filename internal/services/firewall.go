@@ -148,10 +148,7 @@ func (s *FirewallService) restorePendingChange() {
 		return
 	}
 
-	remaining := firewallConfirmWindow - time.Since(state.AppliedAt)
-	if remaining < 0 {
-		remaining = 0
-	}
+	remaining := max(firewallConfirmWindow-time.Since(state.AppliedAt), 0)
 
 	ac := netutil.NewAtomicChangeWithSnapshot("firewall", state.Snapshot)
 	s.change = ac

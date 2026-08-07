@@ -116,7 +116,7 @@ func TestNTPAddSourceEnforcesCap(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
 	svc := services.NewNTPService(cfg)
-	for i := 0; i < services.MaxNTPSources; i++ {
+	for i := range services.MaxNTPSources {
 		host := fmt.Sprintf("s%d.ntp.example", i)
 		if err := svc.AddSource(host); err != nil {
 			t.Fatalf("AddSource(%q): %v", host, err)
@@ -133,7 +133,7 @@ func TestNTPAddAllowSubnetEnforcesCap(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
 	svc := services.NewNTPService(cfg)
-	for i := 0; i < services.MaxNTPAllowSubnets; i++ {
+	for i := range services.MaxNTPAllowSubnets {
 		cidr := fmt.Sprintf("10.%d.0.0/16", i)
 		if err := svc.AddAllowSubnet(cidr); err != nil {
 			t.Fatalf("AddAllowSubnet(%q): %v", cidr, err)

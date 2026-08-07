@@ -87,7 +87,7 @@ func TestALockedOutAddressIsRejectedEvenWithTheRightPassword(t *testing.T) {
 	const addr = "10.10.10.30:5000"
 	const ip = "10.10.10.30"
 
-	for i := 0; i < loginFailureThreshold; i++ {
+	for range loginFailureThreshold {
 		srv.loginGuard.RecordFailure(ip)
 	}
 	if srv.loginGuard.LockedFor(ip) == 0 {

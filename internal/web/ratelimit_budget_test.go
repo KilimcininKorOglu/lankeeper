@@ -22,7 +22,7 @@ func TestSustainedRateMatchesTheRefillInterval(t *testing.T) {
 	t.Cleanup(rl.Stop)
 	const ip = "10.10.10.7"
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if !rl.Allow(ip) {
 			t.Fatalf("burst request %d was denied", i)
 		}
@@ -80,7 +80,7 @@ func TestBurstIsSpendableAtOnce(t *testing.T) {
 	t.Cleanup(rl.Stop)
 	const ip = "10.10.10.8"
 
-	for i := 0; i < 60; i++ {
+	for i := range 60 {
 		if !rl.Allow(ip) {
 			t.Fatalf("request %d was denied inside a burst of 60", i)
 		}
@@ -101,8 +101,8 @@ func TestTheConfiguredBudgetsServeABrowsingOperator(t *testing.T) {
 	t.Cleanup(rl.Stop)
 	const ip = "10.10.10.9"
 
-	for page := 0; page < 8; page++ {
-		for i := 0; i < perPage; i++ {
+	for page := range 8 {
+		for i := range perPage {
 			if !rl.Allow(ip) {
 				t.Fatalf("request %d of page %d was throttled; "+
 					"the operator would see a 429 while browsing", i, page)
@@ -119,7 +119,7 @@ func TestTheLoginBudgetAbsorbsAMistypedPassword(t *testing.T) {
 	t.Cleanup(rl.Stop)
 	const ip = "10.10.10.10"
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if !rl.Allow(ip) {
 			t.Fatalf("attempt %d was throttled; a mistyped password would lock the operator out", i)
 		}

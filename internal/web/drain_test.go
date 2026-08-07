@@ -13,12 +13,10 @@ func TestDrainBackgroundWaitsForWork(t *testing.T) {
 	var wg sync.WaitGroup
 	finished := make(chan struct{})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		time.Sleep(150 * time.Millisecond)
 		close(finished)
-	}()
+	})
 
 	drainBackground(&wg, 5*time.Second)
 
@@ -37,11 +35,9 @@ func TestDrainBackgroundGivesUpAtTheTimeout(t *testing.T) {
 	var wg sync.WaitGroup
 	release := make(chan struct{})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-release
-	}()
+	})
 	t.Cleanup(func() {
 		close(release)
 		wg.Wait()

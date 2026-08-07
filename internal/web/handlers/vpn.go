@@ -71,7 +71,7 @@ func (h *VPNHandler) HandleAddPeer(w http.ResponseWriter, r *http.Request) {
 
 	var remoteSubnets []string
 	if raw := strings.TrimSpace(r.FormValue("remoteSubnets")); raw != "" && siteToSite {
-		for _, s := range strings.Split(raw, ",") {
+		for s := range strings.SplitSeq(raw, ",") {
 			if trimmed := strings.TrimSpace(s); trimmed != "" {
 				if err := netutil.ValidateCIDR(trimmed); err != nil {
 					clientErrorf(w, r, http.StatusBadRequest, "error.invalidRemoteSubnet", trimmed)
@@ -188,7 +188,7 @@ func (h *VPNHandler) HandleS2SInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var remote []string
-	for _, s := range strings.Split(remoteRaw, ",") {
+	for s := range strings.SplitSeq(remoteRaw, ",") {
 		s = strings.TrimSpace(s)
 		if s == "" {
 			continue

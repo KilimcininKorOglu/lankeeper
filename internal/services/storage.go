@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
@@ -64,19 +65,19 @@ func (s *StorageService) GetRAIDStatus(ctx context.Context) (*RAIDStatus, error)
 
 	status := &RAIDStatus{Device: device}
 
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Raid Level :") {
-			status.Level = strings.TrimSpace(strings.TrimPrefix(line, "Raid Level :"))
+		if after, ok := strings.CutPrefix(line, "Raid Level :"); ok {
+			status.Level = strings.TrimSpace(after)
 		}
-		if strings.HasPrefix(line, "State :") {
-			status.State = strings.TrimSpace(strings.TrimPrefix(line, "State :"))
+		if after, ok := strings.CutPrefix(line, "State :"); ok {
+			status.State = strings.TrimSpace(after)
 		}
-		if strings.HasPrefix(line, "Active Devices :") {
-			_, _ = fmt.Sscanf(strings.TrimPrefix(line, "Active Devices :"), "%d", &status.ActiveDisks)
+		if after, ok := strings.CutPrefix(line, "Active Devices :"); ok {
+			_, _ = fmt.Sscanf(after, "%d", &status.ActiveDisks)
 		}
-		if strings.HasPrefix(line, "Total Devices :") {
-			_, _ = fmt.Sscanf(strings.TrimPrefix(line, "Total Devices :"), "%d", &status.TotalDisks)
+		if after, ok := strings.CutPrefix(line, "Total Devices :"); ok {
+			_, _ = fmt.Sscanf(after, "%d", &status.TotalDisks)
 		}
 		if strings.Contains(line, "/dev/sd") || strings.Contains(line, "/dev/nvme") {
 			fields := strings.Fields(line)
@@ -100,7 +101,7 @@ func (s *StorageService) GetSMARTInfo(ctx context.Context, device string) (*SMAR
 
 	info := &SMARTInfo{Device: device, HealthOK: true}
 
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "Device Model:") || strings.HasPrefix(line, "Model Number:") {
 			info.Model = strings.TrimSpace(line[strings.Index(line, ":")+1:])
@@ -194,7 +195,7 @@ func (s *StorageService) discoverDisksFallback(ctx context.Context) ([]Available
 	}
 
 	var disks []AvailableDisk
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 4 {
 			continue
@@ -329,10 +330,8 @@ func validateFstabEntry(device, mountPoint, fsType string) error {
 	// The character classes above already exclude "..", but a traversal
 	// is worth naming separately: it would mount somewhere other than
 	// where the caller believes.
-	for _, part := range strings.Split(mountPoint, "/") {
-		if part == ".." {
-			return fmt.Errorf("refusing fstab entry: mount point %q escapes upward", mountPoint)
-		}
+	if slices.Contains(strings.Split(mountPoint, "/"), "..") {
+		return fmt.Errorf("refusing fstab entry: mount point %q escapes upward", mountPoint)
 	}
 	return nil
 }

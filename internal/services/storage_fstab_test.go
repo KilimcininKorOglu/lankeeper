@@ -191,7 +191,7 @@ func TestAnExistingEntryIsNotDuplicated(t *testing.T) {
 	agent := &fstabAgent{content: realFstab}
 	useFstabAgent(t, agent)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := appendFstabEntry("/dev/md0", "/srv/nas", "ext4"); err != nil {
 			t.Fatalf("call %d failed: %v", i, err)
 		}

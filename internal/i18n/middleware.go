@@ -39,9 +39,9 @@ func detectLang(r *http.Request, i *I18n) string {
 
 	accept := r.Header.Get("Accept-Language")
 	if accept != "" {
-		for _, part := range strings.Split(accept, ",") {
+		for part := range strings.SplitSeq(accept, ",") {
 			tag := strings.TrimSpace(strings.SplitN(part, ";", 2)[0])
-			code := strings.SplitN(tag, "-", 2)[0]
+			code, _, _ := strings.Cut(tag, "-")
 			if i.HasLocale(code) {
 				return code
 			}

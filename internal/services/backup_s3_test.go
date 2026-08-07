@@ -47,11 +47,11 @@ func TestSigV4SignatureFormat(t *testing.T) {
 		t.Errorf("signed headers wrong: %s", auth)
 	}
 	// Signature is hex SHA-256 → 64 chars.
-	idx := strings.Index(auth, "Signature=")
-	if idx < 0 {
+	_, after, ok := strings.Cut(auth, "Signature=")
+	if !ok {
 		t.Fatalf("no signature: %s", auth)
 	}
-	sig := auth[idx+len("Signature="):]
+	sig := after
 	if len(sig) != 64 {
 		t.Errorf("signature len = %d, want 64", len(sig))
 	}
@@ -62,10 +62,10 @@ func TestSigV4SignatureFormat(t *testing.T) {
 
 func TestSigvEscape(t *testing.T) {
 	cases := map[string]string{
-		"foo":      "FOO",
-		"hello world":  "HELLO%20WORLD",
-		"a/b":     "A%2FB",
-		"a~b._-":  "A~B._-",
+		"foo":         "FOO",
+		"hello world": "HELLO%20WORLD",
+		"a/b":         "A%2FB",
+		"a~b._-":      "A~B._-",
 	}
 	for in, want := range cases {
 		got := sigvEscape(in)

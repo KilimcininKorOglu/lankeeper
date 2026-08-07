@@ -45,7 +45,7 @@ func TestTheLockoutDoublesAndIsCapped(t *testing.T) {
 
 	want := loginLockoutBase
 	var capped bool
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		got := g.RecordFailure(ip)
 		if want > loginLockoutMax {
 			want = loginLockoutMax
@@ -87,7 +87,7 @@ func TestSuccessClearsTheRun(t *testing.T) {
 	g := &loginGuard{clients: make(map[string]*loginRecord)}
 	const ip = "10.10.10.23"
 
-	for i := 0; i < loginFailureThreshold-1; i++ {
+	for range loginFailureThreshold - 1 {
 		g.RecordFailure(ip)
 	}
 	g.RecordSuccess(ip)
@@ -110,7 +110,7 @@ func TestOneAddressCannotLockOutAnother(t *testing.T) {
 	const attacker = "10.10.10.24"
 	const operator = "10.10.10.25"
 
-	for i := 0; i < loginFailureThreshold*3; i++ {
+	for range loginFailureThreshold * 3 {
 		g.RecordFailure(attacker)
 	}
 	if g.LockedFor(attacker) == 0 {
@@ -151,7 +151,7 @@ func TestAnExpiredLockoutStillCountsTheRun(t *testing.T) {
 	g := &loginGuard{clients: make(map[string]*loginRecord)}
 	const ip = "10.10.10.27"
 
-	for i := 0; i < loginFailureThreshold; i++ {
+	for range loginFailureThreshold {
 		g.RecordFailure(ip)
 	}
 	// Expire the lockout without touching the count, as the clock would.

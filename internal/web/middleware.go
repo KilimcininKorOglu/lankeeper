@@ -285,10 +285,7 @@ func (rl *RateLimiter) allow(ip string) (bool, time.Duration) {
 // a sub-second wait rounds down to zero, which would say the opposite of
 // what is meant. Round up, and never emit less than one second.
 func setRetryAfter(w http.ResponseWriter, wait time.Duration) {
-	secs := int64(math.Ceil(wait.Seconds()))
-	if secs < 1 {
-		secs = 1
-	}
+	secs := max(int64(math.Ceil(wait.Seconds())), 1)
 	w.Header().Set("Retry-After", strconv.FormatInt(secs, 10))
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"text/template"
 
@@ -52,7 +53,7 @@ func validateNTPHost(host string) error {
 	if len(host) > 253 {
 		return fmt.Errorf("NTP source %q exceeds 253 characters", host)
 	}
-	for _, label := range strings.Split(host, ".") {
+	for label := range strings.SplitSeq(host, ".") {
 		if label == "" || len(label) > 63 {
 			return fmt.Errorf("NTP source %q has an invalid label", host)
 		}
@@ -72,19 +73,19 @@ func NewNTPService(cfg *config.Config) *NTPService {
 }
 
 type NTPStatus struct {
-	Synced     bool
-	Stratum    int
-	RefSource  string
-	Offset     string
-	Sources    []NTPSource
+	Synced    bool
+	Stratum   int
+	RefSource string
+	Offset    string
+	Sources   []NTPSource
 }
 
 type NTPSource struct {
-	State  string
-	Name   string
+	State   string
+	Name    string
 	Stratum int
-	Poll   string
-	Offset string
+	Poll    string
+	Offset  string
 }
 
 func (s *NTPService) GetStatus(ctx context.Context) (*NTPStatus, error) {
@@ -95,7 +96,7 @@ func (s *NTPService) GetStatus(ctx context.Context) (*NTPStatus, error) {
 		return status, nil
 	}
 
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if strings.HasPrefix(line, "Reference ID") {
 			if idx := strings.Index(line, "("); idx != -1 {
 				end := strings.Index(line[idx:], ")")
@@ -131,7 +132,7 @@ func (s *NTPService) getSources(ctx context.Context) ([]NTPSource, error) {
 	}
 
 	var sources []NTPSource
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if len(line) < 3 || line[0] == '=' || line[0] == '2' {
 			continue
 		}
@@ -211,8 +212,8 @@ func (s *NTPService) GetConfig() config.NTPConfig {
 // mutation; without a ceiling, an authenticated client could grow
 // router.yaml indefinitely and slow chrony's startup.
 const (
-	MaxNTPSources       = 20
-	MaxNTPAllowSubnets  = 50
+	MaxNTPSources      = 20
+	MaxNTPAllowSubnets = 50
 )
 
 // AddSource appends a NTP server hostname to the client source list.
@@ -257,10 +258,8 @@ func (s *NTPService) AddAllowSubnet(cidr string) error {
 	if len(s.cfg.NTP.AllowSubnets) >= MaxNTPAllowSubnets {
 		return fmt.Errorf("maximum %d NTP allow subnets reached", MaxNTPAllowSubnets)
 	}
-	for _, sub := range s.cfg.NTP.AllowSubnets {
-		if sub == cidr {
-			return fmt.Errorf("subnet %s already in allow list", cidr)
-		}
+	if slices.Contains(s.cfg.NTP.AllowSubnets, cidr) {
+		return fmt.Errorf("subnet %s already in allow list", cidr)
 	}
 	s.cfg.NTP.AllowSubnets = append(s.cfg.NTP.AllowSubnets, cidr)
 	return s.cfg.SaveToFile()

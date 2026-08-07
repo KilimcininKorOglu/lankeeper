@@ -14,7 +14,7 @@ import (
 
 func waitForSocket(t *testing.T, sock string, errCh <-chan error) {
 	t.Helper()
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		select {
 		case err := <-errCh:
 			if err != nil {
@@ -99,8 +99,7 @@ func TestMethodNotFound(t *testing.T) {
 	srv := agent.NewServer(sock)
 	agent.RegisterBuiltinOps(srv)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(ctx) }()
@@ -131,7 +130,7 @@ func TestSocketCleanup(t *testing.T) {
 	}
 
 	cancel()
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		if _, err := os.Stat(sock); err == nil {
 			break
 		}
@@ -153,8 +152,7 @@ func TestSocketIsNotWorldAccessible(t *testing.T) {
 	srv := agent.NewServer(sock)
 	agent.RegisterBuiltinOps(srv)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(ctx) }()
@@ -183,8 +181,7 @@ func TestSocketRemainsUsableAfterRestriction(t *testing.T) {
 	srv := agent.NewServer(sock)
 	agent.RegisterBuiltinOps(srv)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(ctx) }()
@@ -207,8 +204,7 @@ func TestUnknownServiceGroupFailsClosed(t *testing.T) {
 	srv := agent.NewServerWithIdentity(sock, "no-such-user-4f2a", "no-such-group-4f2a")
 	agent.RegisterBuiltinOps(srv)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(ctx) }()

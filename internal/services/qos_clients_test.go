@@ -125,7 +125,7 @@ func TestAppendHistoryRingBufferTrimsAndPrunes(t *testing.T) {
 	mac := "aa:bb:cc:dd:ee:01"
 
 	// Push qosRingSize+5 samples; the buffer should max out at qosRingSize.
-	for i := 0; i < qosRingSize+5; i++ {
+	for range qosRingSize + 5 {
 		s.appendHistoryLocked([]ClientUsage{{MAC: mac}})
 	}
 	if got := len(s.history[mac]); got != qosRingSize {
