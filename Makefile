@@ -133,8 +133,26 @@ release-all:
 	$(MAKE) -j 4 release-amd64 release-arm64 iso-amd64 iso-arm64
 	$(MAKE) checksums VERSION=$(VERSION)
 
+# `[ -f "$$f" ] && shasum ...` made the loop's exit status the status of
+# its last iteration. `make release` builds tarballs and no ISOs, so the
+# ISO pattern never matched, the final test was false, and the recipe
+# failed after having written a perfectly good SHA256SUMS. An `if`
+# reports success when its condition is false, so an absent artifact is
+# no longer an error while a failing shasum still is.
+#
+# An empty result is refused rather than published: a SHA256SUMS that
+# lists nothing looks like a release whose artifacts all verify.
 checksums:
-	@cd dist && { for f in $(BINARY)-$(VERSION)-linux-*.tar.gz $(BINARY)-$(VERSION)-installer-*.iso; do [ -f "$$f" ] && shasum -a 256 "$$f"; done; } > SHA256SUMS
+	@cd dist && { \
+	    for f in $(BINARY)-$(VERSION)-linux-*.tar.gz $(BINARY)-$(VERSION)-installer-*.iso; do \
+	        if [ -f "$$f" ]; then shasum -a 256 "$$f" || exit 1; fi; \
+	    done; \
+	} > SHA256SUMS
+	@test -s dist/SHA256SUMS || { \
+	    rm -f dist/SHA256SUMS; \
+	    echo "ERROR: no release artifacts found for $(VERSION)" >&2; \
+	    exit 1; \
+	}
 	@echo "Checksums: dist/SHA256SUMS"
 
 check:

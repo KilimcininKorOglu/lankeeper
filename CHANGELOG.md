@@ -568,6 +568,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(build) `make release` completes instead of failing at the last
+  step**: the `checksums` recipe looped `[ -f "$f" ] && shasum ...`,
+  which made the loop's exit status the status of its final iteration.
+  `make release` builds tarballs and no ISOs, so the ISO pattern never
+  matched, the last test was false, and the target failed after having
+  written a perfectly good `SHA256SUMS`. The documented archives-only
+  release therefore could not complete. An absent artifact is no longer
+  an error while a failing `shasum` still is, and a checksum file that
+  lists nothing is refused rather than published, since it reads as a
+  release whose artifacts all verify.
+
 - **(web) The rate limiter's cleanup ticker can be stopped**: the
   sweeper ran `for range ticker.C` with no cancellation input, so
   nothing short of process exit could end it and every limiter ever
