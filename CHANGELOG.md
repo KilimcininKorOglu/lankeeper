@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(deploy) Password-authenticated root SSH is no longer the shipped
+  default**: the installer forced `PermitRootLogin yes` and
+  `PasswordAuthentication yes` unconditionally, so every device built
+  from this image shipped with password-guessable root SSH without the
+  operator opting in. The bootstrap ruleset confined SSH to the LAN, but
+  that is a network-layer control standing in for an
+  authentication-layer default: on a WAN-facing gateway, any later
+  misconfiguration of the LAN and WAN boundary exposes it rather than
+  failing closed. Root now defaults to key-only access
+  (`PermitRootLogin prohibit-password`), `PasswordAuthentication` is
+  left at Debian's own default, and the installer asks whether password
+  root login should be enabled, defaulting to no. A missing or
+  unrecognised answer is never read as consent.
+
 - **(deploy) The source Debian image is verified before extraction**:
   the ISO build checked only that the file existed, then handed it to
   `xorriso`, and on arm64 also to `fdisk` and `dd` at raw byte offsets.

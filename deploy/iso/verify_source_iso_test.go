@@ -222,7 +222,7 @@ func TestTheShippedChecksumFileCoversBothDefaultImages(t *testing.T) {
 
 	// Every digest line must carry a full SHA512, so a truncated paste
 	// cannot silently match a prefix.
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue

@@ -351,14 +351,47 @@ if command -v update-grub >/dev/null 2>&1; then
     update-grub >/dev/null 2>&1 || true
 fi
 
-# SSH hardening — ensure PermitRootLogin yes / PasswordAuthentication yes
-# regardless of whether the line is currently commented or not. The
-# bootstrap nftables ruleset above already restricts SSH to the LAN
-# subnet, and the agent's live ruleset takes over from there.
-sed -i -E 's|^[[:space:]]*#?[[:space:]]*PermitRootLogin[[:space:]].*|PermitRootLogin yes|' /etc/ssh/sshd_config
-sed -i -E 's|^[[:space:]]*#?[[:space:]]*PasswordAuthentication[[:space:]].*|PasswordAuthentication yes|' /etc/ssh/sshd_config
-grep -q '^PermitRootLogin ' /etc/ssh/sshd_config || echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
-grep -q '^PasswordAuthentication ' /etc/ssh/sshd_config || echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
+# configure_ssh_root_access writes the root SSH policy, keyed on what the
+# installer asked for. Either way the directive is written explicitly, so
+# the outcome does not depend on which line Debian happened to ship
+# commented out.
+#
+# The default is key-only. This appliance is a WAN-facing gateway, and
+# the bootstrap ruleset that confined SSH to the LAN is a network-layer
+# control standing in for an authentication-layer one: any later
+# misconfiguration of the LAN and WAN boundary, an interface reassignment
+# or a subnet change, would expose password-guessable root SSH rather
+# than failing closed. Key-based root access still works, so the safer
+# default costs an operator who uses keys nothing.
+#
+# PasswordAuthentication is left at Debian's own default in that case.
+# The only other account the installer creates has a locked password, so
+# there is nothing for it to admit.
+configure_ssh_root_access() {
+    ssh_answer_file="${1:-/tmp/ssh-root-password.txt}"
+    ssh_config_file="${2:-/etc/ssh/sshd_config}"
+    ssh_root_password=false
+
+    if [ -s "$ssh_answer_file" ] && [ "$(cat "$ssh_answer_file")" = "true" ]; then
+        ssh_root_password=true
+    fi
+
+    if [ "$ssh_root_password" = true ]; then
+        sed -i -E 's|^[[:space:]]*#?[[:space:]]*PermitRootLogin[[:space:]].*|PermitRootLogin yes|' "$ssh_config_file"
+        sed -i -E 's|^[[:space:]]*#?[[:space:]]*PasswordAuthentication[[:space:]].*|PasswordAuthentication yes|' "$ssh_config_file"
+        grep -q '^PermitRootLogin ' "$ssh_config_file" || echo "PermitRootLogin yes" >> "$ssh_config_file"
+        grep -q '^PasswordAuthentication ' "$ssh_config_file" || echo "PasswordAuthentication yes" >> "$ssh_config_file"
+        echo "  SSH: root may log in with a password (chosen during installation)"
+        return
+    fi
+
+    sed -i -E 's|^[[:space:]]*#?[[:space:]]*PermitRootLogin[[:space:]].*|PermitRootLogin prohibit-password|' "$ssh_config_file"
+    grep -q '^PermitRootLogin ' "$ssh_config_file" || echo "PermitRootLogin prohibit-password" >> "$ssh_config_file"
+    echo "  SSH: root may log in with a key only"
+}
+
+configure_ssh_root_access
+rm -f /tmp/ssh-root-password.txt
 
 # Generate initial self-signed TLS certificate so the web service can start
 # immediately on first boot. The dedicated `gen-cert` subcommand writes the
