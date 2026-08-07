@@ -89,6 +89,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the way to revoke an invite already handed out. Established tunnels
   authenticate with WireGuard keys and are unaffected by a rotation.
 
+- **(nas) The M3U download path is cleaned before it is confined**: each
+  source was gated with a literal prefix test against the raw configured
+  string. A value like `/srv/../../etc/cron.d` satisfies that test
+  verbatim while resolving elsewhere, and the kernel resolves the dot
+  segments at syscall time, so directory creation and `.strm` writes
+  genuinely landed outside `/srv` and `/mnt`. The whole file contained
+  no `filepath.Clean` call. Reaching it needs an authenticated admin,
+  since no web form writes the field and the only way to set it is
+  restoring a crafted config, and the writes run as the unprivileged
+  service account rather than through the agent, so the blast radius is
+  that account's permissions. The check now runs the character set
+  against the raw value and the prefix against the cleaned one, and the
+  sync uses the cleaned path from that point on. The share handler,
+  which had the correct sequence and was the code this was copied from,
+  now calls the same helper so the two cannot drift apart again.
+
 - **(openvpn) The client name is validated everywhere it is used**: the
   handler file defined a character allowlist and applied it when adding
   a client and when downloading a profile, but the revoke, connect and

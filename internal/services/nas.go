@@ -3,6 +3,7 @@ package services
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -196,8 +197,11 @@ func (s *NASService) SyncM3U(ctx context.Context) error {
 	var totalItems, totalErrors int
 
 	for _, source := range s.cfg.NAS.M3USources {
-		if !strings.HasPrefix(source.DownloadPath, "/srv/") && !strings.HasPrefix(source.DownloadPath, "/mnt/") {
-			log.Printf("m3u download path rejected (must be under /srv/ or /mnt/): %s", source.DownloadPath)
+		// downloadPath, not source.DownloadPath, is used from here on:
+		// the cleaned form is the one that was checked.
+		downloadPath, err := ValidateMediaPath(source.DownloadPath)
+		if err != nil {
+			log.Printf("m3u download path rejected: %v", err)
 			totalErrors++
 			continue
 		}
@@ -210,13 +214,13 @@ func (s *NASService) SyncM3U(ctx context.Context) error {
 		}
 
 		filtered := filterM3UItems(items, source.IncludeGroups, source.ExcludeGroups)
-		if err := os.MkdirAll(source.DownloadPath, 0o755); err != nil {
-			log.Printf("m3u sync: mkdir %s: %v", source.DownloadPath, err)
+		if err := os.MkdirAll(downloadPath, 0o755); err != nil {
+			log.Printf("m3u sync: mkdir %s: %v", downloadPath, err)
 			continue
 		}
 
 		for _, item := range filtered {
-			groupDir, err := containedJoin(source.DownloadPath, sanitizePath(item.Group))
+			groupDir, err := containedJoin(downloadPath, sanitizePath(item.Group))
 			if err != nil {
 				log.Printf("m3u sync: rejected group from %s: %v", source.URL, err)
 				totalErrors++
@@ -451,6 +455,38 @@ func (s *NASService) DiscoverM3UGroups(ctx context.Context, sourceURL string) ([
 
 	sort.Strings(groups)
 	return groups, nil
+}
+
+// Sentinels so a caller can tell the two rejection reasons apart and
+// report each one distinctly.
+var (
+	ErrMediaPathCharacters = errors.New("path contains characters that are not allowed")
+	ErrMediaPathPrefix     = errors.New("path must live under /srv/ or /mnt/")
+)
+
+// ValidateMediaPath checks a filesystem path that is meant to live
+// inside the media roots and returns the cleaned form to use from then
+// on.
+//
+// The order matters and is the reason this is one function rather than
+// a rule each caller reimplements. The character set is checked on the
+// RAW value, because filepath.Clean collapses dot segments but preserves
+// control characters. The prefix test then runs on the CLEANED value,
+// because a raw string like "/srv/../../etc/cron.d" passes a literal
+// prefix test while resolving elsewhere, and the kernel resolves those
+// segments at syscall time. Testing the raw string was exactly the step
+// the M3U sync path was missing.
+//
+// Callers must use the returned path, not the one they passed in.
+func ValidateMediaPath(raw string) (string, error) {
+	if err := netutil.ValidateFilesystemPath(raw); err != nil {
+		return "", fmt.Errorf("%w: %v", ErrMediaPathCharacters, err)
+	}
+	clean := filepath.Clean(raw)
+	if !strings.HasPrefix(clean, "/srv/") && !strings.HasPrefix(clean, "/mnt/") {
+		return "", fmt.Errorf("%w: %s", ErrMediaPathPrefix, clean)
+	}
+	return clean, nil
 }
 
 // sanitizePath turns an arbitrary string into a single safe path

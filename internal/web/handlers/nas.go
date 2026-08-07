@@ -1,18 +1,16 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"html"
 	"log"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"regexp"
-	"strings"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/i18n"
-	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 	"github.com/KilimcininKorOglu/lankeeper/internal/services"
 	"github.com/KilimcininKorOglu/lankeeper/internal/tmpl"
 )
@@ -67,18 +65,20 @@ func (h *NASHandler) HandleAddShare(w http.ResponseWriter, r *http.Request) {
 		clientError(w, r, http.StatusBadRequest, "error.pathRequired")
 		return
 	}
-	// Check the character set on the raw value, before Clean. The path is
-	// rendered into an unquoted smb.conf directive, and Clean preserves
-	// control characters, so a newline here would start a new directive
-	// inside the share stanza.
-	if netutil.ValidateFilesystemPath(rawPath) != nil {
+	// One helper rather than a rule per call site. The order inside it
+	// matters (character set on the raw value, prefix on the cleaned
+	// one), and the M3U sync path proved that a reimplementation loses
+	// a step.
+	path, err := services.ValidateMediaPath(rawPath)
+	switch {
+	case errors.Is(err, services.ErrMediaPathCharacters):
 		clientError(w, r, http.StatusBadRequest, "error.pathCharacters")
 		return
-	}
-
-	path := filepath.Clean(rawPath)
-	if !strings.HasPrefix(path, "/srv/") && !strings.HasPrefix(path, "/mnt/") {
+	case errors.Is(err, services.ErrMediaPathPrefix):
 		clientError(w, r, http.StatusBadRequest, "error.pathPrefix")
+		return
+	case err != nil:
+		clientError(w, r, http.StatusBadRequest, "error.pathCharacters")
 		return
 	}
 
