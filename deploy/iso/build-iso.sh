@@ -38,13 +38,80 @@ if [[ ! -f "$DEBIAN_ISO" ]]; then
     exit 1
 fi
 
+CHECKSUM_FILE="${DEBIAN_ISO_CHECKSUMS:-$SCRIPT_DIR/debian-images.sha512}"
+
+# verify_source_iso refuses to hand an unrecognised image to the parsers
+# that follow.
+#
+# The image is fed to xorriso, and on arm64 also to fdisk and dd at raw
+# byte offsets. Those are C parsers with a long history of ISO9660 and
+# partition-table issues, and they run in a container with the whole
+# repository bind-mounted writable, so a repackaged installer reaches the
+# source tree rather than being confined to the image. Existence was the
+# only check: the path is operator-supplied and nothing established where
+# the file came from.
+#
+# DEBIAN_ISO_SHA512 lets a maintainer build from a point release the
+# checksum file does not list yet, but it demands the digest rather than
+# offering to skip the check, so the build stays closed by default.
+verify_source_iso() {
+    local iso="$1"
+    local actual expected
+    actual="$(sha512sum "$iso" | cut -d' ' -f1)"
+
+    expected="$(printf '%s' "${DEBIAN_ISO_SHA512:-}" | tr '[:upper:]' '[:lower:]')"
+    if [[ -n "$expected" ]]; then
+        if [[ "$expected" != "$actual" ]]; then
+            echo "ERROR: source image does not match DEBIAN_ISO_SHA512" >&2
+            echo "  image:    $iso" >&2
+            echo "  expected: $expected" >&2
+            echo "  actual:   $actual" >&2
+            exit 1
+        fi
+        echo "  Source image matches the digest supplied in DEBIAN_ISO_SHA512."
+        return
+    fi
+
+    if [[ ! -f "$CHECKSUM_FILE" ]]; then
+        echo "ERROR: checksum file not found: $CHECKSUM_FILE" >&2
+        echo "The source image cannot be verified without it." >&2
+        exit 1
+    fi
+
+    if grep -qi "^${actual}[[:space:]]" "$CHECKSUM_FILE"; then
+        echo "  Source image matches a known-good Debian digest."
+        return
+    fi
+
+    echo "ERROR: source image is not one this build recognises" >&2
+    echo "  image:  $iso" >&2
+    echo "  sha512: $actual" >&2
+    echo "" >&2
+    echo "Nothing here establishes where that file came from, and it is about" >&2
+    echo "to be parsed by xorriso (and fdisk on arm64) inside a container with" >&2
+    echo "this repository mounted writable." >&2
+    echo "" >&2
+    echo "To build from a Debian release the checksum file does not list yet:" >&2
+    echo "  1. Fetch SHA512SUMS and SHA512SUMS.sign from cdimage.debian.org" >&2
+    echo "     for that release and architecture." >&2
+    echo "  2. gpg --verify SHA512SUMS.sign SHA512SUMS" >&2
+    echo "     The signer must be the Debian CD signing key," >&2
+    echo "     DF9B9C49 EAA92984 32589D76 DA87E80D 6294BE9B." >&2
+    echo "  3. Add the digest from the signed list to:" >&2
+    echo "     $CHECKSUM_FILE" >&2
+    echo "" >&2
+    echo "For a one-off build, pass the digest from that signed list as" >&2
+    echo "DEBIAN_ISO_SHA512 instead." >&2
+    exit 1
+}
+
 if [[ ! -f "$BINARY_PATH" ]]; then
     echo "ERROR: Binary not found: $BINARY_PATH"
     echo "Run 'make cross-$ARCH' first to build the Linux $ARCH binary."
     exit 1
 fi
 
-for cmd in apt-cache apt-get dpkg dpkg-scanpackages xorriso; do
+for cmd in apt-cache apt-get dpkg dpkg-scanpackages xorriso sha512sum; do
     if ! command -v "$cmd" &>/dev/null; then
         echo "ERROR: $cmd is required. Install with: apt install $cmd"
         exit 1
@@ -116,6 +183,7 @@ mkdir -p "$(dirname "$OUTPUT_ISO")"
 mkdir -p "$PACKAGE_REPO_DIR"
 
 echo "[1/7] Extracting Debian ISO..."
+verify_source_iso "$DEBIAN_ISO"
 xorriso -osirrox on -indev "$DEBIAN_ISO" -extract / "$BUILD_DIR/iso" 2>/dev/null
 chmod -R +w "$BUILD_DIR/iso"
 

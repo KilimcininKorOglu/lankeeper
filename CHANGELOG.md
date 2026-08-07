@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(deploy) The source Debian image is verified before extraction**:
+  the ISO build checked only that the file existed, then handed it to
+  `xorriso`, and on arm64 also to `fdisk` and `dd` at raw byte offsets.
+  Those are C parsers with a long history of ISO9660 and partition-table
+  issues, and they run in a container with the whole repository
+  bind-mounted writable, so a repackaged installer image reaches the
+  source tree rather than being confined to the image. The path is
+  operator-supplied and nothing established where the file came from.
+  The build now refuses any image whose SHA512 is not listed in
+  `deploy/iso/debian-images.sha512`, whose digests were taken from
+  Debian's published lists after verifying each list against its
+  detached signature with the Debian CD signing key. `DEBIAN_ISO_SHA512`
+  allows a one-off build from a newer point release, but it demands the
+  expected digest rather than offering to skip the check.
+
 - **(auth) Repeated failed logins now cost more and are named in the
   log**: the rate limiter was the only control on the login route, and
   it paces a correct password and a wrong one identically, so a guessing

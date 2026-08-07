@@ -1,0 +1,33 @@
+# Known-good SHA512 digests for the Debian netinst images this installer
+# is built from. build-iso.sh refuses to extract a source image whose
+# digest is not listed here.
+#
+# The build feeds the source image to xorriso, and on arm64 also to fdisk
+# and dd at raw byte offsets. Those are C parsers with a long history of
+# ISO9660 and partition-table issues, and they run in a container with
+# the whole repository bind-mounted writable, so a repackaged installer
+# image reaches the source tree rather than being confined to the image.
+# Existence was the only check before this file existed.
+#
+# Provenance of every digest below:
+#
+#   1. Fetched from Debian's published checksum lists:
+#        https://cdimage.debian.org/cdimage/archive/12.10.0/amd64/iso-cd/SHA512SUMS
+#        https://cdimage.debian.org/cdimage/archive/12.10.0/arm64/iso-cd/SHA512SUMS
+#   2. Verified each list against its detached SHA512SUMS.sign with the
+#      Debian CD signing key, fingerprint
+#        DF9B9C49 EAA92984 32589D76 DA87E80D 6294BE9B
+#        Debian CD signing key <debian-cd@lists.debian.org>
+#      obtained from keyring.debian.org.
+#   3. Copied the digests verbatim from the signed lists.
+#
+# To add a newer point release, repeat those three steps. Do not add a
+# digest computed from an image you already have on disk: that pins
+# whatever you were given and proves nothing.
+#
+# Format is `<sha512>  <image>`, the same as sha512sum output. Only the
+# digest is matched; the filename is a label, because the build receives
+# the image at whatever path the caller supplies.
+
+cb089def0684fd93c9c2fbe45fd16ecc809c949a6fd0c91ee199faefe7d4b82b64658a264a13109d59f1a40ac3080be2f7bd3d8bf3e9cdf509add6d72576a79b  debian-12.10.0-amd64-netinst.iso
+022895e699231c94abf7012f86cabc587dc576f07f856c87609d5d40c1f921d805a5a862cba94c1a47d09aaa565ec445222e338e73d1fa1affc4fc5908bb50ad  debian-12.10.0-arm64-netinst.iso
