@@ -130,6 +130,10 @@ func (h *OpenVPNHandler) HandleDownloadOVPN(w http.ResponseWriter, r *http.Reque
 	}
 
 	setSecretDownloadHeaders(w, "application/x-openvpn-profile", name+".ovpn")
+	// Not an HTML context: setSecretDownloadHeaders sets an
+	// attachment disposition and a non-HTML content type, and
+	// SecurityHeaders adds nosniff globally.
+	// #nosec G705
 	_, _ = w.Write([]byte(ovpnContent))
 }
 

@@ -150,6 +150,8 @@ func generateSelfSigned(cfg *TLSConfig, certPath, keyPath string) (*TLSCertInfo,
 }
 
 func readCertInfo(certPath, keyPath string) (*TLSCertInfo, error) {
+	// certPath comes from the parsed config, not from a request.
+	// #nosec G304
 	certPEM, err := os.ReadFile(certPath)
 	if err != nil {
 		return nil, fmt.Errorf("read cert: %w", err)

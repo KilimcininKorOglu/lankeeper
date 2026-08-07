@@ -134,6 +134,8 @@ func uploadSFTP(ctx context.Context, srcPath string, t config.BackupTarget) (str
 		}
 	}
 
+	// srcPath is the archive this service just produced.
+	// #nosec G304
 	src, err := os.Open(srcPath)
 	if err != nil {
 		return "", err

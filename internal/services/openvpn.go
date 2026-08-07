@@ -571,6 +571,9 @@ func (s *OpenVPNService) DisconnectClient(ctx context.Context, name string) erro
 	}
 
 	pidFile := fmt.Sprintf("/var/run/openvpn-%s.pid", name)
+	// pidFile is built from a client name matched against the
+	// configured client list first.
+	// #nosec G304
 	pidData, err := os.ReadFile(pidFile)
 	if err == nil {
 		pid := strings.TrimSpace(string(pidData))

@@ -95,6 +95,9 @@ func (s *BackupService) Export(ctx context.Context, outputPath, passphrase strin
 	}
 
 	if passphrase != "" {
+		// outputPath is composed by the caller from os.TempDir or a
+		// whitelisted backup directory; no caller passes request input.
+		// #nosec G304
 		plaintext, err := os.ReadFile(outputPath)
 		if err != nil {
 			return fmt.Errorf("read archive for encryption: %w", err)
@@ -105,6 +108,10 @@ func (s *BackupService) Export(ctx context.Context, outputPath, passphrase strin
 			return fmt.Errorf("encrypt backup: %w", err)
 		}
 
+		// The taint is the exported parameter, not a request value.
+		// All four callers build the path themselves from os.TempDir,
+		// os.CreateTemp or the backups directory.
+		// #nosec G703
 		if err := os.WriteFile(outputPath, encrypted, 0o600); err != nil {
 			return fmt.Errorf("write encrypted backup: %w", err)
 		}
@@ -255,6 +262,9 @@ func (b *importBudget) countBytes(name string, n int64) error {
 }
 
 func (s *BackupService) Import(ctx context.Context, archivePath, passphrase string) error {
+	// archivePath is the temp file the upload handler created
+	// with os.CreateTemp.
+	// #nosec G304
 	data, err := os.ReadFile(archivePath)
 	if err != nil {
 		return fmt.Errorf("read backup: %w", err)
@@ -265,11 +275,16 @@ func (s *BackupService) Import(ctx context.Context, archivePath, passphrase stri
 		if err != nil {
 			return fmt.Errorf("decrypt backup: %w", err)
 		}
+		// Same temp file the handler created; the uploaded name never
+		// reaches this path.
+		// #nosec G703
 		if err := os.WriteFile(archivePath, decrypted, 0o600); err != nil {
 			return fmt.Errorf("write decrypted backup: %w", err)
 		}
 	}
 
+	// Same os.CreateTemp path as above.
+	// #nosec G304
 	f, err := os.Open(archivePath)
 	if err != nil {
 		return fmt.Errorf("open backup: %w", err)

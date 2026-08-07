@@ -2,6 +2,9 @@ package services
 
 import (
 	"context"
+	// Imported for a non-cryptographic label hash only; see the
+	// call sites for why collision resistance does not apply.
+	// #nosec G505
 	"crypto/sha1"
 	"encoding/hex"
 	"strings"
@@ -210,10 +213,17 @@ func (s *MetricsService) collect(ctx context.Context) MetricsSnapshot {
 	}
 	if s.dns != nil {
 		if stats, err := s.dns.GetStats(ctx); err == nil && stats != nil {
-			snap.DNSQueriesTotal = uint64(stats.TotalQueries)
-			snap.DNSCacheHitsTotal = uint64(stats.CacheHits)
-			snap.DNSCacheMissesTotal = uint64(stats.CacheMisses)
-			snap.DNSBlockedTotal = uint64(stats.BlockedCount)
+			// Clamped rather than converted straight through.
+			// The counts come from `unbound-control stats_noreset`
+			// via Sscanf, which leaves the field untouched on a
+			// malformed value and would happily scan a negative
+			// one. uint64(-1) is 1.8e19, which Prometheus would
+			// take as a real counter value and rate() would turn
+			// into a spike no operator could explain.
+			snap.DNSQueriesTotal = uint64(max(stats.TotalQueries, 0))
+			snap.DNSCacheHitsTotal = uint64(max(stats.CacheHits, 0))
+			snap.DNSCacheMissesTotal = uint64(max(stats.CacheMisses, 0))
+			snap.DNSBlockedTotal = uint64(max(stats.BlockedCount, 0))
 		}
 	}
 	if s.qos != nil {
@@ -309,6 +319,10 @@ func ipv6StateFromCfg(cfg *config.Config) (int, string) {
 // hasn't named devices; the hash keeps cardinality bounded even
 // when MACs spoof.
 func macHash(mac string) string {
+	// Not cryptographic. The MAC is hashed only to give each
+	// client a stable, non-identifying metric label and to bound
+	// cardinality. Collision resistance is irrelevant here.
+	// #nosec G401
 	h := sha1.Sum([]byte(strings.ToLower(strings.ReplaceAll(mac, ":", ""))))
 	return hex.EncodeToString(h[:4])
 }
@@ -325,6 +339,10 @@ func macHash(mac string) string {
 // disclosure. The hash keeps each peer a distinct, stable series
 // without naming it.
 func peerHash(name string) string {
+	// Not cryptographic. The peer name is hashed so the
+	// unauthenticated /metrics endpoint carries a stable series
+	// key instead of an operator-assigned name.
+	// #nosec G401
 	h := sha1.Sum([]byte(name))
 	return hex.EncodeToString(h[:4])
 }

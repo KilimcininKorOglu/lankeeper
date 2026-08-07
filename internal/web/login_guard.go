@@ -159,9 +159,14 @@ func (g *loginGuard) RecordSuccess(ip string) {
 // word and the count in one place.
 func logAuthFailure(ip string, failures int, lockout time.Duration) {
 	if lockout > 0 {
+		// ip comes from net.SplitHostPort on RemoteAddr, which the
+		// kernel supplies. No forwarded header is trusted here.
+		// #nosec G706
 		log.Printf("auth: failed login from %s (%d consecutive), locked out for %s", ip, failures, lockout)
 		return
 	}
+	// Same kernel-supplied address as above.
+	// #nosec G706
 	log.Printf("auth: failed login from %s (%d consecutive)", ip, failures)
 }
 

@@ -909,6 +909,9 @@ func (s *IPv6Service) StartLeaseWatcher(ctx context.Context, wg *sync.WaitGroup)
 
 	statePath := s.statePath()
 	stateDir := filepath.Dir(statePath)
+	// The DHCPv6 state directory is read by the lease watcher
+	// running as the service account.
+	// #nosec G301
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		return fmt.Errorf("ensure state dir %s: %w", stateDir, err)
 	}

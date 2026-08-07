@@ -98,6 +98,9 @@ func (h *VPNHandler) HandleAddPeer(w http.ResponseWriter, r *http.Request) {
 	confStr := h.vpn.GeneratePeerConfig(peer, privKey)
 
 	setSecretDownloadHeaders(w, "text/plain", name+".conf")
+	// Not an HTML context: attachment disposition, text/plain,
+	// and a global nosniff header.
+	// #nosec G705
 	_, _ = w.Write([]byte(confStr))
 }
 

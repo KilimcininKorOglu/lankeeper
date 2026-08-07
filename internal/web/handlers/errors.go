@@ -23,6 +23,10 @@ import (
 // sites, which forwarded the agent's text verbatim.
 func fail(w http.ResponseWriter, r *http.Request, status int, err error) {
 	if r != nil {
+		// EscapedPath percent-encodes CR and LF, and net/http only
+		// admits token characters in Method, so neither can break the
+		// line.
+		// #nosec G706
 		log.Printf("%s %s: %v", r.Method, r.URL.EscapedPath(), err)
 	} else {
 		log.Printf("request failed: %v", err)

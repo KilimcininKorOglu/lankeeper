@@ -159,6 +159,8 @@ func (s *DHCPService) GetLeases() ([]Lease, error) {
 }
 
 func ParseLeaseFile(path string) ([]Lease, error) {
+	// path is the dnsmasq lease file location, a constant.
+	// #nosec G304
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {

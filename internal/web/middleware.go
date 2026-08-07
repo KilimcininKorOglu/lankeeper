@@ -102,7 +102,16 @@ func rotateCSRFToken(w http.ResponseWriter) (string, error) {
 	}
 	token := hex.EncodeToString(b)
 
+	// HttpOnly is false on purpose: client code reads this
+	// cookie to echo it into the X-CSRF-Token header, which is
+	// the double-submit pattern. Secure and SameSite=Strict
+	// are set.
+	// #nosec G124
 	http.SetCookie(w, &http.Cookie{
+		// HttpOnly is false on purpose: client code reads this cookie
+		// to echo it into the X-CSRF-Token header, which is the
+		// double-submit pattern. Secure and SameSite=Strict are set.
+		// #nosec G124
 		Name:     "csrf_token",
 		Value:    token,
 		Path:     "/",
@@ -389,6 +398,9 @@ func RequestLogger(next http.Handler) http.Handler {
 		// EscapedPath keeps the on-the-wire form, which cannot carry
 		// raw control bytes, and shows the operator what was actually
 		// requested.
+		// EscapedPath percent-encodes CR and LF; Method is restricted
+		// by net/http; RemoteAddr is kernel-supplied.
+		// #nosec G706
 		log.Printf("%s %s %d %s %s", r.Method, r.URL.EscapedPath(), rec.statusOrDefault(), r.RemoteAddr, time.Since(start).Round(time.Millisecond))
 	})
 }

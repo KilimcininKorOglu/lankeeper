@@ -53,6 +53,11 @@ func RunLocal(ctx context.Context, name string, args ...string) (*ExecResult, er
 		defer cancel()
 	}
 
+	// This wrapper is the local-mode fallback used by tests and
+	// by the agent process itself. In production SetAgentClient
+	// routes the call over the UDS, where the agent checks the
+	// name against its whitelist before executing.
+	// #nosec G204
 	cmd := exec.CommandContext(ctx, name, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -120,6 +125,8 @@ func RunWithStdin(ctx context.Context, stdin string, name string, args ...string
 		ctx, cancel = context.WithTimeout(ctx, defaultTimeout)
 		defer cancel()
 	}
+	// Same local-mode fallback as Run, with stdin attached.
+	// #nosec G204
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin = strings.NewReader(stdin)
 	var stdout, stderr bytes.Buffer
@@ -152,6 +159,9 @@ func WriteFile(path string, content []byte, mode os.FileMode) error {
 		}
 		return nil
 	}
+	// Same reason as the agent side: system daemons read these
+	// directories as their own users.
+	// #nosec G301
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("mkdir parent: %w", err)
 	}
@@ -189,5 +199,9 @@ func ReadFile(path string) ([]byte, error) {
 		}
 		return []byte(result.Content), nil
 	}
+	// Local mode only, used by tests and by the agent process
+	// itself. In production this call is routed to the agent,
+	// which validates the path against allowedReadRules.
+	// #nosec G304
 	return os.ReadFile(path)
 }

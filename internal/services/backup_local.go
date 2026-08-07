@@ -73,12 +73,17 @@ func uploadLocal(ctx context.Context, srcPath string, t config.BackupTarget) (st
 	final := filepath.Join(dir, filepath.Base(srcPath))
 	tmp := final + ".tmp"
 
+	// srcPath is the archive this service just produced.
+	// #nosec G304
 	src, err := os.Open(srcPath)
 	if err != nil {
 		return "", fmt.Errorf("open src: %w", err)
 	}
 	defer func() { _ = src.Close() }()
 
+	// tmp is derived from the destination, which is confined to
+	// the whitelisted backups directory.
+	// #nosec G304
 	dst, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return "", fmt.Errorf("create tmp: %w", err)

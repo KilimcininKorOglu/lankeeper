@@ -73,6 +73,8 @@ func (c *s3Client) putObject(ctx context.Context, bucket, key, srcPath string) e
 	if err != nil {
 		return fmt.Errorf("hash %s: %w", srcPath, err)
 	}
+	// srcPath is the archive this service just produced.
+	// #nosec G304
 	f, err := os.Open(srcPath)
 	if err != nil {
 		return err
@@ -312,6 +314,8 @@ func hmacSHA256(key, data []byte) []byte {
 }
 
 func hashFileSHA256(path string) (string, int64, error) {
+	// path is the archive this service just produced.
+	// #nosec G304
 	f, err := os.Open(path)
 	if err != nil {
 		return "", 0, err

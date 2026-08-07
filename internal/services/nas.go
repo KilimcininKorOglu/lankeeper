@@ -214,6 +214,10 @@ func (s *NASService) SyncM3U(ctx context.Context) error {
 		}
 
 		filtered := filterM3UItems(items, source.IncludeGroups, source.ExcludeGroups)
+		// Media directories are served by smbd to LAN clients, so
+		// they have to be world-readable. Confined to /srv or /mnt
+		// by ValidateMediaPath.
+		// #nosec G301
 		if err := os.MkdirAll(downloadPath, 0o755); err != nil {
 			log.Printf("m3u sync: mkdir %s: %v", downloadPath, err)
 			continue
@@ -226,6 +230,8 @@ func (s *NASService) SyncM3U(ctx context.Context) error {
 				totalErrors++
 				continue
 			}
+			// Same: served by smbd, confined by ValidateMediaPath.
+			// #nosec G301
 			if err := os.MkdirAll(groupDir, 0o755); err != nil {
 				log.Printf("m3u sync: mkdir %s: %v", groupDir, err)
 				totalErrors++
@@ -238,6 +244,9 @@ func (s *NASService) SyncM3U(ctx context.Context) error {
 				totalErrors++
 				continue
 			}
+			// A .strm file is a playlist entry Kodi and smbd clients read.
+			// It holds a stream URL, not a credential.
+			// #nosec G306
 			if err := os.WriteFile(strmPath, []byte(item.URL+"\n"), 0o644); err != nil {
 				totalErrors++
 				continue

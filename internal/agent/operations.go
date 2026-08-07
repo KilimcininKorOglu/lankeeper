@@ -250,6 +250,11 @@ func opExecRun(ctx context.Context, raw json.RawMessage) (any, error) {
 		defer cancel()
 	}
 
+	// The variable command IS the design. cmdPath comes from
+	// allowedCommands above, a 46-entry whitelist checked before
+	// this line, and arguments are validated at the service
+	// boundary because the whitelist matches the base name only.
+	// #nosec G204
 	cmd := exec.CommandContext(ctx, cmdPath, params.Args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -309,6 +314,10 @@ func opFileWrite(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("write not allowed to path: %s", params.Path)
 	}
 
+	// params.Mode is a JSON field from an authenticated peer
+	// (root or the service account), and a zero or oversized
+	// value falls back to the 0o644 default on the next line.
+	// #nosec G115
 	mode := os.FileMode(params.Mode)
 	if mode == 0 {
 		mode = 0o644
@@ -318,6 +327,10 @@ func opFileWrite(_ context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	if params.MkdirP {
+		// 0755, not 0750: these are /etc directories whose files the
+		// system daemons read as their own unprivileged users.
+		// The path is confined by allowedWriteRules beforehand.
+		// #nosec G301
 		if err := os.MkdirAll(filepath.Dir(params.Path), 0o755); err != nil {
 			return nil, fmt.Errorf("mkdir parent: %w", err)
 		}
@@ -361,6 +374,9 @@ func opFileMkdir(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("mkdir not allowed for path: %s", params.Path)
 	}
 
+	// Same as the write path: an authenticated peer's mode,
+	// with a 0o755 default when it is zero.
+	// #nosec G115
 	mode := os.FileMode(params.Mode)
 	if mode == 0 {
 		mode = 0o755

@@ -2,6 +2,9 @@ package services
 
 import (
 	"context"
+	// Imported for a non-cryptographic counter id only; see
+	// counterID for why collision resistance does not apply.
+	// #nosec G505
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
@@ -22,10 +25,10 @@ import (
 const MaxQoSClients = 64
 
 const (
-	qosTableName  = "lankeeper_qos"
-	qosChainName  = "fwd"
-	qosTmpPath    = "/tmp/lankeeper-qos.nft"
-	qosRingSize   = 60
+	qosTableName = "lankeeper_qos"
+	qosChainName = "fwd"
+	qosTmpPath   = "/tmp/lankeeper-qos.nft"
+	qosRingSize  = 60
 )
 
 // ClientUsage is one snapshot of an individual MAC's traffic.
@@ -64,6 +67,9 @@ type nftJSONEnvelope struct {
 // the same counter.
 func counterID(mac string) string {
 	norm := strings.ToLower(strings.NewReplacer(":", "", "-", "").Replace(mac))
+	// Not cryptographic. The MAC is hashed only to derive an
+	// 8-character nftables counter id.
+	// #nosec G401
 	sum := sha1.Sum([]byte(norm))
 	return hex.EncodeToString(sum[:4])
 }

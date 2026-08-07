@@ -199,6 +199,10 @@ func (h *SystemHandler) HandleUpdateHostname(w http.ResponseWriter, r *http.Requ
 		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
+	// Both values passed a regex allowlist earlier in this
+	// handler: ValidateHostname and ValidateDomain. Neither can
+	// contain a line break.
+	// #nosec G706
 	log.Printf("hostname changed to %s.%s", hostname, h.cfg.System.Domain)
 
 	respondTrigger(w, r, "settingsUpdated", "/settings")
@@ -226,6 +230,9 @@ func (h *SystemHandler) HandleUpdateTimezone(w http.ResponseWriter, r *http.Requ
 		log.Printf("system: set timezone: %v", err)
 	}
 
+	// tz passed ValidateTimezone, a tz-database-name allowlist,
+	// earlier in this handler.
+	// #nosec G706
 	log.Printf("timezone changed to %s", tz)
 
 	respondTrigger(w, r, "settingsUpdated", "/settings")
@@ -287,6 +294,10 @@ const maxBackupFormMemory = 4 << 20
 
 func (h *SystemHandler) HandleImport(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBackupUploadBytes)
+	// Bounded on the line above: r.Body is already wrapped in
+	// http.MaxBytesReader, which is what the MaxBytesError branch
+	// below handles.
+	// #nosec G120
 	if err := r.ParseMultipartForm(maxBackupFormMemory); err != nil {
 		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			clientError(w, r, http.StatusRequestEntityTooLarge, "error.backupTooLarge")

@@ -19,6 +19,9 @@ func GenerateKey() ([]byte, error) {
 }
 
 func LoadKey(path string) ([]byte, error) {
+	// path is the credential key location, a package constant or
+	// the LANKEEPER_CONFIG_KEY override used by tests.
+	// #nosec G304
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read key file: %w", err)

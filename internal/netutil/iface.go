@@ -131,6 +131,9 @@ func isVirtualInterface(name string) bool {
 
 func readSysfs(iface, attr string) string {
 	path := filepath.Join("/sys/class/net", iface, attr)
+	// path is built from a /sys/class/net entry the kernel
+	// produced, not from request input.
+	// #nosec G304
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""

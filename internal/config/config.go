@@ -632,6 +632,9 @@ type RAIDConfig struct {
 var configMu sync.RWMutex
 
 func Load(path string) (*Config, error) {
+	// path is the config file location this process was started
+	// with, not request input.
+	// #nosec G304
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open config: %w", err)

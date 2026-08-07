@@ -152,3 +152,27 @@ func TestTheVersionedToolsAreStillInvoked(t *testing.T) {
 		}
 	}
 }
+
+// TestTheSecurityGatesAreWired keeps both scanners in the pipeline.
+// gosec earns its place only if it runs: every finding it reports today
+// is annotated at the line with a justification, so a non-zero exit
+// means something genuinely new, and that signal is worthless if the
+// job is quietly dropped.
+func TestTheSecurityGatesAreWired(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatalf("read ci.yml: %v", err)
+	}
+	body := string(raw)
+
+	for _, want := range []string{
+		"github.com/securego/gosec/v2/cmd/gosec@v",
+		"gosec ./...",
+		"golang.org/x/vuln/cmd/govulncheck@v",
+		"govulncheck ./...",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("ci.yml no longer contains %q", want)
+		}
+	}
+}

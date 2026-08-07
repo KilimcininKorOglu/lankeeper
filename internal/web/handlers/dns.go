@@ -100,6 +100,10 @@ func (h *DNSHandler) HandleProbeDoT(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintf(w, `<span class="badge badge-error">FAIL: %s</span>`, html.EscapeString(err.Error()))
 		return
 	}
+	// The only format argument is an int64 duration. The taint
+	// gosec followed is on the error branch above, which does
+	// pass through html.EscapeString.
+	// #nosec G705
 	_, _ = fmt.Fprintf(w, `<span class="badge badge-success">OK (%dms)</span>`, latency.Milliseconds())
 }
 
@@ -201,6 +205,10 @@ func (h *DNSHandler) HandleProbeDoH(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintf(w, `<span class="badge badge-error">FAIL: %s</span>`, html.EscapeString(err.Error()))
 		return
 	}
+	// The only format argument is an int64 duration. The taint
+	// gosec followed is on the error branch above, which does
+	// pass through html.EscapeString.
+	// #nosec G705
 	_, _ = fmt.Fprintf(w, `<span class="badge badge-success">OK (%dms)</span>`, latency.Milliseconds())
 }
 

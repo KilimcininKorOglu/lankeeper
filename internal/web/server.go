@@ -429,6 +429,10 @@ func (s *Server) Serve(ctx context.Context) error {
 		log.Printf("ipv6: start lease watcher: %v", err)
 	}
 
+	// This goroutine IS the shutdown watcher. It waits on the
+	// server's own lifetime context, so a request-scoped one
+	// would cancel it the moment the triggering request ended.
+	// #nosec G118
 	go func() {
 		<-ctx.Done()
 		close(stopMonitor)
@@ -793,7 +797,15 @@ func (s *Server) handleLangSwitch(w http.ResponseWriter, r *http.Request) {
 		lang = s.loc.Fallback()
 	}
 
+	// HttpOnly is false on purpose: the language toggle reads
+	// this cookie. It holds a locale code, not a secret, and
+	// Secure with SameSite=Strict are both set.
+	// #nosec G124
 	http.SetCookie(w, &http.Cookie{
+		// HttpOnly is false on purpose: the language toggle reads this
+		// cookie. It holds a locale code, not a secret. Secure and
+		// SameSite=Strict are set.
+		// #nosec G124
 		Name:     "lang",
 		Value:    lang,
 		Path:     "/",

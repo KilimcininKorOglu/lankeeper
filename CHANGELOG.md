@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(ci) gosec runs as a pinned gate and every finding is triaged**:
+  the scanner reported 64 findings and nothing consumed them, so a
+  genuinely new one would have been indistinguishable from the standing
+  noise. Each is now annotated at the line with the reason it is safe:
+  the agent's whitelisted `exec` indirection, SHA1 used only to derive
+  metric labels and nftables counter ids, the 0660 socket that is the
+  privilege boundary, `EscapedPath` and the regex allowlists that gosec
+  cannot follow, and the deliberately non-`HttpOnly` cookies the client
+  must read. The DNS counters were the one exception and got a real fix
+  rather than an annotation: they were converted to `uint64` unchecked,
+  so a negative value from the stats parser would have published a
+  1.8e19 counter. gosec is wired into CI at a pinned version, since the
+  annotations only pay for themselves if something reads the exit code.
+
 - **(update) The release tag is validated before it becomes a path**:
   `CheckForUpdate` decoded `tag_name` straight from the GitHub Releases
   API and used it unchecked at seven sites, one of which interpolates it

@@ -541,6 +541,9 @@ func writeLP(buf *bytes.Buffer, payload []byte) {
 		// shouldn't ever reach this in practice.
 		payload = payload[:0x7f]
 	}
+	// payload is truncated to 0x7f on the lines above, so the
+	// conversion is bounded by construction.
+	// #nosec G115
 	buf.WriteByte(byte(len(payload)))
 	buf.Write(payload)
 }

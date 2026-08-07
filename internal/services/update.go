@@ -314,6 +314,10 @@ func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error
 	watchCtx, cancel := context.WithCancel(context.Background())
 	s.watchdogCancel = cancel
 
+	// The watchdog deliberately outlives the request. It must
+	// still be able to roll the binary back after the HTTP
+	// response has been written and the client has gone.
+	// #nosec G118
 	go s.watchdog(watchCtx, updateConfirmWindow)
 
 	log.Printf("update to %s applied, waiting for confirmation (60s watchdog)", info.LatestVersion)
@@ -511,6 +515,10 @@ func (s *UpdateService) runBinaryVersion(ctx context.Context) (string, error) {
 		defer cancel()
 	}
 
+	// binaryPath is a field set at construction to the install
+	// location, never request input, and the argument is a
+	// literal.
+	// #nosec G204
 	out, err := exec.CommandContext(ctx, s.binaryPath, "version").CombinedOutput()
 	return string(out), err
 }
@@ -579,6 +587,8 @@ func (s *UpdateService) downloadFile(ctx context.Context, url, dest string, decl
 		return fmt.Errorf("download returned %d", resp.StatusCode)
 	}
 
+	// dest is the download path this service composed.
+	// #nosec G304
 	f, err := os.Create(dest)
 	if err != nil {
 		return err
@@ -599,6 +609,8 @@ func (s *UpdateService) downloadFile(ctx context.Context, url, dest string, decl
 }
 
 func (s *UpdateService) extractBinary(archivePath, destPath string) error {
+	// archivePath is the archive this service just downloaded.
+	// #nosec G304
 	f, err := os.Open(archivePath)
 	if err != nil {
 		return err
@@ -629,6 +641,8 @@ func (s *UpdateService) extractBinary(archivePath, destPath string) error {
 				return fmt.Errorf("%w: archive entry declares %d bytes, limit is %d",
 					errUpdateTooLarge, header.Size, int64(maxUpdateBinaryBytes))
 			}
+			// destPath is the extraction target this service composed.
+			// #nosec G304
 			out, err := os.Create(destPath)
 			if err != nil {
 				return err
@@ -641,6 +655,9 @@ func (s *UpdateService) extractBinary(archivePath, destPath string) error {
 			if err := out.Close(); err != nil {
 				return fmt.Errorf("close binary: %w", err)
 			}
+			// 0755 is required: this is the replacement binary and it has
+			// to be executable.
+			// #nosec G302
 			if err := os.Chmod(destPath, 0o755); err != nil {
 				return fmt.Errorf("chmod binary: %w", err)
 			}
@@ -711,6 +728,8 @@ func (s *UpdateService) verifyChecksum(ctx context.Context, info *UpdateInfo, ar
 		return fmt.Errorf("no checksum found for %s in release checksum file", archiveName)
 	}
 
+	// archivePath is the archive this service just downloaded.
+	// #nosec G304
 	f, err := os.Open(archivePath)
 	if err != nil {
 		return fmt.Errorf("open archive for checksum: %w", err)

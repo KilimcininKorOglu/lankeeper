@@ -424,7 +424,14 @@ func (s *DNSService) ProbeDoT(ctx context.Context, upstream string) (time.Durati
 	}
 	// DoT prefixes each message with a 2-byte length (RFC 7858).
 	frame := make([]byte, 2+len(wire))
+	// wire is a single-question query this function packs itself,
+	// a few dozen bytes, so the RFC 7858 length prefix cannot
+	// overflow.
+	// #nosec G115
 	frame[0] = byte(len(wire) >> 8)
+	// Low byte of the same self-packed query length; the high
+	// byte above carries the reasoning.
+	// #nosec G115
 	frame[1] = byte(len(wire))
 	copy(frame[2:], wire)
 	if _, err := conn.Write(frame); err != nil {
@@ -705,6 +712,8 @@ func (s *DNSService) tailQueryLog(ctx context.Context) {
 		default:
 		}
 
+		// logPath is the unbound log location from the parsed config.
+		// #nosec G304
 		f, err := os.Open(logPath)
 		if err != nil {
 			time.Sleep(5 * time.Second)

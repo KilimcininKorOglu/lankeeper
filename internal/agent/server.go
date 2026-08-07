@@ -29,10 +29,10 @@ type Request struct {
 }
 
 type Response struct {
-	JSONRPC string      `json:"jsonrpc"`
-	Result  any         `json:"result,omitempty"`
-	Error   *RPCError   `json:"error,omitempty"`
-	ID      any         `json:"id"`
+	JSONRPC string    `json:"jsonrpc"`
+	Result  any       `json:"result,omitempty"`
+	Error   *RPCError `json:"error,omitempty"`
+	ID      any       `json:"id"`
 }
 
 type RPCError struct {
@@ -136,6 +136,10 @@ func (s *Server) GetHandler(method string) Handler {
 }
 
 func (s *Server) Serve(ctx context.Context) error {
+	// The socket's parent must be traversable by the service
+	// account. The socket itself is restricted separately by
+	// restrictSocket, which is where the privilege boundary is.
+	// #nosec G301
 	if err := os.MkdirAll(filepath.Dir(s.socketPath), 0o755); err != nil {
 		return fmt.Errorf("create socket dir: %w", err)
 	}
@@ -217,6 +221,11 @@ func (s *Server) restrictSocket() error {
 		if err := os.Chown(s.socketPath, 0, gid); err != nil {
 			return fmt.Errorf("chown socket to group %s: %w", s.serviceGroup, err)
 		}
+		// 0660 is deliberate and load-bearing. 0600 would stop the
+		// unprivileged serve process connecting at all. The group is
+		// the service group, the owner is root, and handleConn also
+		// checks the peer UID through SO_PEERCRED.
+		// #nosec G302
 		if err := os.Chmod(s.socketPath, 0o660); err != nil {
 			return fmt.Errorf("chmod socket: %w", err)
 		}
