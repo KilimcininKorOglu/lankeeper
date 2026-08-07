@@ -1,5 +1,8 @@
 (function() {
-    var saved = localStorage.getItem('theme') || getCookie('theme');
+    // The theme lives in a cookie. Browser storage held a second copy
+    // that was read first, which was one place for the two to disagree
+    // and nothing this setting needed.
+    var saved = getCookie('theme');
     if (!saved) {
         saved = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
     }
@@ -9,7 +12,6 @@
         var current = document.documentElement.getAttribute('data-theme');
         var next = current === 'dark' ? 'light' : 'dark';
         document.documentElement.setAttribute('data-theme', next);
-        localStorage.setItem('theme', next);
         document.cookie = 'theme=' + next + '; path=/; max-age=31536000; SameSite=Strict; Secure';
     };
 

@@ -568,6 +568,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **(ui) The theme preference is stored only in a cookie**: it was kept
+  in browser storage and in a cookie at once, and read back from storage
+  first, so the two could disagree. The cookie was already carrying the
+  value; the second copy is gone.
+
 - **(web) HTMX requests carry the CSRF token, so the admin UI works
   again**: the server accepts either an `X-CSRF-Token` header or a
   `csrf_token` form field, and only the login and logout forms carried
