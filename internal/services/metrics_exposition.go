@@ -163,15 +163,14 @@ func (snap MetricsSnapshot) Write(w io.Writer) error {
 
 // clientLabels assembles the label map for per-MAC bandwidth
 // metrics in a single place so the four series stay aligned.
+//
+// The hashed MAC is the only label. A hostname used to sit beside it in
+// the clear, which handed any LAN device a by-name inventory of its
+// neighbours plus their live bandwidth over one unauthenticated
+// request. Hashing it instead would only duplicate what the MAC hash
+// already identifies, so it is dropped rather than obscured.
 func clientLabels(c ClientBandwidthMetric) map[string]string {
-	host := c.Hostname
-	if host == "" {
-		host = "unknown"
-	}
-	return map[string]string{
-		"mac":      c.MAC,
-		"hostname": host,
-	}
+	return map[string]string{"mac": c.MAC}
 }
 
 // writeHelp emits the `# HELP` and `# TYPE` lines that precede a

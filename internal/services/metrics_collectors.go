@@ -31,12 +31,11 @@ func (s *MetricsService) collectClientMetrics() []ClientBandwidthMetric {
 	out := make([]ClientBandwidthMetric, 0, len(usages))
 	for _, u := range usages {
 		out = append(out, ClientBandwidthMetric{
-			MAC:      macHash(u.MAC),
-			Hostname: u.Hostname,
-			RxBytes:  u.InBytes,
-			TxBytes:  u.OutBytes,
-			RxBPS:    u.InBPS,
-			TxBPS:    u.OutBPS,
+			MAC:     macHash(u.MAC),
+			RxBytes: u.InBytes,
+			TxBytes: u.OutBytes,
+			RxBPS:   u.InBPS,
+			TxBPS:   u.OutBPS,
 		})
 	}
 	return out

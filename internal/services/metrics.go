@@ -124,16 +124,18 @@ type IfaceMetric struct {
 	TxBytes uint64
 }
 
-// ClientBandwidthMetric is one row of per-MAC bandwidth state. We
-// hash the MAC for stable label values so the exposition stays
-// scrape-friendly even when hostnames carry exotic characters.
+// ClientBandwidthMetric is one row of per-MAC bandwidth state. The MAC
+// is hashed for stable label values, and no hostname is carried: this
+// row is written to an unauthenticated endpoint, so a human-readable
+// device name would let any LAN device enumerate its neighbours by name
+// and watch their traffic. The hashed MAC alone identifies the series;
+// the operator sees real hostnames on the authenticated QoS page.
 type ClientBandwidthMetric struct {
-	MAC      string
-	Hostname string
-	RxBytes  uint64
-	TxBytes  uint64
-	RxBPS    uint64
-	TxBPS    uint64
+	MAC     string
+	RxBytes uint64
+	TxBytes uint64
+	RxBPS   uint64
+	TxBPS   uint64
 }
 
 // WGPeerMetric captures one WireGuard server peer (the road-warrior

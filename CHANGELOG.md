@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(metrics) The client hostname label is gone from `/metrics`**:
+  per-client rows hashed the MAC and then published the hostname beside
+  it in the clear. `/metrics` is deliberately unauthenticated, because
+  scrapers carry no session cookie, so any device on the LAN could pull
+  a by-name inventory of its neighbours together with each one's live
+  and cumulative bandwidth from a single request. Hashing the MAC while
+  publishing the hostname protects nothing, since the hostname is the
+  more identifying of the two. The label is dropped rather than hashed:
+  the hashed MAC already identifies the series, so a second opaque label
+  would add cardinality and no information. Operators still see real
+  hostnames on the authenticated QoS page. NOTE for anyone scraping
+  this: `lankeeper_client_rx_bytes_total`, `..._tx_bytes_total`,
+  `..._rx_bps` and `..._tx_bps` now carry only a `mac` label, so a query
+  or dashboard grouping on `hostname` needs updating.
+
 - **(vpn) Manual peer creation applies the same guards as the invite
   wizard**: the Add Peer form checked only that each remote subnet
   parsed as a CIDR, then wrote the values straight into the peer's

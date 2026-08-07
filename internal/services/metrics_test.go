@@ -23,7 +23,7 @@ func TestExpositionSnapshotShapesAreStable(t *testing.T) {
 			{Device: "wlan0", RxBytes: 0, TxBytes: 0},
 		},
 		Clients: []ClientBandwidthMetric{
-			{MAC: "abcdef01", Hostname: "laptop", RxBytes: 50, TxBytes: 60, RxBPS: 1, TxBPS: 2},
+			{MAC: "abcdef01", RxBytes: 50, TxBytes: 60, RxBPS: 1, TxBPS: 2},
 		},
 		WGPeers: []WGPeerMetric{
 			{Name: "alice", HandshakeAge: 30, Online: 1, RxBytes: 10, TxBytes: 20},
@@ -55,8 +55,8 @@ func TestExpositionSnapshotShapesAreStable(t *testing.T) {
 		`lankeeper_interface_tx_bytes_total{device="wlan0"} 0`,
 		`lankeeper_dhcp_active_leases 12`,
 		`lankeeper_dns_queries_total 1000`,
-		`lankeeper_client_rx_bytes_total{hostname="laptop",mac="abcdef01"} 50`,
-		`lankeeper_client_tx_bps{hostname="laptop",mac="abcdef01"} 2`,
+		`lankeeper_client_rx_bytes_total{mac="abcdef01"} 50`,
+		`lankeeper_client_tx_bps{mac="abcdef01"} 2`,
 		`lankeeper_wireguard_peer_online{peer="alice"} 1`,
 		`lankeeper_wireguard_peer_handshake_age_seconds{peer="alice"} 30`,
 		`lankeeper_s2s_peer_online{peer="branch-a"} 0`,
