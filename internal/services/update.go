@@ -326,9 +326,28 @@ func (s *UpdateService) ConfirmUpdate(ctx context.Context) error {
 	return nil
 }
 
+// ErrNoPendingUpdate is returned when a rollback is requested and there
+// is nothing to roll back.
+//
+// Without it the request was replayable: the fallback path this used to
+// substitute is written on every apply and no longer corresponds to the
+// version the caller thinks they are undoing, so a resubmitted POST
+// after a completed rollback repeated the binary swap and the service
+// restart, and became a silent downgrade once a newer update had
+// refreshed that same path.
+var ErrNoPendingUpdate = errors.New("no update is pending")
+
 func (s *UpdateService) Rollback(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// restorePendingUpdate refuses state that lacks either field, so a
+	// pending version always comes with the backup that belongs to it.
+	// There is deliberately no fallback path: a rollback without a
+	// recorded backup has nothing it can be sure it is restoring.
+	if s.pendingVersion == "" || s.backupBinary == "" {
+		return ErrNoPendingUpdate
+	}
 
 	if s.watchdogCancel != nil {
 		s.watchdogCancel()
@@ -336,11 +355,14 @@ func (s *UpdateService) Rollback(ctx context.Context) error {
 	}
 
 	backupBinary := s.backupBinary
-	if backupBinary == "" {
-		backupBinary = s.binaryPath + ".bak"
-	}
 	if _, err := netutil.Run(ctx, "cp", "-f", backupBinary, s.binaryPath); err != nil {
 		return fmt.Errorf("rollback: %w", err)
+	}
+
+	// The backup has served its purpose. Leaving it behind is what made
+	// a replayed request find something to act on.
+	if _, err := netutil.Run(ctx, "rm", "-f", backupBinary); err != nil {
+		log.Printf("update: remove backup binary after rollback: %v", err)
 	}
 
 	// The snapshot carries every secret on the device in the clear and

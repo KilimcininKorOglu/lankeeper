@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(update) Rollback is refused when no update is pending**: it never
+  consulted the pending state, and when it had no recorded backup it
+  substituted a fixed `lankeeper.bak` path that every apply writes and
+  no rollback removed. A replayed request after a legitimate rollback,
+  by double submission or a resubmitted POST, therefore found a usable
+  backup and repeated the binary swap and the service restart. Once a
+  newer update had refreshed that same path, the replay became a
+  downgrade with no prompt. The state is now checked first, the guessed
+  path is gone (a pending version always carries the backup it belongs
+  to, since restore refuses state missing either), the backup is removed
+  once it has served its purpose, and the handler answers a replayed
+  submission with 409 rather than reporting success.
+
 - **(firewall) An apply without a rollback snapshot is refused**: the
   snapshot error was logged and the apply continued, so the rules were
   validated, applied and a watchdog armed against nothing. Rollback

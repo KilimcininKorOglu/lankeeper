@@ -394,7 +394,14 @@ func (h *SystemHandler) HandleConfirmUpdate(w http.ResponseWriter, r *http.Reque
 
 func (h *SystemHandler) HandleRollbackUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := h.update.Rollback(r.Context()); err != nil {
-		fail(w, r, http.StatusInternalServerError, err)
+		// Nothing to roll back is a state the caller can see on this
+		// page, not a server fault, and answering 409 keeps a replayed
+		// submission from reading as a success.
+		status := http.StatusInternalServerError
+		if errors.Is(err, services.ErrNoPendingUpdate) {
+			status = http.StatusConflict
+		}
+		fail(w, r, status, err)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
