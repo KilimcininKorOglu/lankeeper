@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -46,6 +47,31 @@ const (
 	defaultUpdateStatePath = "/var/lib/lankeeper/update-state.json"
 	updateConfirmWindow    = 60 * time.Second
 )
+
+// releaseTagPattern is the shape this project publishes: an optional
+// leading v, dotted numbers, and an optional pre-release suffix.
+//
+// The tag arrives in a JSON response and was used unchecked as a path
+// component, a GRUB menu entry and a log line. Publishing a hostile tag
+// means controlling the repository's releases, so this is a narrow
+// window rather than an open one, but the value crosses into a root
+// agent write and costs nothing to bound.
+var releaseTagPattern = regexp.MustCompile(`^v?[0-9]+(\.[0-9]+){0,3}(-[0-9A-Za-z][0-9A-Za-z.-]*)?$`)
+
+// maxReleaseTagLength keeps a pathological but pattern-conforming tag
+// from becoming a filename no filesystem will take.
+const maxReleaseTagLength = 64
+
+var ErrInvalidReleaseTag = errors.New("release tag is not a version string")
+
+// validateReleaseTag refuses a tag that could not have come from a
+// normal release of this project.
+func validateReleaseTag(tag string) error {
+	if len(tag) > maxReleaseTagLength || !releaseTagPattern.MatchString(tag) {
+		return fmt.Errorf("%w: %q", ErrInvalidReleaseTag, tag)
+	}
+	return nil
+}
 
 func NewUpdateService(version, commit, date string, backup *BackupService) *UpdateService {
 	statePath := os.Getenv("LANKEEPER_UPDATE_STATE")
@@ -156,6 +182,14 @@ func (s *UpdateService) CheckForUpdate(ctx context.Context) (*UpdateInfo, error)
 	var release ghRelease
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
 		return nil, fmt.Errorf("decode release: %w", err)
+	}
+
+	// The tag is remote input. It reached a file path, a GRUB boot
+	// entry and a log line unchecked, so refuse the whole release here
+	// rather than sanitising at each of the seven use sites, which is
+	// the arrangement that lets one of them be missed later.
+	if err := validateReleaseTag(release.TagName); err != nil {
+		return nil, err
 	}
 
 	info := &UpdateInfo{

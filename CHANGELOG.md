@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(update) The release tag is validated before it becomes a path**:
+  `CheckForUpdate` decoded `tag_name` straight from the GitHub Releases
+  API and used it unchecked at seven sites, one of which interpolates it
+  into `/var/lib/lankeeper/backups/pre-update-%s.tar.gz`. That path then
+  reaches `MkdirAll` and `tar` through the root agent, and the same
+  value also lands in the GRUB boot entry and the log. Publishing a
+  hostile tag means controlling the repository's releases, so the window
+  is narrow rather than open, which bounds the severity and not the
+  defect. The whole release is now refused at the single point it enters
+  the process, rather than sanitised at each use site, which is the
+  arrangement that lets a new site be added without a guard.
+
 - **(settings) The domain field is validated before it is rendered**:
   the hostname beside it on the settings form went through an RFC 1123
   check and the domain went through nothing, even though it lands
