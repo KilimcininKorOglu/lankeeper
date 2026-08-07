@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **(ci) The third-party action is pinned to a commit**: every `uses:`
+  reference was a moveable version tag, and one of the six is
+  third-party. A tag can be repointed by whoever controls the publishing
+  account, so the code running in this pipeline could change with no
+  commit appearing in this repository. The blast radius was small, since
+  the workflow holds a read-only token, references no secrets and builds
+  no releases, but small is not the same as absent.
+  `golangci/golangci-lint-action` now names a full commit with the
+  version as a trailing comment, and a test refuses any third-party
+  action that is tag-pinned or pinned to a bare SHA with nothing saying
+  what it is. GitHub's own `actions/*` stay on tags deliberately, so
+  Dependabot keeps bumping them into a readable diff.
+
 - **(deploy) Password-authenticated root SSH is no longer the shipped
   default**: the installer forced `PermitRootLogin yes` and
   `PasswordAuthentication yes` unconditionally, so every device built
