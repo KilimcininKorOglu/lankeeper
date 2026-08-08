@@ -121,7 +121,10 @@ func (b *SSEBroker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer b.Unsubscribe(ch)
 
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	// no-store, not no-cache. This stream carries live interface counters
+	// and client bandwidth, and no-cache still permits a store that
+	// revalidates, which is meaningless for a response that never ends.
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
