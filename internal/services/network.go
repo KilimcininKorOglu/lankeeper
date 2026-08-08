@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -76,6 +77,131 @@ type InterfaceStatus struct {
 	Addresses []string
 	RxBytes   uint64
 	TxBytes   uint64
+}
+
+// Interface roles and types the config understands. Anything else
+// reaches a rendered template as a value no service branches on, so the
+// feature is silently inert rather than wrong in a way anyone notices.
+var (
+	interfaceRoles = map[string]bool{"lan": true, "wan": true}
+	interfaceTypes = map[string]bool{"static": true, "dhcp-client": true, "pppoe": true}
+)
+
+var (
+	// ErrLastLANInterface guards the one edit that cannot be undone
+	// from the web UI: a config with no LAN interface leaves nothing
+	// listening on a reachable address, so the operator would have to
+	// recover over a console.
+	ErrLastLANInterface = errors.New("the last LAN interface cannot be removed or reassigned")
+
+	ErrInterfaceNotFound  = errors.New("interface not found")
+	ErrInvalidRole        = errors.New("role must be lan or wan")
+	ErrInvalidType        = errors.New("type must be static, dhcp-client or pppoe")
+	ErrDuplicateInterface = errors.New("another interface already uses that device")
+)
+
+// ConfiguredInterfaces returns the entries the config carries, which is
+// what every service renders against, as opposed to the NICs the kernel
+// reports.
+func (s *NetworkService) ConfiguredInterfaces() []config.InterfaceConfig {
+	return s.cfg.Interfaces
+}
+
+// SetInterface adds or updates one interface entry, keyed by ID.
+//
+// Every field is validated here rather than in the handler, because the
+// device name and address reach nftables, dnsmasq and the PPPoE peer
+// templates, and those render with text/template, which performs no
+// escaping of any kind.
+func (s *NetworkService) SetInterface(in config.InterfaceConfig) error {
+	if err := netutil.ValidateInterfaceName(in.ID); err != nil {
+		return fmt.Errorf("id: %w", err)
+	}
+	if err := netutil.ValidateInterfaceName(in.Device); err != nil {
+		return fmt.Errorf("device: %w", err)
+	}
+	if !interfaceRoles[in.Role] {
+		return fmt.Errorf("%w: %q", ErrInvalidRole, in.Role)
+	}
+	if !interfaceTypes[in.Type] {
+		return fmt.Errorf("%w: %q", ErrInvalidType, in.Type)
+	}
+	if err := netutil.ValidateRuleName(in.Label); err != nil {
+		return fmt.Errorf("label: %w", err)
+	}
+	if in.Address != "" {
+		if err := netutil.ValidateCIDR(in.Address); err != nil {
+			return fmt.Errorf("address: %w", err)
+		}
+	}
+	if in.MTU != 0 {
+		if err := netutil.ValidateMTU(in.MTU); err != nil {
+			return err
+		}
+	}
+
+	// Two entries pointing at one device produce two conflicting
+	// renderings of the same NIC, and which one wins depends on
+	// iteration order.
+	for _, existing := range s.cfg.Interfaces {
+		if existing.ID != in.ID && existing.Device == in.Device {
+			return fmt.Errorf("%w: %s", ErrDuplicateInterface, in.Device)
+		}
+	}
+
+	idx := -1
+	for i := range s.cfg.Interfaces {
+		if s.cfg.Interfaces[i].ID == in.ID {
+			idx = i
+			break
+		}
+	}
+
+	// Moving the only LAN interface to WAN is the same lockout as
+	// deleting it, so it is refused in the same place.
+	if idx >= 0 && s.cfg.Interfaces[idx].Role == "lan" && in.Role != "lan" && s.countLANExcept(in.ID) == 0 {
+		return ErrLastLANInterface
+	}
+
+	if idx >= 0 {
+		s.cfg.Interfaces[idx] = in
+	} else {
+		s.cfg.Interfaces = append(s.cfg.Interfaces, in)
+	}
+	return s.cfg.SaveToFile()
+}
+
+// RemoveInterface drops an entry by ID.
+func (s *NetworkService) RemoveInterface(id string) error {
+	idx := -1
+	for i := range s.cfg.Interfaces {
+		if s.cfg.Interfaces[i].ID == id {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return fmt.Errorf("%w: %s", ErrInterfaceNotFound, id)
+	}
+
+	if s.cfg.Interfaces[idx].Role == "lan" && s.countLANExcept(id) == 0 {
+		return ErrLastLANInterface
+	}
+
+	s.cfg.Interfaces = append(s.cfg.Interfaces[:idx], s.cfg.Interfaces[idx+1:]...)
+	return s.cfg.SaveToFile()
+}
+
+// countLANExcept counts LAN interfaces ignoring one ID, which is how
+// both callers ask "would this leave any LAN behind".
+func (s *NetworkService) countLANExcept(id string) int {
+	n := 0
+	for _, iface := range s.cfg.Interfaces {
+		if iface.ID != id && iface.Role == "lan" {
+			n++
+		}
+	}
+	return n
 }
 
 func (s *NetworkService) ApplyMACClone(ctx context.Context, device, cloneMAC string) error {

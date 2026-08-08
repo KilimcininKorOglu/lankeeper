@@ -562,6 +562,8 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	mux.Handle("POST /network/pppoe/disconnect", authed(http.HandlerFunc(s.pppoe.HandleDisconnect)))
 	mux.Handle("POST /network/pppoe/sniff/start", authed(http.HandlerFunc(s.pppoe.HandleSniffStart)))
 	mux.Handle("POST /network/pppoe/sniff/stop", authed(http.HandlerFunc(s.pppoe.HandleSniffStop)))
+	mux.Handle("POST /network/interface", authed(http.HandlerFunc(s.network.HandleSetInterface)))
+	mux.Handle("DELETE /network/interface/{id}", authed(http.HandlerFunc(s.network.HandleRemoveInterface)))
 	mux.Handle("POST /network/usb/enable", authed(http.HandlerFunc(s.network.HandleUSBEnable)))
 	mux.Handle("POST /network/usb/disable", authed(http.HandlerFunc(s.network.HandleUSBDisable)))
 	mux.Handle("POST /network/usb/auto-failover", authed(http.HandlerFunc(s.network.HandleUSBAutoFailover)))

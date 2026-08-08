@@ -131,16 +131,19 @@
     </div>
     {{ end }}
 
-    <!-- Interfaces -->
+    <!-- Detected NICs -->
     {{ if .Interfaces }}
     <div class="card">
         <div class="card-header">
-            <span class="card-title">{{ t $.Lang "nav.network" }}</span>
+            <span class="card-title">{{ t $.Lang "network.detected" }}</span>
         </div>
+        <p style="color:var(--text-secondary); font-size:var(--font-sm); margin-bottom:var(--space-md);">
+            {{ t $.Lang "network.detected.desc" }}
+        </p>
         {{ range .Interfaces }}
         <div style="display:flex; align-items:center; justify-content:space-between; padding:var(--space-sm) 0; border-bottom:1px solid var(--border-color);">
             <div>
-                <div style="font-weight:700;">{{ .Name }}</div>
+                <div style="font-weight:700; font-family:var(--font-mono);">{{ .Name }}</div>
                 <div style="color:var(--text-secondary); font-size:var(--font-xs);">{{ .MAC }}</div>
             </div>
             <div style="text-align:right;">
@@ -155,6 +158,88 @@
         {{ end }}
     </div>
     {{ end }}
+
+    <!-- Configured interfaces -->
+    <div class="card" style="margin-top:var(--space-lg);">
+        <div class="card-header">
+            <span class="card-title">{{ t $.Lang "network.configured" }}</span>
+            <button class="btn btn-primary btn-sm" onclick="document.getElementById('iface-form').style.display='block'">
+                {{ t $.Lang "network.addInterface" }}
+            </button>
+        </div>
+        <p style="color:var(--text-secondary); font-size:var(--font-sm); margin-bottom:var(--space-md);">
+            {{ t $.Lang "network.configured.desc" }}
+        </p>
+
+        <form id="iface-form" style="display:none; padding:var(--space-md); border:1px solid var(--border-color); border-radius:var(--radius-md); margin-bottom:var(--space-md);"
+              hx-post="/network/interface" hx-swap="none"
+              hx-on::after-request="this.reset(); this.style.display='none';">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:var(--space-md);">
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "network.ifaceId" }}</label>
+                    <input class="input" name="id" placeholder="wan" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "network.device" }}</label>
+                    <select class="input" name="device" required>
+                        {{ range $.Data.Interfaces }}
+                        <option value="{{ .Name }}">{{ .Name }}</option>
+                        {{ end }}
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "common.name" }}</label>
+                    <input class="input" name="label" placeholder="WAN">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "vlan.role" }}</label>
+                    <select class="input" name="role">
+                        <option value="lan">{{ t $.Lang "vlan.lan" }}</option>
+                        <option value="wan">{{ t $.Lang "vlan.wan" }}</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "vlan.type" }}</label>
+                    <select class="input" name="type">
+                        <option value="static">{{ t $.Lang "vlan.static" }}</option>
+                        <option value="dhcp-client">{{ t $.Lang "vlan.dhcpClient" }}</option>
+                        <option value="pppoe">PPPoE</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "dhcp.ip" }}</label>
+                    <input class="input" name="address" placeholder="10.10.10.1/24">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "network.mtu" }}</label>
+                    <input class="input" name="mtu" type="number" value="1500">
+                </div>
+            </div>
+            <div style="display:flex; gap:var(--space-sm); margin-top:var(--space-md);">
+                <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('form').style.display='none'">{{ t $.Lang "common.cancel" }}</button>
+            </div>
+        </form>
+
+        {{ range .ConfiguredInterfaces }}
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:var(--space-sm) 0; border-bottom:1px solid var(--border-color); gap:var(--space-md); flex-wrap:wrap;">
+            <div>
+                <span style="font-weight:700;">{{ .ID }}</span>
+                <span style="font-family:var(--font-mono); color:var(--text-secondary); margin-left:var(--space-sm);">{{ .Device }}</span>
+                {{ if .Address }}<span style="color:var(--text-secondary); font-size:var(--font-xs); margin-left:var(--space-sm);">{{ .Address }}</span>{{ end }}
+            </div>
+            <div style="display:flex; align-items:center; gap:var(--space-sm);">
+                <span class="badge {{ if eq .Role "wan" }}badge-info{{ else }}badge-success{{ end }}">{{ .Role }}</span>
+                <span style="color:var(--text-secondary); font-size:var(--font-xs);">{{ .Type }}</span>
+                <button class="btn btn-danger btn-sm"
+                        hx-delete="/network/interface/{{ .ID }}" hx-swap="none"
+                        hx-confirm="{{ t $.Lang "network.confirmRemoveInterface" }}">
+                    {{ t $.Lang "common.delete" }}
+                </button>
+            </div>
+        </div>
+        {{ end }}
+    </div>
 
     <!-- VLANs -->
     <div class="card" style="margin-top:var(--space-lg);">

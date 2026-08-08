@@ -4,7 +4,10 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 
+	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/i18n"
 	"github.com/KilimcininKorOglu/lankeeper/internal/services"
 	"github.com/KilimcininKorOglu/lankeeper/internal/tmpl"
@@ -60,17 +63,91 @@ func (h *NetworkHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 		Lang: lang,
 		Page: "network",
 		Data: map[string]any{
-			"Interfaces":   ifaces,
-			"PPPoE":        pppoeStatus,
-			"USB":          usbStatus,
-			"HealthChecks": healthResults,
-			"Sniff":        sniffStatus,
+			"Interfaces": ifaces,
+			// The configured entries, separate from the detected NICs.
+			// The operator needs both side by side: the config is what
+			// every service renders against, and the detected list is
+			// the only place the real device names appear.
+			"ConfiguredInterfaces": h.network.ConfiguredInterfaces(),
+			"PPPoE":                pppoeStatus,
+			"USB":                  usbStatus,
+			"HealthChecks":         healthResults,
+			"Sniff":                sniffStatus,
 		},
 	}
 
 	if err := h.renderer.Render(w, "network", "base", data); err != nil {
 		log.Printf("render network: %v", err)
 		clientError(w, r, http.StatusInternalServerError, "error.internal")
+	}
+}
+
+// HandleSetInterface adds or updates one interface entry.
+//
+// This is the first thing an operator has to do on unfamiliar
+// hardware: the shipped config names the NICs of the machine it was
+// built on, so until these can be corrected from the UI the rest of the
+// product is configured against devices that do not exist.
+func (h *NetworkHandler) HandleSetInterface(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
+		return
+	}
+
+	mtu := 0
+	if raw := strings.TrimSpace(r.FormValue("mtu")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			clientError(w, r, http.StatusBadRequest, "error.invalidMTU")
+			return
+		}
+		mtu = parsed
+	}
+
+	in := config.InterfaceConfig{
+		ID:      strings.TrimSpace(r.FormValue("id")),
+		Device:  strings.TrimSpace(r.FormValue("device")),
+		Label:   strings.TrimSpace(r.FormValue("label")),
+		Role:    r.FormValue("role"),
+		Type:    r.FormValue("type"),
+		Address: strings.TrimSpace(r.FormValue("address")),
+		MTU:     mtu,
+		IPv6:    r.FormValue("ipv6"),
+	}
+
+	if err := h.network.SetInterface(in); err != nil {
+		h.interfaceError(w, r, err)
+		return
+	}
+
+	respondRefresh(w, r, "/network")
+}
+
+func (h *NetworkHandler) HandleRemoveInterface(w http.ResponseWriter, r *http.Request) {
+	if err := h.network.RemoveInterface(r.PathValue("id")); err != nil {
+		h.interfaceError(w, r, err)
+		return
+	}
+	respondRefresh(w, r, "/network")
+}
+
+// interfaceError maps the refusals the operator can act on to 400 with
+// a specific message. Everything else is a 500, so a genuine fault is
+// not disguised as a form mistake.
+func (h *NetworkHandler) interfaceError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, services.ErrLastLANInterface):
+		clientError(w, r, http.StatusBadRequest, "error.lastLanInterface")
+	case errors.Is(err, services.ErrDuplicateInterface):
+		clientError(w, r, http.StatusBadRequest, "error.duplicateInterfaceDevice")
+	case errors.Is(err, services.ErrInterfaceNotFound):
+		clientError(w, r, http.StatusNotFound, "error.interfaceNotFound")
+	case errors.Is(err, services.ErrInvalidRole):
+		clientError(w, r, http.StatusBadRequest, "error.invalidRole")
+	case errors.Is(err, services.ErrInvalidType):
+		clientError(w, r, http.StatusBadRequest, "error.invalidType")
+	default:
+		clientError(w, r, http.StatusBadRequest, "error.invalidInterface")
 	}
 }
 
