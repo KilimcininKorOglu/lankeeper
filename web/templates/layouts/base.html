@@ -8,6 +8,14 @@
     <link rel="stylesheet" href="/static/css/variables.css">
     <link rel="stylesheet" href="/static/css/layout.css">
     <link rel="stylesheet" href="/static/css/components.css">
+    <!-- htmx reads this before it initialises. allowEval turns off the
+         one code path that calls new Function, which the policy blocks
+         anyway; without it htmx would try, fail, and report the failure
+         as an event nothing listens for. Every hx-vals in the tree is
+         plain JSON, so nothing needs evaluation. selfRequestsOnly is
+         htmx's own default in 2.x and is pinned here so an upgrade
+         cannot quietly widen it. -->
+    <meta name="htmx-config" content='{"allowEval":false,"selfRequestsOnly":true}'>
     <script src="/static/js/htmx.min.js" defer></script>
     <script src="/static/js/app.js" defer></script>
     <script src="/static/js/ui.js" defer></script>
