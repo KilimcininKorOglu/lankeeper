@@ -648,5 +648,12 @@
     "vpn.configUnavailable": "cannot re-issue",
     "vpn.configUnavailable.desc": "This peer's private key is not stored, so its configuration cannot be produced again. Replace the peer to get a new one.",
     "error.peerNotFound": "Peer not found",
-    "error.peerKeyUnavailable": "This peer's private key is not stored, so its configuration cannot be re-issued. Remove the peer and add it again."
+    "error.peerKeyUnavailable": "This peer's private key is not stored, so its configuration cannot be re-issued. Remove the peer and add it again.",
+    "common.close": "Close",
+    "qr.show": "Show QR",
+    "qr.title": "QR code",
+    "qr.loading": "Fetching the configuration...",
+    "qr.tooLarge": "This configuration is too large for a QR code. Download the file instead.",
+    "qr.failed": "Could not fetch the configuration.",
+    "qr.hint": "Scan the code with your VPN app. The code is cleared from memory when this closes."
 }

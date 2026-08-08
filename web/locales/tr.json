@@ -648,5 +648,12 @@
     "vpn.configUnavailable": "yeniden verilemez",
     "vpn.configUnavailable.desc": "Bu eşin private key'i saklanmıyor, bu yüzden yapılandırması yeniden üretilemez. Yeni bir tane almak için eşi değiştirin.",
     "error.peerNotFound": "Eş bulunamadı",
-    "error.peerKeyUnavailable": "Bu eşin private key'i saklanmıyor, bu yüzden yapılandırması yeniden verilemez. Eşi silip yeniden ekleyin."
+    "error.peerKeyUnavailable": "Bu eşin private key'i saklanmıyor, bu yüzden yapılandırması yeniden verilemez. Eşi silip yeniden ekleyin.",
+    "common.close": "Kapat",
+    "qr.show": "QR göster",
+    "qr.title": "QR kodu",
+    "qr.loading": "Yapılandırma alınıyor...",
+    "qr.tooLarge": "Bu yapılandırma bir QR koda sığmayacak kadar büyük. Dosyayı indirin.",
+    "qr.failed": "Yapılandırma alınamadı.",
+    "qr.hint": "Kodu VPN uygulamanızla okutun. Pencere kapandığında kod bellekten silinir."
 }

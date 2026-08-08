@@ -51,6 +51,7 @@
             <div style="display:flex; gap:var(--space-sm);">
                 {{ if .Enabled }}
                 <a href="/openvpn/server/client/{{ .Name }}/config" class="btn btn-secondary btn-sm">{{ t $.Lang "openvpn.downloadOvpn" }}</a>
+                <button class="btn btn-secondary btn-sm" data-qr-url="/openvpn/server/client/{{ .Name }}/config" data-qr-label="{{ .Name }}">{{ t $.Lang "qr.show" }}</button>
                 <button class="btn btn-danger btn-sm" hx-delete="/openvpn/server/client/{{ .Name }}" hx-swap="none"
                         hx-confirm="{{ t $.Lang "openvpn.revokeConfirm" }}">{{ t $.Lang "openvpn.revokeClient" }}</button>
                 {{ end }}

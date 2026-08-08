@@ -32,6 +32,7 @@
             <div style="display:flex; gap:var(--space-sm); align-items:center;">
                 {{ if .PrivateKey }}
                 <a class="btn btn-secondary btn-sm" href="/vpn/server/peer/{{ .Name }}/config">{{ t $.Lang "vpn.downloadConfig" }}</a>
+                <button class="btn btn-secondary btn-sm" data-qr-url="/vpn/server/peer/{{ .Name }}/config" data-qr-label="{{ .Name }}">{{ t $.Lang "qr.show" }}</button>
                 {{ else }}
                 <span class="badge badge-error" title="{{ t $.Lang "vpn.configUnavailable.desc" }}">{{ t $.Lang "vpn.configUnavailable" }}</span>
                 {{ end }}

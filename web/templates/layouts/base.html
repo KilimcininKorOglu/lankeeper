@@ -10,6 +10,8 @@
     <link rel="stylesheet" href="/static/css/components.css">
     <script src="/static/js/htmx.min.js" defer></script>
     <script src="/static/js/app.js" defer></script>
+    <script src="/static/js/qrcode.js" defer></script>
+    <script src="/static/js/qr-modal.js" defer></script>
 </head>
 <body>
     <div class="app-layout">
@@ -22,5 +24,20 @@
         </aside>
     </div>
     <div class="toast-container" id="toast-container"></div>
+    <div class="modal-overlay" id="qr-modal" hidden
+         data-title="{{ t .Lang "qr.title" }}"
+         data-loading="{{ t .Lang "qr.loading" }}"
+         data-too-large="{{ t .Lang "qr.tooLarge" }}"
+         data-failed="{{ t .Lang "qr.failed" }}">
+        <div class="modal">
+            <div class="modal-header">
+                <span class="card-title" id="qr-modal-title"></span>
+                <button class="btn btn-secondary btn-sm" data-qr-close>{{ t .Lang "common.close" }}</button>
+            </div>
+            <canvas id="qr-canvas" class="qr-canvas" width="1" height="1"></canvas>
+            <p class="modal-note" id="qr-modal-note"></p>
+            <p class="modal-hint">{{ t .Lang "qr.hint" }}</p>
+        </div>
+    </div>
 </body>
 </html>

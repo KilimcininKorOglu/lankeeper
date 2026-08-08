@@ -281,3 +281,65 @@
     0%, 100% { opacity: 1; }
     50% { opacity: 0.4; }
 }
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.6);
+    padding: var(--space-lg);
+}
+
+.modal-overlay[hidden] {
+    display: none;
+}
+
+.modal {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    padding: var(--space-lg);
+    max-width: 100%;
+    max-height: 100%;
+    overflow: auto;
+    text-align: center;
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-lg);
+    margin-bottom: var(--space-md);
+}
+
+/* White stays white in dark mode on purpose: a scanner reads the
+   contrast between the modules and the quiet zone, and the quiet
+   zone is painted by the encoder, not by the theme. */
+.qr-canvas {
+    background: #FFFFFF;
+    border-radius: var(--radius-sm);
+    display: block;
+    margin: 0 auto;
+    image-rendering: pixelated;
+}
+
+.modal-note {
+    color: var(--accent-red);
+    font-size: var(--font-sm);
+    margin-top: var(--space-md);
+}
+
+.modal-note:empty {
+    display: none;
+}
+
+.modal-hint {
+    color: var(--text-secondary);
+    font-size: var(--font-xs);
+    margin-top: var(--space-md);
+}
