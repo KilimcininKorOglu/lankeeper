@@ -51,6 +51,7 @@ type Server struct {
 	// The handler above only reads results; nothing fills them until
 	// Start runs.
 	healthSvc *services.HealthCheckService
+	acmeSvc   *services.ACMEService
 	metricsh  *handlers.MetricsHandler
 	sse       *SSEBroker
 	// qosSse is dedicated to per-client bandwidth events. Kept
@@ -236,8 +237,9 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	monitorSvc := services.NewMonitorService()
 	systemSvc := services.NewSystemService()
 	tlsSvc := services.NewTLSService(cfg)
+	acmeSvc := services.NewACMEService(cfg, tlsSvc)
 	dashboardHandler := handlers.NewDashboardHandler(renderer, monitorSvc, pppoeSvc, dhcpSvc)
-	settingsHandler := handlers.NewSystemHandler(renderer, cfg, loc, dhcpSvc, backupSvc, updateSvc, systemSvc, tlsSvc)
+	settingsHandler := handlers.NewSystemHandler(renderer, cfg, loc, dhcpSvc, backupSvc, updateSvc, systemSvc, tlsSvc, acmeSvc)
 	// Without this the auth object keeps verifying against the hash it
 	// captured at startup, so a password change would report success
 	// while the old credential still worked.
@@ -270,6 +272,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 		dhcpSvc:    dhcpSvc,
 		dashboard:  dashboardHandler,
 		settings:   settingsHandler,
+		acmeSvc:    acmeSvc,
 		backuph:    backupHandler,
 		backupSvc:  backupSvc,
 		backupOrch: backupOrch,
@@ -423,6 +426,17 @@ func (s *Server) Serve(ctx context.Context) error {
 	// explicit Stop. No-op when disabled.
 	s.healthSvc.Start(ctx)
 
+	// ACME renewal. Started here rather than in NewServer so it shares
+	// the shutdown context and this wait group; a goroutine launched at
+	// construction outlives every attempt to stop the server. It checks
+	// the mode on each tick, so it is harmless when ACME is off and it
+	// picks the mode up without a restart when the operator turns it on.
+	bg.Add(1)
+	go func() {
+		defer bg.Done()
+		s.acmeSvc.StartRenewal(ctx)
+	}()
+
 	// Watches the dhcp6c lease state file and re-applies the firewall
 	// when the delegated prefix changes. Best-effort: a failure to
 	// install the fsnotify watch costs the auto-refresh, not the lease
@@ -542,6 +556,7 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	mux.Handle("POST /settings/tls/regenerate", authed(http.HandlerFunc(s.settings.HandleRegenerateTLS)))
 	mux.Handle("POST /settings/tls/mode", authed(http.HandlerFunc(s.settings.HandleSetTLSMode)))
 	mux.Handle("GET /settings/tls/ca", authed(http.HandlerFunc(s.settings.HandleDownloadMkcertCA)))
+	mux.Handle("POST /settings/tls/acme", authed(http.HandlerFunc(s.settings.HandleConfigureACME)))
 	mux.Handle("POST /system/reboot", authed(http.HandlerFunc(s.settings.HandleReboot)))
 	mux.Handle("POST /system/factory-reset", authed(http.HandlerFunc(s.settings.HandleFactoryReset)))
 	mux.Handle("GET /system/backup/export", authed(http.HandlerFunc(s.settings.HandleExport)))

@@ -21,7 +21,7 @@ func postHostname(t *testing.T, hostname, domain string) (*httptest.ResponseReco
 	cfg.System.Hostname = "hermes"
 	cfg.System.Domain = "lan"
 
-	h := NewSystemHandler(nil, cfg, nil, nil, nil, nil, services.NewSystemService(), nil)
+	h := NewSystemHandler(nil, cfg, nil, nil, nil, nil, services.NewSystemService(), nil, nil)
 
 	form := url.Values{"hostname": {hostname}, "domain": {domain}}
 	req := httptest.NewRequest(http.MethodPost, "/settings/hostname",

@@ -233,3 +233,68 @@ func TestSaveWithoutSecretsCreatesNoKey(t *testing.T) {
 		t.Error("a key was created for a config with no secrets")
 	}
 }
+
+// The DNS provider token is a live credential for the operator's whole
+// zone, not just the one challenge record, so it has to be ciphertext on
+// disk like every other stored secret.
+func TestDNSChallengeTokenRoundTripsEncrypted(t *testing.T) {
+	path, _ := secretsEnv(t)
+
+	cfg := &config.Config{}
+	cfg.SetFilePath(path)
+	cfg.System.TLS.ACME.DNSChallenge.Provider = "cloudflare"
+	cfg.System.TLS.ACME.DNSChallenge.APIToken = "cf-live-token"
+
+	if err := cfg.SaveToFile(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if strings.Contains(string(raw), "cf-live-token") {
+		t.Error("the DNS API token is on disk in cleartext")
+	}
+
+	// The live config must still hold the usable value: encrypting in
+	// place would leave the running process with ciphertext where it
+	// expects a token, and the next renewal would authenticate with it.
+	if cfg.System.TLS.ACME.DNSChallenge.APIToken != "cf-live-token" {
+		t.Errorf("the in-memory token became %q; the save mutated the live config",
+			cfg.System.TLS.ACME.DNSChallenge.APIToken)
+	}
+
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := loaded.System.TLS.ACME.DNSChallenge.APIToken; got != "cf-live-token" {
+		t.Errorf("loaded token = %q, want the original", got)
+	}
+}
+
+// Losing the key must not take the router down. The certificate on disk
+// keeps serving until it expires; only renewal breaks, and that is
+// reported rather than fatal.
+func TestUnreadableDNSChallengeTokenIsClearedNotFatal(t *testing.T) {
+	path, keyPath := secretsEnv(t)
+
+	cfg := &config.Config{}
+	cfg.SetFilePath(path)
+	cfg.System.TLS.ACME.DNSChallenge.APIToken = "cf-live-token"
+	if err := cfg.SaveToFile(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if err := os.Remove(keyPath); err != nil {
+		t.Fatalf("remove key: %v", err)
+	}
+
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load must not fail when a credential cannot be decrypted: %v", err)
+	}
+	if got := loaded.System.TLS.ACME.DNSChallenge.APIToken; got != "" {
+		t.Errorf("token = %q, want it cleared rather than left as ciphertext", got)
+	}
+}

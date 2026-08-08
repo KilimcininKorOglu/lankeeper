@@ -43,7 +43,7 @@ func TestExportSendsNoStore(t *testing.T) {
 		t.Fatalf("seed config: %v", err)
 	}
 
-	h := NewSystemHandler(nil, cfg, nil, nil, services.NewBackupService(dir), nil, services.NewSystemService(), nil)
+	h := NewSystemHandler(nil, cfg, nil, nil, services.NewBackupService(dir), nil, services.NewSystemService(), nil, nil)
 
 	req := httptest.NewRequest("POST", "/settings/export?passphrase=secret", nil)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

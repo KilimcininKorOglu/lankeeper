@@ -168,6 +168,49 @@
             <p class="modal-hint">{{ t $.Lang "tls.modeWarning" }}</p>
             <button type="submit" class="btn btn-secondary btn-sm" style="margin-top:var(--space-md);">{{ t $.Lang "tls.applyMode" }}</button>
         </form>
+
+        <form hx-post="/settings/tls/acme" hx-swap="none" style="margin-top:var(--space-lg); border-top:1px solid var(--border-color); padding-top:var(--space-md);">
+            <div class="card-header" style="padding:0;">
+                <span class="card-title">{{ t $.Lang "tls.acme" }}</span>
+                {{ if eq .TLSMode "acme" }}
+                    {{ if .TLSACMEStaging }}
+                        <span class="badge badge-error">{{ t $.Lang "tls.acmeStaging" }}</span>
+                    {{ else }}
+                        <span class="badge badge-success">{{ t $.Lang "tls.acmeProduction" }}</span>
+                    {{ end }}
+                {{ end }}
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:var(--space-md); margin-top:var(--space-md);">
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "tls.acmeDomain" }}</label>
+                    <input class="input" name="domain" value="{{ .TLSACME.Domain }}" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "tls.acmeEmail" }}</label>
+                    <input class="input" type="email" name="email" value="{{ .TLSACME.Email }}" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "tls.acmeProvider" }}</label>
+                    <select class="input" name="provider">
+                        <option value="manual" {{ if ne .TLSACME.DNSChallenge.Provider "cloudflare" }}selected{{ end }}>{{ t $.Lang "tls.acmeManual" }}</option>
+                        <option value="cloudflare" {{ if eq .TLSACME.DNSChallenge.Provider "cloudflare" }}selected{{ end }}>Cloudflare</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "tls.acmeEndpoint" }}</label>
+                    <select class="input" name="endpoint">
+                        <option value="staging" {{ if .TLSACMEStaging }}selected{{ end }}>{{ t $.Lang "tls.acmeStaging" }}</option>
+                        <option value="production" {{ if not .TLSACMEStaging }}selected{{ end }}>{{ t $.Lang "tls.acmeProduction" }}</option>
+                    </select>
+                </div>
+            </div>
+            <div class="input-group" style="margin-top:var(--space-md);">
+                <label class="input-label">{{ t $.Lang "tls.acmeToken" }}</label>
+                <input class="input" type="password" name="apiToken" autocomplete="off" placeholder="{{ t $.Lang "tls.acmeTokenPlaceholder" }}">
+            </div>
+            <p class="modal-hint">{{ t $.Lang "tls.acmeHint" }}</p>
+            <button type="submit" class="btn btn-secondary btn-sm" style="margin-top:var(--space-md);">{{ t $.Lang "tls.acmeRequest" }}</button>
+        </form>
     </div>
 
     <!-- Backup -->

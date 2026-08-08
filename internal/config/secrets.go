@@ -139,7 +139,7 @@ func (c *Config) hasSecrets() bool {
 			return true
 		}
 	}
-	return false
+	return c.System.TLS.ACME.DNSChallenge.APIToken != ""
 }
 
 // withEncryptedSecrets returns a copy of the config whose secret fields
@@ -194,6 +194,14 @@ func withEncryptedSecrets(cfg *Config) (*Config, error) {
 		}
 	}
 
+	// The DNS provider token is a live credential for the operator's
+	// whole zone, not just this record, so it belongs here rather than
+	// in the config as typed.
+	out.System.TLS.ACME.DNSChallenge.APIToken, err = encryptSecret(cfg.System.TLS.ACME.DNSChallenge.APIToken, key)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt dns challenge api token: %w", err)
+	}
+
 	return &out, nil
 }
 
@@ -207,7 +215,9 @@ func withEncryptedSecrets(cfg *Config) (*Config, error) {
 // scheduled run fail with a message naming the target, so the loss is
 // visible without being fatal.
 func (c *Config) decryptSecretsInPlace() {
-	needsKey := isEncrypted(c.Backup.Passphrase) || isEncrypted(c.VPN.Server.PrivateKey)
+	needsKey := isEncrypted(c.Backup.Passphrase) ||
+		isEncrypted(c.VPN.Server.PrivateKey) ||
+		isEncrypted(c.System.TLS.ACME.DNSChallenge.APIToken)
 	for _, t := range c.Backup.Targets {
 		if isEncrypted(t.SecretAccessKey) || isEncrypted(t.Password) {
 			needsKey = true
@@ -276,6 +286,17 @@ func (c *Config) decryptSecretsInPlace() {
 			p.PrivateKey = v
 		}
 	}
+
+	if v, err := decryptSecret(c.System.TLS.ACME.DNSChallenge.APIToken, key); err != nil {
+		// Renewal is what breaks: the token is only read when a
+		// challenge record has to be published. The certificate on disk
+		// keeps serving until it expires, so this is reported and the
+		// field cleared rather than treated as fatal.
+		log.Printf("config: cannot decrypt the DNS challenge API token: %v; re-enter it on the settings page or renewal will fail", err)
+		c.System.TLS.ACME.DNSChallenge.APIToken = ""
+	} else {
+		c.System.TLS.ACME.DNSChallenge.APIToken = v
+	}
 }
 
 // clearEncryptedSecrets blanks every value that is ciphertext we cannot
@@ -301,5 +322,8 @@ func (c *Config) clearEncryptedSecrets() {
 		if isEncrypted(c.VPN.Server.Peers[i].PrivateKey) {
 			c.VPN.Server.Peers[i].PrivateKey = ""
 		}
+	}
+	if isEncrypted(c.System.TLS.ACME.DNSChallenge.APIToken) {
+		c.System.TLS.ACME.DNSChallenge.APIToken = ""
 	}
 }

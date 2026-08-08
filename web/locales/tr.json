@@ -665,5 +665,17 @@
     "tls.applyMode": "Modu uygula",
     "tls.modeWarning": "Mod değiştiğinde önce yeni sertifika üretilir, ancak ondan sonra ayar kaydedilir. Üretim başarısız olursa mevcut sertifika ve mod olduğu gibi kalır.",
     "tls.mkcertHint": "CA sertifikasını indirin ve ağdaki cihazlara kurun. Kurulmadan tarayıcılar uyarı göstermeye devam eder.",
-    "tls.noCa": "mkcert CA sertifikası bulunamadı."
+    "tls.noCa": "mkcert CA sertifikası bulunamadı.",
+    "tls.acmeDomain": "Alan adı",
+    "tls.acmeEmail": "Hesap e-postası",
+    "tls.acmeProvider": "DNS sağlayıcısı",
+    "tls.acmeManual": "Elle (TXT kaydını kendiniz yayınlayın)",
+    "tls.acmeEndpoint": "CA ortamı",
+    "tls.acmeStaging": "Staging",
+    "tls.acmeProduction": "Production",
+    "tls.acmeToken": "Cloudflare API token",
+    "tls.acmeTokenPlaceholder": "Boş bırakılırsa kayıtlı token korunur",
+    "tls.acmeRequest": "Sertifika iste",
+    "tls.acmeHint": "Doğrulama DNS-01 ile yapılır; 80 numaralı portun internete açılması gerekmez. Production haftada beş sertifika ile sınırlıdır, önce staging ile deneyin.",
+    "tls.acmeManualPending": "Aşağıdaki TXT kaydını yayınlayın, yayıldıktan sonra bu formu tekrar gönderin."
 }

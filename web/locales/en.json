@@ -665,5 +665,17 @@
     "tls.applyMode": "Apply mode",
     "tls.modeWarning": "Changing the mode issues the new certificate first and records the setting only after that succeeds. If issuance fails, the current certificate and mode are left as they are.",
     "tls.mkcertHint": "Download the CA certificate and install it on the devices on your network. Until you do, browsers keep warning.",
-    "tls.noCa": "No mkcert CA certificate found."
+    "tls.noCa": "No mkcert CA certificate found.",
+    "tls.acmeDomain": "Domain",
+    "tls.acmeEmail": "Account email",
+    "tls.acmeProvider": "DNS provider",
+    "tls.acmeManual": "Manual (publish the TXT record yourself)",
+    "tls.acmeEndpoint": "CA environment",
+    "tls.acmeStaging": "Staging",
+    "tls.acmeProduction": "Production",
+    "tls.acmeToken": "Cloudflare API token",
+    "tls.acmeTokenPlaceholder": "Leave blank to keep the stored token",
+    "tls.acmeRequest": "Request certificate",
+    "tls.acmeHint": "Validation uses DNS-01, so port 80 does not have to be open to the internet. Production allows five certificates per week, so try staging first.",
+    "tls.acmeManualPending": "Publish the TXT record below, then submit this form again once it has propagated."
 }

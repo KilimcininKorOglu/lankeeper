@@ -39,6 +39,8 @@ func settingsData(extra map[string]any) *tmpl.PageData {
 		"TLSMode":        "self-signed",
 		"TLSSelfSigned":  config.SelfSignedConfig{},
 		"TLSMkcert":      config.MkcertConfig{},
+		"TLSACME":        config.ACMEConfig{},
+		"TLSACMEStaging": true,
 		"Version":        map[string]any{},
 		"PendingUpdate":  false,
 		"PendingVersion": "",
@@ -180,5 +182,65 @@ func TestSettingsPageHidesCADownloadOutsideMkcert(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), `href="/settings/tls/ca"`) {
 		t.Error("the CA download is offered in self-signed mode")
+	}
+}
+
+// The ACME form is the only way to request a public certificate, and the
+// staging badge is the only signal telling the operator the certificate
+// they just got is not trusted by anything.
+func TestSettingsPageOffersACMEConfiguration(t *testing.T) {
+	r := newTestRenderer(t)
+
+	rec := httptest.NewRecorder()
+	data := settingsData(map[string]any{
+		"TLSMode": "acme",
+		"TLSACME": config.ACMEConfig{
+			Enabled: true, Domain: "router.example.com", Email: "ops@example.com",
+			DNSChallenge: config.DNSChallengeConfig{Provider: "cloudflare"},
+		},
+		"TLSACMEStaging": true,
+	})
+	if err := r.Render(rec, "settings", "base", data); err != nil {
+		t.Fatalf("settings page does not execute in acme mode: %v", err)
+	}
+
+	body := rec.Body.String()
+	for _, want := range []string{
+		`hx-post="/settings/tls/acme"`,
+		`name="domain"`,
+		`name="email"`,
+		`name="provider"`,
+		`name="apiToken"`,
+		"router.example.com",
+		"Staging",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("acme settings page is missing %q", want)
+		}
+	}
+	if strings.Contains(body, "<no value>") {
+		t.Error("a lookup on the settings page resolved to nothing")
+	}
+}
+
+// The stored token must never be echoed into the form. It is a live
+// credential for the operator's whole DNS zone, and a page that renders
+// it puts it in the browser cache and in any screen share.
+func TestSettingsPageDoesNotEchoTheDNSToken(t *testing.T) {
+	r := newTestRenderer(t)
+
+	rec := httptest.NewRecorder()
+	data := settingsData(map[string]any{
+		"TLSMode": "acme",
+		"TLSACME": config.ACMEConfig{
+			Domain: "router.example.com", Email: "ops@example.com",
+			DNSChallenge: config.DNSChallengeConfig{Provider: "cloudflare", APIToken: "cf-secret-token"},
+		},
+	})
+	if err := r.Render(rec, "settings", "base", data); err != nil {
+		t.Fatalf("settings page does not execute: %v", err)
+	}
+	if strings.Contains(rec.Body.String(), "cf-secret-token") {
+		t.Error("the stored DNS API token was rendered into the page")
 	}
 }

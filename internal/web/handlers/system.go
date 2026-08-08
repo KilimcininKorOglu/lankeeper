@@ -30,6 +30,7 @@ type SystemHandler struct {
 	update   *services.UpdateService
 	system   *services.SystemService
 	tls      *services.TLSService
+	acme     *services.ACMEService
 	// passwordSink hands a newly generated hash back to the auth
 	// object, which caches it by value. A callback rather than a
 	// direct reference because Auth lives in the parent web package,
@@ -53,8 +54,8 @@ func (h *SystemHandler) SetCSRFRotator(fn func(w http.ResponseWriter) error) {
 	h.csrfRotator = fn
 }
 
-func NewSystemHandler(renderer *tmpl.Renderer, cfg *config.Config, loc *i18n.I18n, dhcp *services.DHCPService, backup *services.BackupService, update *services.UpdateService, system *services.SystemService, tlsSvc *services.TLSService) *SystemHandler {
-	return &SystemHandler{renderer: renderer, cfg: cfg, loc: loc, dhcp: dhcp, backup: backup, update: update, system: system, tls: tlsSvc}
+func NewSystemHandler(renderer *tmpl.Renderer, cfg *config.Config, loc *i18n.I18n, dhcp *services.DHCPService, backup *services.BackupService, update *services.UpdateService, system *services.SystemService, tlsSvc *services.TLSService, acmeSvc *services.ACMEService) *SystemHandler {
+	return &SystemHandler{renderer: renderer, cfg: cfg, loc: loc, dhcp: dhcp, backup: backup, update: update, system: system, tls: tlsSvc, acme: acmeSvc}
 }
 
 func (h *SystemHandler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
@@ -69,6 +70,8 @@ func (h *SystemHandler) HandleSettingsPage(w http.ResponseWriter, r *http.Reques
 		"TLSMode":        h.cfg.System.TLS.Mode,
 		"TLSSelfSigned":  h.cfg.System.TLS.SelfSigned,
 		"TLSMkcert":      h.cfg.System.TLS.Mkcert,
+		"TLSACME":        h.cfg.System.TLS.ACME,
+		"TLSACMEStaging": h.cfg.System.TLS.ACME.DirectoryURL != services.LetsEncryptProductionURL,
 		"Version":        h.update.GetVersionInfo(),
 		"PendingUpdate":  h.update.HasPendingUpdate(),
 		"PendingVersion": h.update.PendingVersion(),
@@ -404,6 +407,87 @@ func (h *SystemHandler) HandleDownloadMkcertCA(w http.ResponseWriter, r *http.Re
 	if _, err := w.Write(pem); err != nil {
 		log.Printf("tls: write mkcert CA: %v", err)
 	}
+}
+
+// HandleConfigureACME records the ACME settings and requests the first
+// certificate.
+//
+// The settings are written to the live config before issuance because
+// issuance reads them, but the mode is not: that is recorded inside
+// Issue, after the CA has actually handed a certificate over. A failure
+// therefore leaves the operator with their inputs preserved on the form
+// and the previous certificate still being served.
+func (h *SystemHandler) HandleConfigureACME(w http.ResponseWriter, r *http.Request) {
+	if h.acme == nil {
+		clientError(w, r, http.StatusNotImplemented, "error.internal")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
+		return
+	}
+
+	domain := r.FormValue("domain")
+	if err := services.ValidateDomain(domain); err != nil {
+		clientError(w, r, http.StatusBadRequest, "error.invalidDomain")
+		return
+	}
+
+	previous := h.cfg.System.TLS.ACME
+	next := previous
+	next.Domain = domain
+	next.Email = r.FormValue("email")
+	next.DNSChallenge.Provider = r.FormValue("provider")
+	next.DirectoryURL = services.ACMEDirectoryForChoice(r.FormValue("endpoint"))
+	// An empty token means "keep the stored one". The form never sends
+	// the saved value back, so treating blank as a clear would wipe the
+	// credential every time the operator retried after a failure.
+	if token := r.FormValue("apiToken"); token != "" {
+		next.DNSChallenge.APIToken = token
+	}
+	h.cfg.System.TLS.ACME = next
+
+	info, err := h.acme.Issue(r.Context())
+	if err != nil {
+		// Restore the inputs that were staged for issuance. The mode
+		// was never touched, but leaving a half-applied ACME block
+		// behind would make the next renewal use settings that were
+		// rejected.
+		h.cfg.System.TLS.ACME = previous
+
+		var manual *services.ManualChallengeError
+		if errors.As(err, &manual) {
+			// Not a failure: the operator has to publish a record. The
+			// settings are kept so the retry does not need retyping.
+			h.cfg.System.TLS.ACME = next
+			if saveErr := h.cfg.SaveToFile(); saveErr != nil {
+				log.Printf("acme: persist settings for manual challenge: %v", saveErr)
+			}
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(http.StatusAccepted)
+			if _, err := fmt.Fprintf(w, "%s\n%s TXT %s\n",
+				i18n.T(i18n.LangFromContext(r.Context()), "tls.acmeManualPending"),
+				manual.Record.Name, manual.Record.Value); err != nil {
+				log.Printf("acme: write manual challenge instructions: %v", err)
+			}
+			return
+		}
+		log.Printf("acme: issue certificate: %v", err)
+		fail(w, r, http.StatusBadGateway, err)
+		return
+	}
+	log.Printf("acme: certificate issued, expires %s", info.NotAfter)
+
+	respondRefresh(w, r, "/settings")
+
+	// #nosec G118
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := h.tls.Restart(ctx); err != nil {
+			log.Printf("tls: restart after acme issuance: %v", err)
+		}
+	}()
 }
 
 func (h *SystemHandler) HandleReboot(w http.ResponseWriter, r *http.Request) {

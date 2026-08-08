@@ -127,10 +127,15 @@ type SelfSignedConfig struct {
 }
 
 type ACMEConfig struct {
-	Enabled      bool               `yaml:"enabled"`
-	Email        string             `yaml:"email"`
-	Domain       string             `yaml:"domain"`
-	Provider     string             `yaml:"provider"`
+	Enabled  bool   `yaml:"enabled"`
+	Email    string `yaml:"email"`
+	Domain   string `yaml:"domain"`
+	Provider string `yaml:"provider"`
+	// DirectoryURL is the CA endpoint. Empty means Let's Encrypt
+	// staging: production allows five certificates per registered
+	// domain per week, so a misconfiguration that burns them costs the
+	// operator days, while a staging certificate only costs a warning.
+	DirectoryURL string             `yaml:"directoryUrl,omitempty"`
 	DNSChallenge DNSChallengeConfig `yaml:"dnsChallenge"`
 }
 

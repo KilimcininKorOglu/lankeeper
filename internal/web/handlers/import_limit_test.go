@@ -56,7 +56,7 @@ func newImportHandler(t *testing.T) *SystemHandler {
 	t.Helper()
 	cfg := &config.Config{}
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
-	return NewSystemHandler(nil, cfg, nil, nil, services.NewBackupService(t.TempDir()), nil, services.NewSystemService(), nil)
+	return NewSystemHandler(nil, cfg, nil, nil, services.NewBackupService(t.TempDir()), nil, services.NewSystemService(), nil, nil)
 }
 
 // countTempFiles reports how many import scratch files exist, which is
