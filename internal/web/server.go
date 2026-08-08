@@ -562,6 +562,7 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	mux.Handle("POST /network/pppoe/disconnect", authed(http.HandlerFunc(s.pppoe.HandleDisconnect)))
 	mux.Handle("POST /network/pppoe/sniff/start", authed(http.HandlerFunc(s.pppoe.HandleSniffStart)))
 	mux.Handle("POST /network/pppoe/sniff/stop", authed(http.HandlerFunc(s.pppoe.HandleSniffStop)))
+	mux.Handle("GET /network/healthcheck/status", authed(http.HandlerFunc(s.health.HandleStatus)))
 	mux.Handle("POST /network/healthcheck/{name}/reset", authed(http.HandlerFunc(s.health.HandleReset)))
 	mux.Handle("POST /network/vlan", authed(http.HandlerFunc(s.vlan.HandleAdd)))
 	mux.Handle("DELETE /network/vlan/{id}", authed(http.HandlerFunc(s.vlan.HandleDelete)))

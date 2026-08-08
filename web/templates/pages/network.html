@@ -75,16 +75,9 @@
         <div class="card-header">
             <span class="card-title">{{ t $.Lang "healthcheck.title" }}</span>
         </div>
-        {{ range $name, $check := .HealthChecks }}
-        <div style="display:flex; align-items:center; justify-content:space-between; padding:var(--space-sm) 0; border-bottom:1px solid var(--border-color);">
-            <span>{{ $name }}</span>
-            {{ if eq $check.Status "ok" }}
-                <span class="badge badge-success">{{ t $.Lang "healthcheck.healthy" }}</span>
-            {{ else }}
-                <span class="badge badge-error">{{ t $.Lang "healthcheck.unhealthy" }}</span>
-            {{ end }}
+        <div hx-get="/network/healthcheck/status" hx-trigger="load, every 10s" hx-swap="innerHTML">
+            {{ template "healthcheck" $ }}
         </div>
-        {{ end }}
     </div>
     {{ end }}
 

@@ -1,5 +1,5 @@
 {{ define "healthcheck" }}
-{{ range $name, $check := .HealthChecks }}
+{{ range $name, $check := .Data.HealthChecks }}
 <div style="display:flex; align-items:center; justify-content:space-between; padding:var(--space-sm) 0; border-bottom:1px solid var(--border-color);">
     <div>
         <span style="font-weight:700;">{{ $name }}</span>
