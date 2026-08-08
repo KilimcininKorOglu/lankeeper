@@ -141,6 +141,10 @@ type DNSChallengeConfig struct {
 
 type MkcertConfig struct {
 	CAInstalled bool `yaml:"caInstalled"`
+	// SANs are the names the last mkcert certificate was issued for.
+	// Kept so the settings form comes back filled in with what is
+	// actually being served rather than an empty box.
+	SANs []string `yaml:"sans,omitempty"`
 }
 
 type InterfaceConfig struct {

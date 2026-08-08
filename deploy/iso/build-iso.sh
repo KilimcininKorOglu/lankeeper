@@ -164,6 +164,7 @@ LANKEEPER_PACKAGES=(
     samba samba-common-bin smartmontools mdadm iproute2
     unbound dnsmasq rsyslog chrony qrencode
     wide-dhcpv6-client dnscrypt-proxy curl jq hdparm openssh-server htop
+    mkcert
 )
 
 PACKAGES=( "${STANDARD_TASK_PACKAGES[@]}" "${LANKEEPER_PACKAGES[@]}" )

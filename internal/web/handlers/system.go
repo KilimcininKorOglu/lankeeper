@@ -68,6 +68,7 @@ func (h *SystemHandler) HandleSettingsPage(w http.ResponseWriter, r *http.Reques
 		"Language":       h.cfg.System.Language,
 		"TLSMode":        h.cfg.System.TLS.Mode,
 		"TLSSelfSigned":  h.cfg.System.TLS.SelfSigned,
+		"TLSMkcert":      h.cfg.System.TLS.Mkcert,
 		"Version":        h.update.GetVersionInfo(),
 		"PendingUpdate":  h.update.HasPendingUpdate(),
 		"PendingVersion": h.update.PendingVersion(),
@@ -251,6 +252,10 @@ func (h *SystemHandler) HandleUpdateTimezone(w http.ResponseWriter, r *http.Requ
 	respondTrigger(w, r, "settingsUpdated", "/settings")
 }
 
+// defaultSelfSignedDays mirrors the generator's own fallback, so a form
+// that omits the field produces the same lifetime as a fresh install.
+const defaultSelfSignedDays = 3650
+
 // HandleRegenerateTLS issues a fresh self-signed certificate and brings
 // the service back on it.
 //
@@ -310,6 +315,95 @@ func (h *SystemHandler) HandleRegenerateTLS(w http.ResponseWriter, r *http.Reque
 			log.Printf("tls: restart after regeneration: %v", err)
 		}
 	}()
+}
+
+// HandleSetTLSMode switches between the self-signed and mkcert modes.
+//
+// Same shape as regeneration and for the same reason: the certificate is
+// issued before the mode is recorded, and the restart is fired after the
+// response is on its way out.
+func (h *SystemHandler) HandleSetTLSMode(w http.ResponseWriter, r *http.Request) {
+	if h.tls == nil {
+		clientError(w, r, http.StatusNotImplemented, "error.internal")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
+		return
+	}
+
+	mode := r.FormValue("mode")
+	cn := r.FormValue("cn")
+	sans, err := services.ParseSANs(r.FormValue("sans"))
+	if err != nil {
+		clientErrorf(w, r, http.StatusBadRequest, "error.badForm", err.Error())
+		return
+	}
+
+	// Only the self-signed branch reads a validity, and it is the one
+	// branch that has a sensible default: mkcert decides its own.
+	validDays := h.cfg.System.TLS.SelfSigned.ValidDays
+	if raw := r.FormValue("validDays"); raw != "" {
+		parsed, convErr := strconv.Atoi(raw)
+		if convErr != nil {
+			clientErrorf(w, r, http.StatusBadRequest, "error.badForm", services.ErrInvalidValidity.Error())
+			return
+		}
+		validDays = parsed
+	}
+	if validDays == 0 {
+		validDays = defaultSelfSignedDays
+	}
+	if cn == "" {
+		cn = h.cfg.System.Hostname + "." + h.cfg.System.Domain
+	}
+
+	info, err := h.tls.SwitchMode(r.Context(), mode, cn, sans, validDays)
+	if err != nil {
+		fail(w, r, http.StatusBadRequest, err)
+		return
+	}
+	// mode came off a switch in SwitchMode that admits three literals.
+	// #nosec G706
+	log.Printf("TLS mode set to %s, certificate expires %s", mode, info.NotAfter)
+
+	respondRefresh(w, r, "/settings")
+
+	// #nosec G118
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := h.tls.Restart(ctx); err != nil {
+			log.Printf("tls: restart after mode change: %v", err)
+		}
+	}()
+}
+
+// HandleDownloadMkcertCA serves the local CA so the operator can install
+// it on their LAN devices. Without that step every device still warns,
+// which is the only reason to run mkcert rather than a self-signed pair.
+//
+// It is a public certificate, not key material, but it goes out through
+// the same helper: the browser has no reason to keep a copy, and using
+// one path for every file the UI hands over is what keeps the no-store
+// rule from being decided per route.
+func (h *SystemHandler) HandleDownloadMkcertCA(w http.ResponseWriter, r *http.Request) {
+	if h.tls == nil {
+		clientError(w, r, http.StatusNotImplemented, "error.internal")
+		return
+	}
+
+	pem, err := h.tls.MkcertCA()
+	if err != nil {
+		log.Printf("tls: read mkcert CA: %v", err)
+		clientError(w, r, http.StatusNotFound, "tls.noCa")
+		return
+	}
+
+	setSecretDownloadHeaders(w, "application/x-x509-ca-cert", "lankeeper-ca.pem")
+	if _, err := w.Write(pem); err != nil {
+		log.Printf("tls: write mkcert CA: %v", err)
+	}
 }
 
 func (h *SystemHandler) HandleReboot(w http.ResponseWriter, r *http.Request) {

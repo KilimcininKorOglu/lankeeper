@@ -12,6 +12,13 @@ import (
 	"github.com/KilimcininKorOglu/lankeeper/internal/services"
 )
 
+// testTLSConfig bundles what the mkcert tests assert against: the live
+// config and the data directory the certificates land in.
+type testTLSConfig struct {
+	cfg *config.Config
+	dir string
+}
+
 func newTLSTestService(t *testing.T) (*services.TLSService, *config.Config, string) {
 	t.Helper()
 	dir := t.TempDir()

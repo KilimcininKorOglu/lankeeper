@@ -540,6 +540,8 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	mux.Handle("POST /settings/hostname", authed(http.HandlerFunc(s.settings.HandleUpdateHostname)))
 	mux.Handle("POST /settings/timezone", authed(http.HandlerFunc(s.settings.HandleUpdateTimezone)))
 	mux.Handle("POST /settings/tls/regenerate", authed(http.HandlerFunc(s.settings.HandleRegenerateTLS)))
+	mux.Handle("POST /settings/tls/mode", authed(http.HandlerFunc(s.settings.HandleSetTLSMode)))
+	mux.Handle("GET /settings/tls/ca", authed(http.HandlerFunc(s.settings.HandleDownloadMkcertCA)))
 	mux.Handle("POST /system/reboot", authed(http.HandlerFunc(s.settings.HandleReboot)))
 	mux.Handle("POST /system/factory-reset", authed(http.HandlerFunc(s.settings.HandleFactoryReset)))
 	mux.Handle("GET /system/backup/export", authed(http.HandlerFunc(s.settings.HandleExport)))

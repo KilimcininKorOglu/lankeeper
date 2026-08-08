@@ -45,9 +45,20 @@ func TestExecParamsCarriesNoEnv(t *testing.T) {
 // TestCommandEnvIsFixedPerCommand pins what the agent supplies itself,
 // which is the only reason the field existed.
 func TestCommandEnvIsFixedPerCommand(t *testing.T) {
-	got := commandEnv("easyrsa")
-	if len(got) != 1 || got[0] != "EASYRSA_PKI=/etc/openvpn/pki" {
-		t.Errorf("commandEnv(easyrsa) = %v, want the fixed PKI path", got)
+	cases := map[string]string{
+		"easyrsa": "EASYRSA_PKI=/etc/openvpn/pki",
+		// mkcert reads its CA location from the environment. If the
+		// caller could set it, the agent would run mkcert as root
+		// against a root of the caller's choosing, and the CA the web
+		// UI hands out would stop being the one that signed what the
+		// server presents.
+		"mkcert": "CAROOT=/var/lib/lankeeper/mkcert",
+	}
+	for cmd, want := range cases {
+		got := commandEnv(cmd)
+		if len(got) != 1 || got[0] != want {
+			t.Errorf("commandEnv(%s) = %v, want [%s]", cmd, got, want)
+		}
 	}
 }
 
@@ -68,7 +79,7 @@ func TestCommandEnvCannotBeInfluencedByArguments(t *testing.T) {
 	if a, b := commandEnv("easyrsa"), commandEnv("easyrsa"); len(a) != len(b) {
 		t.Fatal("the lookup is not deterministic")
 	}
-	for _, spoof := range []string{"easyrsa ", " easyrsa", "EASYRSA", "easyrsa;nft"} {
+	for _, spoof := range []string{"easyrsa ", " easyrsa", "EASYRSA", "easyrsa;nft", "mkcert ", "MKCERT"} {
 		if got := commandEnv(spoof); len(got) != 0 {
 			t.Errorf("commandEnv(%q) = %v, want nothing", spoof, got)
 		}

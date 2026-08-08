@@ -142,6 +142,32 @@
             <button type="submit" class="btn btn-primary btn-sm" style="margin-top:var(--space-md);">{{ t $.Lang "tls.regenerate" }}</button>
         </form>
         {{ end }}
+
+        {{ if eq .TLSMode "mkcert" }}
+        <div style="display:flex; gap:var(--space-sm); margin-top:var(--space-md);">
+            <a href="/settings/tls/ca" class="btn btn-secondary btn-sm">{{ t $.Lang "tls.downloadCa" }}</a>
+        </div>
+        <p class="modal-hint">{{ t $.Lang "tls.mkcertHint" }}</p>
+        {{ end }}
+
+        <form hx-post="/settings/tls/mode" hx-swap="none" style="margin-top:var(--space-lg); border-top:1px solid var(--border-color); padding-top:var(--space-md);">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:var(--space-md);">
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "tls.mode" }}</label>
+                    <select class="input" name="mode">
+                        <option value="self-signed" {{ if or (eq .TLSMode "self-signed") (eq .TLSMode "") }}selected{{ end }}>{{ t $.Lang "tls.selfSigned" }}</option>
+                        <option value="mkcert" {{ if eq .TLSMode "mkcert" }}selected{{ end }}>{{ t $.Lang "tls.mkcert" }}</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "tls.sans" }}</label>
+                    <input class="input" name="sans" placeholder="{{ t $.Lang "tls.sansPlaceholder" }}"
+                           value="{{ range $i, $s := .TLSMkcert.SANs }}{{ if $i }}, {{ end }}{{ $s }}{{ end }}">
+                </div>
+            </div>
+            <p class="modal-hint">{{ t $.Lang "tls.modeWarning" }}</p>
+            <button type="submit" class="btn btn-secondary btn-sm" style="margin-top:var(--space-md);">{{ t $.Lang "tls.applyMode" }}</button>
+        </form>
     </div>
 
     <!-- Backup -->

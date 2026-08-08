@@ -76,6 +76,49 @@ func ReadTLSCertInfo(cfg *TLSConfig, dataDir string) (*TLSCertInfo, error) {
 	return readCertInfo(certPath, keyPath)
 }
 
+// InstallTLSPair puts a certificate issued elsewhere into the serving
+// location and reports what it contains.
+//
+// The PEM is parsed before either file is written. A caller that hands
+// over an error message, an empty buffer or a half-downloaded response
+// gets a failure here, while the pair already in place keeps serving.
+// Discovering the same thing at bind time instead means the service is
+// already down.
+func InstallTLSPair(cfg *TLSConfig, dataDir string, certPEM, keyPEM []byte) (*TLSCertInfo, error) {
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return nil, fmt.Errorf("decode certificate PEM: no valid block found")
+	}
+	if _, err := x509.ParseCertificate(block.Bytes); err != nil {
+		return nil, fmt.Errorf("parse certificate: %w", err)
+	}
+	if keyBlock, _ := pem.Decode(keyPEM); keyBlock == nil {
+		return nil, fmt.Errorf("decode key PEM: no valid block found")
+	}
+
+	certPath, keyPath, err := certPaths(cfg, dataDir)
+	if err != nil {
+		return nil, err
+	}
+
+	// The key first. If the certificate write fails after it, the pair
+	// on disk is stale-cert plus new-key and the service refuses to
+	// start, which is loud. The other order leaves new-cert plus
+	// stale-key, which also refuses to start but looks like the install
+	// worked.
+	if err := atomicWrite(keyPath, keyPEM); err != nil {
+		return nil, fmt.Errorf("write key: %w", err)
+	}
+	if err := os.Chmod(keyPath, 0o600); err != nil {
+		return nil, fmt.Errorf("chmod key: %w", err)
+	}
+	if err := atomicWrite(certPath, certPEM); err != nil {
+		return nil, fmt.Errorf("write cert: %w", err)
+	}
+
+	return readCertInfo(certPath, keyPath)
+}
+
 // certPaths resolves where the pair lives, creating the directory but
 // not the certificate.
 func certPaths(cfg *TLSConfig, dataDir string) (certPath, keyPath string, err error) {

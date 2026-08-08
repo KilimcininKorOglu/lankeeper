@@ -25,7 +25,7 @@ var allowedCommands = map[string]bool{
 	"cp": true, "chmod": true, "mv": true, "rm": true, "kill": true,
 	"openssl": true, "usermod": true, "localectl": true, "loadkeys": true,
 	"easyrsa": true, "mkdir": true, "tail": true, "update-grub": true,
-	"dhcp6c": true, "dhcp6ctl": true,
+	"dhcp6c": true, "dhcp6ctl": true, "mkcert": true,
 }
 
 // trustedBinDirs are the only directories a whitelisted command is
@@ -198,6 +198,13 @@ func commandEnv(cmd string) []string {
 	switch cmd {
 	case "easyrsa":
 		return []string{"EASYRSA_PKI=/etc/openvpn/pki"}
+	case "mkcert":
+		// mkcert keeps its CA here and reads the location from the
+		// environment. Left to the caller it would be a path the agent
+		// executes against as root; pinned here it is the same root for
+		// every invocation, which is also what makes the CA the web UI
+		// hands out the one the certificates were signed with.
+		return []string{"CAROOT=/var/lib/lankeeper/mkcert"}
 	default:
 		return nil
 	}
@@ -251,7 +258,7 @@ func opExecRun(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	// The variable command IS the design. cmdPath comes from
-	// allowedCommands above, a 46-entry whitelist checked before
+	// allowedCommands above, a 47-entry whitelist checked before
 	// this line, and arguments are validated at the service
 	// boundary because the whitelist matches the base name only.
 	// #nosec G204

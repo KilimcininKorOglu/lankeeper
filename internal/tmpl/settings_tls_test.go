@@ -38,6 +38,7 @@ func settingsData(extra map[string]any) *tmpl.PageData {
 		"Language":       "en",
 		"TLSMode":        "self-signed",
 		"TLSSelfSigned":  config.SelfSignedConfig{},
+		"TLSMkcert":      config.MkcertConfig{},
 		"Version":        map[string]any{},
 		"PendingUpdate":  false,
 		"PendingVersion": "",
@@ -134,5 +135,50 @@ func TestSettingsPageHidesRegenerateOutsideSelfSigned(t *testing.T) {
 				t.Errorf("the regenerate form is offered in %s mode", mode)
 			}
 		})
+	}
+}
+
+// The mode form is the only way back from mkcert, and the CA download is
+// the only way the operator makes their devices trust it. Both have to
+// be present and both have to hang off the mode the page is showing.
+func TestSettingsPageOffersModeSwitchAndCADownload(t *testing.T) {
+	r := newTestRenderer(t)
+
+	rec := httptest.NewRecorder()
+	data := settingsData(map[string]any{
+		"TLSMode":   "mkcert",
+		"TLSMkcert": config.MkcertConfig{SANs: []string{"hermes.lan", "10.10.10.1"}},
+	})
+	if err := r.Render(rec, "settings", "base", data); err != nil {
+		t.Fatalf("settings page does not execute in mkcert mode: %v", err)
+	}
+
+	body := rec.Body.String()
+	for _, want := range []string{
+		`hx-post="/settings/tls/mode"`,
+		`href="/settings/tls/ca"`,
+		`value="mkcert"`,
+		"hermes.lan, 10.10.10.1",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("mkcert-mode settings page is missing %q", want)
+		}
+	}
+	if strings.Contains(body, "<no value>") {
+		t.Error("a lookup on the settings page resolved to nothing")
+	}
+}
+
+// The CA link is meaningless outside mkcert mode: there is no local CA
+// to install, and offering the download would hand back a 404.
+func TestSettingsPageHidesCADownloadOutsideMkcert(t *testing.T) {
+	r := newTestRenderer(t)
+
+	rec := httptest.NewRecorder()
+	if err := r.Render(rec, "settings", "base", settingsData(nil)); err != nil {
+		t.Fatalf("settings page does not execute: %v", err)
+	}
+	if strings.Contains(rec.Body.String(), `href="/settings/tls/ca"`) {
+		t.Error("the CA download is offered in self-signed mode")
 	}
 }

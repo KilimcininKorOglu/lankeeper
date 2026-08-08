@@ -661,5 +661,9 @@
     "tls.commonName": "Ortak ad (CN)",
     "tls.validDays": "Geçerlilik (gün)",
     "tls.restartWarning": "Yeni sertifika üretildikten sonra servis yeniden başlar. Tarayıcı birkaç saniye bağlantıyı kaybeder ve yeni sertifika için tekrar uyarı gösterir.",
-    "tls.noCert": "Diskte okunabilir bir sertifika yok. Yeniden üretin."
+    "tls.noCert": "Diskte okunabilir bir sertifika yok. Yeniden üretin.",
+    "tls.applyMode": "Modu uygula",
+    "tls.modeWarning": "Mod değiştiğinde önce yeni sertifika üretilir, ancak ondan sonra ayar kaydedilir. Üretim başarısız olursa mevcut sertifika ve mod olduğu gibi kalır.",
+    "tls.mkcertHint": "CA sertifikasını indirin ve ağdaki cihazlara kurun. Kurulmadan tarayıcılar uyarı göstermeye devam eder.",
+    "tls.noCa": "mkcert CA sertifikası bulunamadı."
 }

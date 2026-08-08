@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
@@ -30,6 +32,9 @@ var (
 	ErrTooManySANs     = fmt.Errorf("at most %d subject alternative names are allowed", maxSANs)
 	ErrInvalidValidity = fmt.Errorf("validity must be between 1 and %d days", maxSelfSignedValidDays)
 	ErrNotSelfSigned   = errors.New("the TLS mode is not self-signed, so there is nothing to regenerate")
+	ErrNoSANs          = errors.New("mkcert needs at least one name or address to issue for")
+	ErrNoMkcertCA      = errors.New("no mkcert CA certificate on disk")
+	ErrUnknownTLSMode  = errors.New("unknown TLS mode")
 )
 
 // TLSService owns the certificate behind the web UI.
@@ -120,9 +125,35 @@ func ParseSANs(raw string) ([]string, error) {
 // fail to bind on the way back up with the operator locked out of the
 // only interface that could fix it.
 func (s *TLSService) Regenerate(ctx context.Context, cn string, sans []string, validDays int) (*config.TLSCertInfo, error) {
+	// The guard is on this entry point rather than on the issuance
+	// below, because switching modes deliberately is a different act
+	// from pressing regenerate on a page that is showing a certificate
+	// somebody else issued.
 	if mode := s.cfg.System.TLS.Mode; mode != "" && mode != "self-signed" {
 		return nil, fmt.Errorf("%w: mode is %q", ErrNotSelfSigned, mode)
 	}
+	return s.issueSelfSigned(ctx, cn, sans, validDays)
+}
+
+// SwitchMode moves TLS to mode, issuing whatever that mode needs before
+// the mode itself is recorded.
+//
+// Every branch issues first and persists second. A config naming a mode
+// with no certificate under it is a service that cannot bind, and the
+// only interface that could correct it is the one that just stopped
+// answering.
+func (s *TLSService) SwitchMode(ctx context.Context, mode, cn string, sans []string, validDays int) (*config.TLSCertInfo, error) {
+	switch mode {
+	case "self-signed", "":
+		return s.issueSelfSigned(ctx, cn, sans, validDays)
+	case "mkcert":
+		return s.EnableMkcert(ctx, sans)
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrUnknownTLSMode, mode)
+	}
+}
+
+func (s *TLSService) issueSelfSigned(_ context.Context, cn string, sans []string, validDays int) (*config.TLSCertInfo, error) {
 	if err := ValidateDomain(cn); err != nil {
 		return nil, err
 	}
@@ -155,6 +186,93 @@ func (s *TLSService) Regenerate(ctx context.Context, cn string, sans []string, v
 		return nil, fmt.Errorf("persist tls settings: %w", err)
 	}
 	return info, nil
+}
+
+// EnableMkcert issues a certificate from the local mkcert CA and
+// switches the mode over.
+//
+// mkcert runs through the agent, so it runs as root and everything it
+// writes is owned by root. The web process runs as the service account
+// and has to be able to read the private key at startup, so the pair is
+// staged under the CA root and copied into place here rather than
+// written to the serving paths directly. Loosening the key's mode
+// instead would hand it to every local account.
+//
+// -install is deliberately not run. It exists to trust the CA on the
+// machine mkcert runs on, and this machine is the server, not the
+// client. The CA is created on first issuance either way, and the
+// operator installs it on their own devices from the download below.
+func (s *TLSService) EnableMkcert(ctx context.Context, sans []string) (*config.TLSCertInfo, error) {
+	if len(sans) == 0 {
+		return nil, ErrNoSANs
+	}
+	if len(sans) > maxSANs {
+		return nil, ErrTooManySANs
+	}
+	for _, san := range sans {
+		if err := ValidateSAN(san); err != nil {
+			return nil, err
+		}
+	}
+
+	caRoot := filepath.Join(s.dataDir, "mkcert")
+	if err := netutil.MkdirAll(caRoot, 0o755); err != nil {
+		return nil, fmt.Errorf("create mkcert root: %w", err)
+	}
+	stageCert := filepath.Join(caRoot, "staged.crt")
+	stageKey := filepath.Join(caRoot, "staged.key")
+
+	args := append([]string{"-cert-file", stageCert, "-key-file", stageKey}, sans...)
+	if _, err := netutil.Run(ctx, "mkcert", args...); err != nil {
+		return nil, fmt.Errorf("issue mkcert certificate: %w", err)
+	}
+	// The staged pair is removed whatever happens next. Leaving a
+	// readable private key behind on a failure is the worst outcome of
+	// this function, and it is the one nothing else would notice.
+	defer func() {
+		if _, err := netutil.Run(context.WithoutCancel(ctx), "rm", "-f", stageCert, stageKey); err != nil {
+			log.Printf("tls: remove staged mkcert pair: %v", err)
+		}
+	}()
+
+	certPEM, err := netutil.ReadFile(stageCert)
+	if err != nil {
+		return nil, fmt.Errorf("read issued certificate: %w", err)
+	}
+	keyPEM, err := netutil.ReadFile(stageKey)
+	if err != nil {
+		return nil, fmt.Errorf("read issued key: %w", err)
+	}
+
+	next := s.cfg.System.TLS
+	next.Mode = "mkcert"
+	next.Mkcert.SANs = sans
+
+	// Installed before the mode is persisted, and the install itself
+	// parses the certificate before either file lands. A config saying
+	// "mkcert" with no certificate under it is a service that cannot
+	// bind, reachable only from the interface that just went away.
+	info, err := config.InstallTLSPair(&next, s.dataDir, certPEM, keyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("install mkcert certificate: %w", err)
+	}
+
+	s.cfg.System.TLS = next
+	if err := s.cfg.SaveToFile(); err != nil {
+		return nil, fmt.Errorf("persist tls settings: %w", err)
+	}
+	return info, nil
+}
+
+// MkcertCA returns the local CA certificate for the operator to install
+// on their LAN devices. Without it every device shows a warning, which
+// is the whole reason to run mkcert instead of a self-signed pair.
+func (s *TLSService) MkcertCA() ([]byte, error) {
+	pem, err := netutil.ReadFile(filepath.Join(s.dataDir, "mkcert", "rootCA.pem"))
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrNoMkcertCA, err)
+	}
+	return pem, nil
 }
 
 // Restart brings the service back on the new certificate. Separate from

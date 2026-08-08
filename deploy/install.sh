@@ -49,6 +49,7 @@ install_dependencies() {
         nftables \
         wireguard-tools \
         openvpn easy-rsa \
+        mkcert \
         samba samba-common-bin \
         smartmontools mdadm \
         iproute2 \

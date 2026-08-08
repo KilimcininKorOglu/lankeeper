@@ -661,5 +661,9 @@
     "tls.commonName": "Common name (CN)",
     "tls.validDays": "Validity (days)",
     "tls.restartWarning": "The service restarts once the new certificate is written. The browser loses the connection for a few seconds and will warn about the new certificate.",
-    "tls.noCert": "No readable certificate on disk. Regenerate one."
+    "tls.noCert": "No readable certificate on disk. Regenerate one.",
+    "tls.applyMode": "Apply mode",
+    "tls.modeWarning": "Changing the mode issues the new certificate first and records the setting only after that succeeds. If issuance fails, the current certificate and mode are left as they are.",
+    "tls.mkcertHint": "Download the CA certificate and install it on the devices on your network. Until you do, browsers keep warning.",
+    "tls.noCa": "No mkcert CA certificate found."
 }
