@@ -33,6 +33,21 @@
         <p style="color:var(--text-secondary); font-size:var(--font-sm); margin-bottom:var(--space-md);">
             {{ t $.Lang "firewall.ttlFix.desc" }}
         </p>
+        <form hx-post="/firewall/ttl-fix" hx-swap="none"
+              style="display:flex; gap:var(--space-md); align-items:flex-end; flex-wrap:wrap;">
+            <label style="display:flex; align-items:center; gap:var(--space-xs); cursor:pointer;">
+                <input type="checkbox" name="enabled" value="true" {{ if .TTLFixEnabled }}checked{{ end }}>
+                {{ t $.Lang "common.enabled" }}
+            </label>
+            <div class="input-group" style="max-width:120px;">
+                <label class="input-label">{{ t $.Lang "firewall.ttlFix.value" }}</label>
+                <input class="input" name="value" type="number" min="1" max="255" value="{{ .TTLFixValue }}">
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
+        </form>
+        <p style="color:var(--text-secondary); font-size:var(--font-xs); margin-top:var(--space-sm);">
+            {{ t $.Lang "firewall.ttlFix.applyHint" }}
+        </p>
     </div>
 
     <!-- Open Ports (WAN Input) -->

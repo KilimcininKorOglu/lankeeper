@@ -570,6 +570,7 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	mux.Handle("POST /firewall/apply", authed(http.HandlerFunc(s.firewall.HandleApply)))
 	mux.Handle("POST /firewall/confirm", authed(http.HandlerFunc(s.firewall.HandleConfirm)))
 	mux.Handle("POST /firewall/rollback", authed(http.HandlerFunc(s.firewall.HandleRollback)))
+	mux.Handle("POST /firewall/ttl-fix", authed(http.HandlerFunc(s.firewall.HandleSetTTLFix)))
 	mux.Handle("POST /firewall/port-forwards", authed(http.HandlerFunc(s.firewall.HandleAddPortForward)))
 	mux.Handle("DELETE /firewall/port-forwards/{index}", authed(http.HandlerFunc(s.firewall.HandleDeletePortForward)))
 	mux.Handle("POST /firewall/open-ports", authed(http.HandlerFunc(s.firewall.HandleAddOpenPort)))

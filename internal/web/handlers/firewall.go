@@ -309,6 +309,39 @@ func (h *FirewallHandler) HandleDeleteOpenPort(w http.ResponseWriter, r *http.Re
 	respondRefresh(w, r, "/firewall")
 }
 
+func (h *FirewallHandler) HandleSetTTLFix(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
+		return
+	}
+
+	enabled := r.FormValue("enabled") == "true"
+
+	// The field keeps its stored value when the form omits it, so
+	// toggling the checkbox off does not silently reset the hop limit
+	// to something the operator never chose.
+	value := h.cfg.Firewall.TTLFix.Value
+	if raw := strings.TrimSpace(r.FormValue("value")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			clientError(w, r, http.StatusBadRequest, "error.invalidTTL")
+			return
+		}
+		value = parsed
+	}
+
+	if err := h.firewall.SetTTLFix(enabled, value); err != nil {
+		if errors.Is(err, services.ErrInvalidTTL) {
+			clientError(w, r, http.StatusBadRequest, "error.invalidTTL")
+			return
+		}
+		fail(w, r, http.StatusInternalServerError, err)
+		return
+	}
+
+	respondRefresh(w, r, "/firewall")
+}
+
 func (h *FirewallHandler) HandleToggleOpenPort(w http.ResponseWriter, r *http.Request) {
 	idx, err := strconv.Atoi(r.PathValue("index"))
 	if err != nil {

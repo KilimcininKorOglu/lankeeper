@@ -397,6 +397,27 @@ func (s *FirewallService) ToggleRule(index int, enabled bool) error {
 	return s.persist()
 }
 
+// ErrInvalidTTL reports a hop limit outside what the field can carry.
+var ErrInvalidTTL = errors.New("ttl value must be between 1 and 255")
+
+// SetTTLFix records the TTL rewrite setting. The value is bounded here
+// rather than at the handler because nftables parses the ruleset as a
+// unit: one out-of-range literal fails the whole load, taking every
+// other rule with it, and the caller sees a failure that names nothing
+// in particular.
+//
+// This only writes the config. The rule reaches the kernel through the
+// normal Apply path, so the change stays behind the confirmation
+// watchdog instead of going live the moment a checkbox moves.
+func (s *FirewallService) SetTTLFix(enabled bool, value int) error {
+	if value < 1 || value > 255 {
+		return fmt.Errorf("%w: %d", ErrInvalidTTL, value)
+	}
+	s.cfg.Firewall.TTLFix.Enabled = enabled
+	s.cfg.Firewall.TTLFix.Value = value
+	return s.persist()
+}
+
 func (s *FirewallService) GetCustomRules() []config.FirewallRule {
 	return s.cfg.Firewall.Rules
 }
