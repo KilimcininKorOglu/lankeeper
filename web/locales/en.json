@@ -644,5 +644,9 @@
     "firstboot.willDetach": "Will be detached from the bridge",
     "firstboot.noWan": "no WAN interface configured yet",
     "firstboot.complete": "Finish setup",
-    "firstboot.confirm": "Finish first-boot setup and detach the WAN card from the bridge?"
+    "firstboot.confirm": "Finish first-boot setup and detach the WAN card from the bridge?",
+    "vpn.configUnavailable": "cannot re-issue",
+    "vpn.configUnavailable.desc": "This peer's private key is not stored, so its configuration cannot be produced again. Replace the peer to get a new one.",
+    "error.peerNotFound": "Peer not found",
+    "error.peerKeyUnavailable": "This peer's private key is not stored, so its configuration cannot be re-issued. Remove the peer and add it again."
 }

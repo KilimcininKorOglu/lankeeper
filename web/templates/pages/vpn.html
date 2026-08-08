@@ -29,7 +29,12 @@
                 <div style="color:var(--text-secondary); font-size:var(--font-xs);">{{ t $.Lang "vpn.remoteSubnets" }}: {{ range $i, $s := .RemoteSubnets }}{{ if $i }}, {{ end }}{{ $s }}{{ end }}</div>
                 {{ end }}
             </div>
-            <div style="display:flex; gap:var(--space-sm);">
+            <div style="display:flex; gap:var(--space-sm); align-items:center;">
+                {{ if .PrivateKey }}
+                <a class="btn btn-secondary btn-sm" href="/vpn/server/peer/{{ .Name }}/config">{{ t $.Lang "vpn.downloadConfig" }}</a>
+                {{ else }}
+                <span class="badge badge-error" title="{{ t $.Lang "vpn.configUnavailable.desc" }}">{{ t $.Lang "vpn.configUnavailable" }}</span>
+                {{ end }}
                 <button class="btn btn-danger btn-sm" hx-delete="/vpn/server/peer/{{ .Name }}" hx-swap="none">{{ t $.Lang "common.delete" }}</button>
             </div>
         </div>

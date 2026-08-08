@@ -104,6 +104,42 @@ func (h *VPNHandler) HandleAddPeer(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(confStr))
 }
 
+// HandleDownloadPeerConfig re-issues a peer's client configuration.
+//
+// The config carries the peer's private key, so it goes out with the
+// same headers as the OpenVPN profile and the backup archive: an
+// attachment disposition and no-store, because Content-Disposition
+// alone says how to present the body, not whether to keep it.
+func (h *VPNHandler) HandleDownloadPeerConfig(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if len(name) > 64 || !vpnNamePattern.MatchString(name) {
+		clientError(w, r, http.StatusBadRequest, "error.invalidPeerName")
+		return
+	}
+
+	conf, err := h.vpn.PeerConfig(name)
+	switch {
+	case errors.Is(err, services.ErrPeerNotFound):
+		clientError(w, r, http.StatusNotFound, "error.peerNotFound")
+		return
+	case errors.Is(err, services.ErrPeerKeyUnavailable):
+		// Not a fault: the peer works, it just predates key storage or
+		// lost its key with the credential key. Saying so is the only
+		// way the operator learns replacing it is the way forward.
+		clientError(w, r, http.StatusGone, "error.peerKeyUnavailable")
+		return
+	case err != nil:
+		fail(w, r, http.StatusInternalServerError, err)
+		return
+	}
+
+	setSecretDownloadHeaders(w, "text/plain", name+".conf")
+	// Not an HTML context: attachment disposition, text/plain, and a
+	// global nosniff header.
+	// #nosec G705
+	_, _ = w.Write([]byte(conf))
+}
+
 func (h *VPNHandler) HandleRemovePeer(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := h.vpn.RemovePeer(name); err != nil {

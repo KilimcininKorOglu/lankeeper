@@ -644,5 +644,9 @@
     "firstboot.willDetach": "Köprüden ayrılacak",
     "firstboot.noWan": "henüz WAN arayüzü yapılandırılmadı",
     "firstboot.complete": "Kurulumu bitir",
-    "firstboot.confirm": "İlk kurulum bitirilsin ve WAN kartı köprüden ayrılsın mı?"
+    "firstboot.confirm": "İlk kurulum bitirilsin ve WAN kartı köprüden ayrılsın mı?",
+    "vpn.configUnavailable": "yeniden verilemez",
+    "vpn.configUnavailable.desc": "Bu eşin private key'i saklanmıyor, bu yüzden yapılandırması yeniden üretilemez. Yeni bir tane almak için eşi değiştirin.",
+    "error.peerNotFound": "Eş bulunamadı",
+    "error.peerKeyUnavailable": "Bu eşin private key'i saklanmıyor, bu yüzden yapılandırması yeniden verilemez. Eşi silip yeniden ekleyin."
 }

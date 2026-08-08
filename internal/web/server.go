@@ -612,6 +612,7 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	mux.Handle("POST /qos/clear", authed(http.HandlerFunc(s.qos.HandleClear)))
 	mux.Handle("GET /vpn", authed(http.HandlerFunc(s.vpn.HandlePage)))
 	mux.Handle("POST /vpn/server/peer", authed(http.HandlerFunc(s.vpn.HandleAddPeer)))
+	mux.Handle("GET /vpn/server/peer/{name}/config", authed(http.HandlerFunc(s.vpn.HandleDownloadPeerConfig)))
 	mux.Handle("DELETE /vpn/server/peer/{name}", authed(http.HandlerFunc(s.vpn.HandleRemovePeer)))
 	mux.Handle("POST /vpn/server/start", authed(http.HandlerFunc(s.vpn.HandleServerStart)))
 	mux.Handle("POST /vpn/server/stop", authed(http.HandlerFunc(s.vpn.HandleServerStop)))

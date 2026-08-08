@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -341,6 +342,50 @@ func (s *VPNService) RemovePeer(name string) error {
 		}
 	}
 	return fmt.Errorf("peer %q not found", name)
+}
+
+var (
+	ErrPeerNotFound = errors.New("peer not found")
+
+	// ErrPeerKeyUnavailable separates "this peer predates key storage,
+	// or its key could not be decrypted" from "no such peer". The two
+	// need different answers: one is a missing resource, the other is a
+	// peer that works but can never be re-issued, and the operator can
+	// only act on the second by replacing it.
+	ErrPeerKeyUnavailable = errors.New("peer private key is not stored, so its config cannot be re-issued")
+)
+
+// PeerConfig rebuilds a peer's client configuration from stored state.
+func (s *VPNService) PeerConfig(name string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i := range s.cfg.VPN.Server.Peers {
+		peer := &s.cfg.VPN.Server.Peers[i]
+		if peer.Name != name {
+			continue
+		}
+		if peer.PrivateKey == "" {
+			return "", fmt.Errorf("%w: %s", ErrPeerKeyUnavailable, name)
+		}
+		return s.GeneratePeerConfig(peer, peer.PrivateKey), nil
+	}
+	return "", fmt.Errorf("%w: %s", ErrPeerNotFound, name)
+}
+
+// CanReissuePeer reports whether PeerConfig would succeed, so the page
+// can show why a download is unavailable instead of offering a button
+// that fails.
+func (s *VPNService) CanReissuePeer(name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, peer := range s.cfg.VPN.Server.Peers {
+		if peer.Name == name {
+			return peer.PrivateKey != ""
+		}
+	}
+	return false
 }
 
 func (s *VPNService) GeneratePeerConfig(peer *config.WGServerPeer, peerPrivKey string) string {
