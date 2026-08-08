@@ -352,7 +352,7 @@ system.
 | `hdparm`                      | Disk power management and standby control            |
 | `chrony`                      | NTP time synchronization (server + client)           |
 | `rsyslog`                     | Centralized syslog server and client                 |
-| `qrencode`                    | QR code generation for WireGuard mobile configs      |
+| `mkcert`                      | Local CA for the mkcert TLS mode                     |
 | `wide-dhcpv6-client`          | DHCPv6 prefix delegation for IPv6 WAN                |
 | `curl`, `jq`                  | OTA update HTTP client + GitHub Releases JSON parser |
 

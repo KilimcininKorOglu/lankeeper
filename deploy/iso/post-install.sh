@@ -64,8 +64,9 @@ if [ -d /tmp/pool-extra ] && [ -f /tmp/pool-extra/Packages ]; then
         wget whiptail xz-utils \
         bash dbus ppp pppoe nftables wireguard-tools openvpn easy-rsa \
         samba samba-common-bin smartmontools mdadm iproute2 \
-        unbound dnsmasq rsyslog chrony qrencode \
-        wide-dhcpv6-client curl jq hdparm openssh-server htop
+        unbound dnsmasq rsyslog chrony \
+        wide-dhcpv6-client dnscrypt-proxy curl jq hdparm openssh-server htop \
+        mkcert
     cat > /etc/apt/sources.list <<'APT_SOURCES'
 deb http://deb.debian.org/debian bookworm main
 deb http://deb.debian.org/debian bookworm-updates main
@@ -426,6 +427,10 @@ fi
 for svc in unbound dnsmasq chrony rsyslog smbd nmbd; do
     systemctl enable "$svc" 2>/dev/null || true
 done
+
+# dnscrypt-proxy varsayilan olarak KAPALI kalir. Operator /dns sayfasindan
+# DoH'u sectiginde ApplyConfig onu baslatir. install.sh ile ayni davranis.
+systemctl disable dnscrypt-proxy 2>/dev/null || true
 
 echo "=== Kurulum tamamlandı / Post-install complete ==="
 echo "Sistem LANKeeper olarak yeniden başlatılacak. / System will reboot into LANKeeper."

@@ -162,7 +162,7 @@ STANDARD_TASK_PACKAGES=(
 LANKEEPER_PACKAGES=(
     bash dbus ppp pppoe nftables wireguard-tools openvpn easy-rsa
     samba samba-common-bin smartmontools mdadm iproute2
-    unbound dnsmasq rsyslog chrony qrencode
+    unbound dnsmasq rsyslog chrony
     wide-dhcpv6-client dnscrypt-proxy curl jq hdparm openssh-server htop
     mkcert
 )

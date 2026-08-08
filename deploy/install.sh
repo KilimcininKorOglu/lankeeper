@@ -57,7 +57,6 @@ install_dependencies() {
         dnsmasq \
         rsyslog \
         chrony \
-        qrencode \
         wide-dhcpv6-client \
         dnscrypt-proxy \
         curl \
@@ -562,7 +561,7 @@ check_installation() {
 
     echo "=== Installation Check ==="
 
-    for cmd in pppd nft wg openvpn unbound dnsmasq chronyc smbcontrol smartctl mdadm qrencode; do
+    for cmd in pppd nft wg openvpn unbound dnsmasq chronyc smbcontrol smartctl mdadm mkcert; do
         if command -v "$cmd" &>/dev/null; then
             echo "  [OK] $cmd"
         else
