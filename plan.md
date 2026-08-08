@@ -840,6 +840,8 @@ lankeeper/
 │   │       ├── vpn-s2s.js        # S2S sihirbazı adım geçişleri
 │   │       ├── qrcode.js         # ISO/IEC 18004 encoder (byte mode, v1-40, EC L/M)
 │   │       ├── qr-modal.js       # QR modal'ı: fetch + canvas, delegasyonlu dinleyici
+│   │       ├── ui.js             # CSP-uyumlu delegasyonlu dinleyiciler (data öznitelikleri)
+│   │       ├── dashboard.js      # Dashboard SSE karoları (eski satır içi script)
 │   │       └── app.js            # Tema toggle, chart init
 │   ├── locales/
 │   │   ├── tr.json               # Türkçe çeviriler (679 anahtar)
@@ -898,7 +900,9 @@ lankeeper/
 │   ├── iso_mounts_test.go        # ISO builder bind mount şekli
 │   ├── gomod_markers_test.go     # go.mod direct/indirect require blokları
 │   ├── formatting_test.go        # gofmt + .golangci.yml formatter girdisi
-│   └── qr_assets_test.go         # QR encoder lisans başlığı, ağ/HTML sink yokluğu, şablon bağları
+│   ├── qr_assets_test.go         # QR encoder lisans başlığı, ağ/HTML sink yokluğu, şablon bağları
+│   ├── csp_templates_test.go     # Satır içi handler/script/hx-on yokluğu + script-src sıkılığı
+│   └── package_lists_test.go     # Üç paket listesinin tek yönlü kapsama denetimi
 ├── .github/
 │   └── workflows/
 │       └── ci.yml                # 7 gate: build, test, vet, lint, govulncheck, gosec, cross-all
@@ -925,7 +929,7 @@ var EmbeddedFS embed.FS
 
 Tüm HTML template'leri, CSS, JS, ikonlar ve locale JSON dosyaları binary'nin içine gömülür. Deploy = tek dosya kopyala.
 
-### Tam Offline Web UI — Harici Bağımlılık Yok
+### Tam Offline Web UI — Harici Bağımlılık Yok (htmx HARİÇ, bkz. Bakım borcu)
 
 Web UI internet bağlantısı olmadan %100 çalışır. Hiçbir harici kaynak (CDN, Google Fonts, external script/style) yüklenmez.
 
@@ -2779,13 +2783,16 @@ Aşağıdakiler ya hiç başlamadı ya da yarım kaldı. Sıralama öncelik beli
 - `.claude/skills/version-update/` hâlâ `CHANGELOG.md` üzerinden çalışıyor (Step 4 dosyayı günceller, Step 5 stage'ler, Step 9 release notlarını awk ile çıkarır) ama `CHANGELOG.md` depodan silindi. Skill şu anda çalışmaz; ya onarılmalı ya changelog geri getirilmeli.
 - `ci.yml` ve `buildsys/workflow_pins_test.go` içindeki `actions/*` tag muafiyetinin gerekçesi Dependabot'a dayanıyor, fakat `.github/dependabot.yml` kaldırıldı. Tag'ler artık elle bump ediliyor; gerekçe metni bunu yansıtmıyor.
 - `dns.go` ve `monitor.go` içindeki iki `bufio.Scanner` döngüsü `scanner.Err()` kontrol etmiyor. golangci-lint yakalamıyor, yalnızca gopls işaretliyor.
-- **Satır içi event handler'lar CSP ile çelişiyor.** Sunucu `script-src 'self'` gönderiyor, `'unsafe-inline'` YOK. 11 şablonda 35 `onclick`/`onchange` özniteliği ve birkaç `hx-on` var; hiçbiri tarayıcıda çalışmaz. "Peer ekle", "İstemci ekle" gibi form açma butonları bu yüzden ölü. Ya hepsi delegasyonlu dinleyiciye taşınmalı ya da politika gevşetilmeli; ikincisi XSS yüzeyini geri açar. QR tetikleyicileri bilinçli olarak `data-qr-url` ile yazıldı ve `buildsys/qr_assets_test.go` bunu koruyor.
-- **`qrencode` paketi artık kullanılmıyor.** Hem `deploy/install.sh` hem `deploy/iso/build-iso.sh` listelerinde duruyor, fakat QR üretimi tarayıcı tarafında yapılıyor ve hiçbir Go kodu bu binary'yi çağırmıyor. İki listeden de çıkarılabilir.
+- **HTMX PAKETLENMEMİŞ.** `web/static/js/htmx.min.js` 212 baytlık bir yer tutucu: `console.log("htmx placeholder loaded - replace with real htmx.min.js")`. Kütüphane hiçbir zaman eklenmedi, dolayısıyla her `hx-post`, `hx-get`, `hx-delete`, `hx-swap` ve `hx-confirm` ölü. Bu, arayüzün tamamını kapsayan tek en büyük açık iştir; gerçek `htmx.min.js` vendor edilene kadar hiçbir mutasyon butonu çalışmaz. Sürüm seçimi ve bütünlük doğrulaması operatörün kararı.
 - **ACME canlı yolu doğrulanMAdı.** Cloudflare istek şekli, zone arama, manual challenge sözleşmesi ve yenileme kararı testlerle kapsanıyor; gerçek bir CA'ya karşı uçtan uca akış (Let's Encrypt staging + public domain) bu ortamda çalıştırılamadı.
 
 ### Tamamlananlar
 
 **Boşluk kapatma turu — arayüzden erişilemeyen özellikler**
+
+- CSP uyumu: 11 şablondaki 35 satır içi `on*` özniteliği, 3 satır içi `<script>` bloğu ve 17 `hx-on` özniteliği kaldırıldı. Sunucu `script-src 'self'` gönderiyor, `'unsafe-inline'` ve `'unsafe-eval'` yok, dolayısıyla üçü de tarayıcıda sessizce çalışmıyordu. Yerlerine `web/static/js/ui.js` içindeki delegasyonlu dinleyiciler ve data öznitelikleri geldi. `buildsys/csp_templates_test.go` üçünü de ve politikanın sıkı kalmasını denetler.
+- Aynı dosyalarda iki bitişik hata: `vpn-s2s.js` içindeki her `fetch` POST'u ve `htmx-sortable.js` içindeki sıralama POST'u CSRF token göndermiyordu (403), ve `htmx-sortable.js` hiçbir şablon tarafından yüklenmiyordu.
+- `qrencode` her üç paket listesinden de çıkarıldı. Bunu denetlerken yazılan `buildsys/package_lists_test.go` iki gerçek boşluk buldu: `dnscrypt-proxy` ISO'ya indiriliyor ama `post-install.sh` onu kurmuyordu (ISO ile kurulan router'da DoH yok), ve `mkcert` üçüncü listeye eklenmemişti.
 
 - Health check durum partial'ı route'a bağlandı (`GET /network/healthcheck/status`, 10 saniyede bir tazelenir) ve `network.html` içindeki ikinci, reset butonsuz kopya kaldırıldı. Aynı turda `partials/healthcheck.html` `.HealthChecks` yerine `.Data.HealthChecks` okuyacak şekilde düzeltildi: sayfa yolunda `.Data` bir map olduğu için eksik anahtar sessizce boş dönüyordu, `RenderPartial` yolunda ise aynı arama `*PageData` üzerinde eksik alan, yani execute hatası oluyordu.
 - TTL fix, USB tethering (enable/disable/activate/deactivate/auto-failover) ve arayüz düzenleme route'ları eklendi. Arayüz silme son LAN arayüzünü reddeder; USB activate telefon bağlı değilken 400 döner.
