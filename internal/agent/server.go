@@ -258,9 +258,19 @@ func lookupGID(name string) (int, error) {
 }
 
 // authorizePeer reports whether the connected process may drive the
-// agent. Root and the service account are allowed; everything else is
-// refused. On platforms without peer-credential support the socket mode
-// set by restrictSocket remains the only control.
+// agent. Root, the service account, and the account the agent itself
+// runs as are allowed; everything else is refused. On platforms without
+// peer-credential support the socket mode set by restrictSocket remains
+// the only control.
+//
+// The third case is what keeps this check consistent with the mode.
+// When the agent is not root, or the service group cannot be resolved,
+// restrictSocket leaves the socket owner-only, so the kernel has already
+// narrowed the callers to exactly the agent's own uid. Refusing that uid
+// as well left a socket that admits one process and then rejects it, so
+// nothing could drive the agent at all. Running as root, euid is 0 and
+// this case collapses into the root case, which is why the deployed
+// configuration is unaffected either way.
 func (s *Server) authorizePeer(conn net.Conn) error {
 	uid, err := peerUID(conn)
 	if errors.Is(err, errPeerCredUnsupported) {
@@ -272,10 +282,13 @@ func (s *Server) authorizePeer(conn net.Conn) error {
 	if uid == 0 {
 		return nil
 	}
+	if int(uid) == os.Geteuid() {
+		return nil
+	}
 	if u, lookupErr := user.Lookup(s.serviceUser); lookupErr == nil && u.Uid == strconv.FormatUint(uint64(uid), 10) {
 		return nil
 	}
-	return fmt.Errorf("uid %d is neither root nor %s", uid, s.serviceUser)
+	return fmt.Errorf("uid %d is neither root, %s, nor the agent's own account", uid, s.serviceUser)
 }
 
 func (s *Server) Close() {
