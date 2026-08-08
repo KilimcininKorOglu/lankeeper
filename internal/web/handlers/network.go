@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"log"
 	"net/http"
 
@@ -71,4 +72,62 @@ func (h *NetworkHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 		log.Printf("render network: %v", err)
 		clientError(w, r, http.StatusInternalServerError, "error.internal")
 	}
+}
+
+// The four handlers below separate two different things the operator
+// needs: whether the failover path is permitted at all, and whether it
+// is carrying traffic right now. Enable and disable write policy;
+// activate and deactivate move the default route. Collapsing them into
+// one control would mean an operator could not arm the failover without
+// also switching the WAN over to it immediately.
+
+func (h *NetworkHandler) HandleUSBEnable(w http.ResponseWriter, r *http.Request) {
+	h.setUSBEnabled(w, r, true)
+}
+
+func (h *NetworkHandler) HandleUSBDisable(w http.ResponseWriter, r *http.Request) {
+	h.setUSBEnabled(w, r, false)
+}
+
+func (h *NetworkHandler) setUSBEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
+	if err := h.usb.SetEnabled(enabled); err != nil {
+		fail(w, r, http.StatusInternalServerError, err)
+		return
+	}
+	respondRefresh(w, r, "/network")
+}
+
+func (h *NetworkHandler) HandleUSBAutoFailover(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
+		return
+	}
+	if err := h.usb.SetAutoFailover(r.FormValue("enabled") == "true"); err != nil {
+		fail(w, r, http.StatusInternalServerError, err)
+		return
+	}
+	respondRefresh(w, r, "/network")
+}
+
+func (h *NetworkHandler) HandleUSBActivate(w http.ResponseWriter, r *http.Request) {
+	// A missing interface is the operator's cable, not a fault in the
+	// router, so it answers 400 with a message naming the interface
+	// rather than a 500 that reads as something being broken.
+	if err := h.usb.Activate(r.Context()); err != nil {
+		if errors.Is(err, services.ErrPhoneNotConnected) {
+			clientError(w, r, http.StatusBadRequest, "error.usbNoPhone")
+			return
+		}
+		fail(w, r, http.StatusInternalServerError, err)
+		return
+	}
+	respondRefresh(w, r, "/network")
+}
+
+func (h *NetworkHandler) HandleUSBDeactivate(w http.ResponseWriter, r *http.Request) {
+	if err := h.usb.Deactivate(r.Context()); err != nil {
+		fail(w, r, http.StatusInternalServerError, err)
+		return
+	}
+	respondRefresh(w, r, "/network")
 }

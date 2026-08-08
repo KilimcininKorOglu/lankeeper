@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -20,18 +21,43 @@ func NewUSBTetheringService(cfg *config.Config) *USBTetheringService {
 	return &USBTetheringService{cfg: cfg}
 }
 
+// ErrPhoneNotConnected reports that the tethering interface is absent,
+// which is an operator-correctable condition rather than a fault. The
+// handler turns it into a 400 with a message naming the interface, so a
+// forgotten cable does not read as a broken router.
+var ErrPhoneNotConnected = errors.New("usb tethering interface is not present")
+
 type USBTetheringStatus struct {
 	Enabled        bool
+	AutoFailover   bool
 	PhoneConnected bool
 	ActiveWAN      bool
 	Interface      string
 	IP             string
 }
 
+// SetEnabled records whether the failover path may be used at all.
+// Turning it off does not tear down a live session: an operator who
+// disables the feature while the phone is carrying traffic would
+// otherwise lose the connection they are managing the router over.
+// Deactivate is the explicit way to end a session.
+func (s *USBTetheringService) SetEnabled(enabled bool) error {
+	s.cfg.USBTether.Enabled = enabled
+	return s.cfg.SaveToFile()
+}
+
+// SetAutoFailover records whether the health check chain may switch to
+// USB on its own.
+func (s *USBTetheringService) SetAutoFailover(enabled bool) error {
+	s.cfg.USBTether.AutoFailover = enabled
+	return s.cfg.SaveToFile()
+}
+
 func (s *USBTetheringService) Status(ctx context.Context) (*USBTetheringStatus, error) {
 	status := &USBTetheringStatus{
-		Enabled:   s.cfg.USBTether.Enabled,
-		Interface: s.cfg.USBTether.Interface,
+		Enabled:      s.cfg.USBTether.Enabled,
+		AutoFailover: s.cfg.USBTether.AutoFailover,
+		Interface:    s.cfg.USBTether.Interface,
 	}
 
 	if status.Interface == "" {
@@ -66,7 +92,7 @@ func (s *USBTetheringService) Activate(ctx context.Context) error {
 
 	state, err := netutil.GetInterfaceState(iface)
 	if err != nil {
-		return fmt.Errorf("USB interface %s not found (phone not connected?)", iface)
+		return fmt.Errorf("%w: %s", ErrPhoneNotConnected, iface)
 	}
 	if state != "up" {
 		_, err = netutil.Run(ctx, "ip", "link", "set", iface, "up")
