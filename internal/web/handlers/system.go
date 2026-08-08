@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -669,9 +671,29 @@ func (h *SystemHandler) HandleRollbackUpdate(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusOK)
 }
 
+// HandleVersion reports the running build. Every field comes from a
+// build-time ldflag, so the body is constant for the life of the binary
+// and a content ETag stays stable until an OTA update replaces it.
+//
+// The directive is no-cache rather than a freshness lifetime for the
+// same reason the static assets use one: this endpoint exists to say
+// which build is running, so a cached answer would keep reporting the
+// version that was replaced.
 func (h *SystemHandler) HandleVersion(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(h.update.GetVersionInfo()); err != nil {
+	body, err := json.Marshal(h.update.GetVersionInfo())
+	if err != nil {
 		log.Printf("system: encode version: %v", err)
+		fail(w, r, http.StatusInternalServerError, err)
+		return
 	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("ETag", fmt.Sprintf(`"%x"`, sha256.Sum256(body)))
+
+	// ServeContent evaluates If-None-Match against the ETag already in
+	// the header map, and handles the list form, weak comparison, "*"
+	// and HEAD. modTime is zero so it neither sends nor honours a date
+	// validator, leaving the content hash as the only validator.
+	http.ServeContent(w, r, "version.json", time.Time{}, bytes.NewReader(body))
 }
