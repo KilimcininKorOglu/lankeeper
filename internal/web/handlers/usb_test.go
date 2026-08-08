@@ -27,6 +27,7 @@ func usbHandler(t *testing.T) (*handlers.NetworkHandler, *config.Config) {
 		services.NewPPPoEService(cfg),
 		services.NewUSBTetheringService(cfg),
 		services.NewHealthCheckService(cfg),
+		services.NewFirstBootService(cfg),
 	)
 	return h, cfg
 }

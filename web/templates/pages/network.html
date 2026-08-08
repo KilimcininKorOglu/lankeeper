@@ -5,6 +5,29 @@
 <div class="content-body">
     {{ with .Data }}
 
+    <!-- First-boot banner -->
+    {{ if .FirstBoot }}
+    <div class="alert alert-error" style="margin-bottom:var(--space-lg);">
+        <div style="font-weight:700; margin-bottom:var(--space-xs);">{{ t $.Lang "firstboot.title" }}</div>
+        <p style="margin-bottom:var(--space-sm);">{{ t $.Lang "firstboot.desc" }}</p>
+        <div style="display:flex; align-items:center; gap:var(--space-md); flex-wrap:wrap;">
+            <span style="font-size:var(--font-sm);">
+                {{ t $.Lang "firstboot.willDetach" }}:
+                {{ if .FirstBootWAN }}
+                    <span style="font-family:var(--font-mono);">{{ range .FirstBootWAN }}{{ . }} {{ end }}</span>
+                {{ else }}
+                    <span style="color:var(--text-secondary);">{{ t $.Lang "firstboot.noWan" }}</span>
+                {{ end }}
+            </span>
+            <button class="btn btn-primary btn-sm"
+                    hx-post="/network/first-boot/complete" hx-swap="none"
+                    hx-confirm="{{ t $.Lang "firstboot.confirm" }}">
+                {{ t $.Lang "firstboot.complete" }}
+            </button>
+        </div>
+    </div>
+    {{ end }}
+
     <!-- PPPoE WAN Status -->
     <div class="card" style="margin-bottom: var(--space-lg);">
         <div class="card-header">

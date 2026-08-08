@@ -15,8 +15,9 @@ func TestNewNetworkHandler(t *testing.T) {
 	pppoe := services.NewPPPoEService(cfg)
 	usb := services.NewUSBTetheringService(cfg)
 	health := services.NewHealthCheckService(cfg)
+	firstBoot := services.NewFirstBootService(cfg)
 
-	h := handlers.NewNetworkHandler(nil, network, pppoe, usb, health)
+	h := handlers.NewNetworkHandler(nil, network, pppoe, usb, health, firstBoot)
 	if h == nil {
 		t.Fatal("handler should not be nil")
 	}

@@ -14,11 +14,12 @@ import (
 )
 
 type NetworkHandler struct {
-	renderer *tmpl.Renderer
-	network  *services.NetworkService
-	pppoe    *services.PPPoEService
-	usb      *services.USBTetheringService
-	health   *services.HealthCheckService
+	renderer  *tmpl.Renderer
+	network   *services.NetworkService
+	pppoe     *services.PPPoEService
+	usb       *services.USBTetheringService
+	health    *services.HealthCheckService
+	firstBoot *services.FirstBootService
 }
 
 func NewNetworkHandler(
@@ -27,14 +28,31 @@ func NewNetworkHandler(
 	pppoe *services.PPPoEService,
 	usb *services.USBTetheringService,
 	health *services.HealthCheckService,
+	firstBoot *services.FirstBootService,
 ) *NetworkHandler {
 	return &NetworkHandler{
-		renderer: renderer,
-		network:  network,
-		pppoe:    pppoe,
-		usb:      usb,
-		health:   health,
+		renderer:  renderer,
+		network:   network,
+		pppoe:     pppoe,
+		usb:       usb,
+		health:    health,
+		firstBoot: firstBoot,
 	}
+}
+
+// HandleCompleteFirstBoot ends first-boot mode.
+//
+// It is an explicit operator action because nothing else in the system
+// can tell when the interface config is finished: there is no event to
+// hang it off, and first-boot mode has a real cost while it lasts. The
+// bridge carries the future WAN card, so an ISP line plugged in while
+// it is up puts the upstream segment on the LAN bridge.
+func (h *NetworkHandler) HandleCompleteFirstBoot(w http.ResponseWriter, r *http.Request) {
+	if err := h.firstBoot.Complete(r.Context()); err != nil {
+		fail(w, r, http.StatusBadRequest, err)
+		return
+	}
+	respondRefresh(w, r, "/network")
 }
 
 func (h *NetworkHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
@@ -73,6 +91,8 @@ func (h *NetworkHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 			"USB":                  usbStatus,
 			"HealthChecks":         healthResults,
 			"Sniff":                sniffStatus,
+			"FirstBoot":            h.firstBoot.IsActive(),
+			"FirstBootWAN":         h.firstBoot.WANDevices(),
 		},
 	}
 

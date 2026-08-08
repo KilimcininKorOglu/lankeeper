@@ -62,11 +62,30 @@ func runServe() error {
 	agentClient := agent.NewClient(*socketPath)
 	netutil.SetAgentClient(agentClient)
 
-	backupSvc := services.NewBackupService("/etc/lankeeper")
-	updateSvc := services.NewUpdateService(version, commit, date, backupSvc)
-
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	// The shipped config names the build machine's network cards, so on
+	// unfamiliar hardware there is no port the UI answers on until the
+	// operator corrects it. Bridging every physical NIC and holding
+	// 10.10.10.1 makes the UI reachable from any port so they can.
+	//
+	// Not fatal. This exists to make the first login easier; failing the
+	// whole start over it would take DNS, DHCP and the firewall down to
+	// protect a convenience. An operator who can already reach the UI
+	// loses nothing when it does not run.
+	firstBoot := services.NewFirstBootService(cfg)
+	if firstBoot.IsActive() {
+		nics, err := firstBoot.Setup(ctx)
+		if err != nil {
+			log.Printf("first-boot: bridge setup failed, continuing without it: %v", err)
+		} else {
+			log.Printf("first-boot: %d NIC(s) bridged, UI reachable on any port at 10.10.10.1", len(nics))
+		}
+	}
+
+	backupSvc := services.NewBackupService("/etc/lankeeper")
+	updateSvc := services.NewUpdateService(version, commit, date, backupSvc)
 
 	srv, err := web.NewServer(cfg, loc, webFS.EmbeddedFS, updateSvc)
 	if err != nil {

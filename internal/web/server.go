@@ -118,7 +118,8 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	usbSvc := services.NewUSBTetheringService(cfg)
 	healthSvc := services.NewHealthCheckService(cfg)
 
-	networkHandler := handlers.NewNetworkHandler(renderer, networkSvc, pppoeSvc, usbSvc, healthSvc)
+	firstBootSvc := services.NewFirstBootService(cfg)
+	networkHandler := handlers.NewNetworkHandler(renderer, networkSvc, pppoeSvc, usbSvc, healthSvc, firstBootSvc)
 	pppoeHandler := handlers.NewPPPoEHandler(renderer, pppoeSvc)
 	healthHandler := handlers.NewHealthCheckHandler(renderer, healthSvc)
 
@@ -562,6 +563,7 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	mux.Handle("POST /network/pppoe/disconnect", authed(http.HandlerFunc(s.pppoe.HandleDisconnect)))
 	mux.Handle("POST /network/pppoe/sniff/start", authed(http.HandlerFunc(s.pppoe.HandleSniffStart)))
 	mux.Handle("POST /network/pppoe/sniff/stop", authed(http.HandlerFunc(s.pppoe.HandleSniffStop)))
+	mux.Handle("POST /network/first-boot/complete", authed(http.HandlerFunc(s.network.HandleCompleteFirstBoot)))
 	mux.Handle("POST /network/interface", authed(http.HandlerFunc(s.network.HandleSetInterface)))
 	mux.Handle("DELETE /network/interface/{id}", authed(http.HandlerFunc(s.network.HandleRemoveInterface)))
 	mux.Handle("POST /network/usb/enable", authed(http.HandlerFunc(s.network.HandleUSBEnable)))

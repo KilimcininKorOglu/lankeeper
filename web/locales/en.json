@@ -1,6 +1,5 @@
 {
     "app.title": "LANKeeper",
-
     "nav.dashboard": "Dashboard",
     "nav.network": "Network",
     "nav.firewall": "Firewall",
@@ -16,8 +15,7 @@
     "nav.syslog": "Syslog",
     "nav.ntp": "NTP",
     "nav.settings": "Settings",
-
-    "ipv6.title": "IPv6 Prefix Delegation",
+    "ipv6.title": "IPv6 Configuration",
     "ipv6.status": "Status",
     "ipv6.active": "Active",
     "ipv6.inactive": "Inactive",
@@ -79,7 +77,6 @@
     "ipv6.searchDomain": "Search Domain",
     "ipv6.ulaPrefix": "ULA Prefix (local)",
     "ipv6.ulaPending": "will be generated on first lease event",
-
     "dashboard.title": "Dashboard",
     "dashboard.uptime": "Uptime",
     "dashboard.wanIp": "WAN IP",
@@ -89,7 +86,6 @@
     "dashboard.download": "Download",
     "dashboard.upload": "Upload",
     "dashboard.connectedFor": "Connected for {{duration}}",
-
     "pppoe.title": "PPPoE Connection",
     "pppoe.connect": "Connect",
     "pppoe.disconnect": "Disconnect",
@@ -100,7 +96,6 @@
     "pppoe.confirmDisconnect": "Disconnect PPPoE?",
     "pppoe.username": "Username",
     "pppoe.password": "Password",
-
     "firewall.title": "Firewall Rules",
     "firewall.addRule": "Add Rule",
     "firewall.portForward": "Port Forward",
@@ -142,7 +137,6 @@
     "firewall.extPort": "External Port",
     "firewall.intIP": "Internal IP",
     "firewall.intPort": "Internal Port",
-
     "vpn.title": "VPN Management",
     "vpn.addTunnel": "Add Tunnel",
     "vpn.assignDevice": "Drag device to assign to VPN",
@@ -193,7 +187,6 @@
     "vpn.s2s.signingKey.description": "Invite and acknowledgement tokens are signed with a key held only by this router. Rotate it if you suspect the key was disclosed, or to revoke tokens you handed out and no longer want redeemed. Established tunnels are not affected.",
     "vpn.s2s.signingKey.rotate": "Rotate Key",
     "vpn.s2s.signingKey.confirm": "Rotate the signing key? Every outstanding invite and acknowledgement token stops working immediately.",
-
     "openvpn.title": "OpenVPN Management",
     "openvpn.server": "Server",
     "openvpn.clients": "Clients",
@@ -219,7 +212,6 @@
     "openvpn.remoteHostPlaceholder": "e.g. vpn.example.com",
     "openvpn.rawConfig": "Raw Configuration (.ovpn)",
     "openvpn.rawConfigPlaceholder": "Paste .ovpn file contents here (optional)",
-
     "routing.title": "Policy-Based Routing",
     "routing.addPolicy": "Add Policy",
     "routing.editPolicy": "Edit Policy",
@@ -239,14 +231,12 @@
     "routing.ipExample": "e.g. 10.10.10.50",
     "routing.domains": "Domains",
     "routing.domainsExample": "e.g. netflix.com",
-
     "dns.title": "DNS Management",
     "dns.upstream": "Upstream DNS",
     "dns.blocklist": "Blocklist",
     "dns.queryLog": "Query Log",
     "dns.cache": "Cache",
     "dns.flushCache": "Flush Cache",
-
     "dhcp.title": "DHCP Management",
     "dhcp.leases": "Lease List",
     "dhcp.addStatic": "Add Static Lease",
@@ -257,7 +247,6 @@
     "dhcp.macExample": "e.g. aa:bb:cc:dd:ee:ff",
     "dhcp.ipExample": "e.g. 10.10.10.x",
     "dhcp.hostnameExample": "e.g. device-name",
-
     "qos.title": "QoS / Traffic Shaping",
     "qos.profile": "Profile",
     "qos.upload": "Upload Speed",
@@ -277,8 +266,7 @@
     "qos.perClient.download": "Download",
     "qos.perClient.upload": "Upload",
     "qos.perClient.spark": "Trend",
-    "qos.perClient.waiting": "Waiting for data\u2026",
-
+    "qos.perClient.waiting": "Waiting for data…",
     "nas.title": "NAS File Sharing",
     "nas.addShare": "Add Share",
     "nas.shares": "Shares",
@@ -294,7 +282,6 @@
     "nas.readOnly": "Read Only",
     "nas.pathExample": "e.g. /mnt/raid/share",
     "nas.m3u.urlExample": "e.g. http://example.com/playlist.m3u",
-
     "storage.title": "Storage Management",
     "storage.raid": "RAID Status",
     "storage.smart": "Disk Health",
@@ -302,7 +289,6 @@
     "storage.raid.healthy": "Healthy",
     "storage.raid.degraded": "Degraded",
     "storage.raid.rebuilding": "Rebuilding",
-
     "syslog.title": "Syslog Management",
     "syslog.server": "Server",
     "syslog.client": "Client",
@@ -328,7 +314,6 @@
     "syslog.tlsCert": "TLS Certificate File",
     "syslog.tlsKey": "TLS Key File",
     "syslog.tlsCA": "TLS CA Certificate File",
-
     "ntp.title": "NTP Time Server",
     "ntp.server": "Server",
     "ntp.client": "Client",
@@ -353,7 +338,6 @@
     "ntp.listenAddress": "Listen Address",
     "ntp.listenAddressHint": "Leave empty to listen on all interfaces",
     "ntp.listenPort": "Listen Port (0 = default 123)",
-
     "settings.title": "System Settings",
     "settings.hostname": "Hostname",
     "settings.timezone": "Timezone",
@@ -376,7 +360,6 @@
     "settings.reboot": "Reboot",
     "settings.confirmReboot": "Reboot system?",
     "settings.confirmReset": "All settings will be reset. Are you sure?",
-
     "update.title": "Software Update",
     "update.currentVersion": "Current Version",
     "update.checkForUpdates": "Check for Updates",
@@ -390,7 +373,6 @@
     "update.releaseNotes": "Release Notes",
     "update.size": "Size",
     "update.error": "Update error",
-
     "tls.title": "TLS Certificate",
     "tls.mode": "Mode",
     "tls.selfSigned": "Self-Signed",
@@ -400,22 +382,18 @@
     "tls.regenerate": "Regenerate Certificate",
     "tls.downloadCa": "Download CA Certificate",
     "tls.issuer": "Issuer",
-
     "healthcheck.title": "Connection Health",
     "healthcheck.status": "Status",
     "healthcheck.healthy": "Healthy",
     "healthcheck.unhealthy": "Unhealthy",
     "healthcheck.lastCheck": "Last Check",
     "healthcheck.recovery": "Recovery Action",
-
-    "ipv6.title": "IPv6 Configuration",
     "ipv6.enabled": "IPv6 Status",
     "ipv6.auto": "Auto",
     "ipv6.on": "On",
     "ipv6.off": "Off",
     "ipv6.prefix": "Prefix",
     "ipv6.ula": "ULA Prefix",
-
     "vlan.title": "VLANs",
     "vlan.add": "Add VLAN",
     "vlan.parent": "Parent Interface",
@@ -432,7 +410,6 @@
     "vlan.nameExample": "e.g. guest",
     "vlan.parentExample": "e.g. lan",
     "vlan.addressExample": "e.g. 10.10.13.1/24",
-
     "usb.title": "USB Tethering",
     "usb.status": "Status",
     "usb.connected": "Connected",
@@ -447,7 +424,6 @@
     "usb.noPhone": "No phone is connected on the tethering interface",
     "usb.confirmActivate": "Route WAN traffic over the USB connection?",
     "usb.confirmDeactivate": "Stop using the USB connection for WAN traffic?",
-
     "common.toggleTheme": "Toggle Theme",
     "common.save": "Save",
     "common.cancel": "Cancel",
@@ -469,7 +445,6 @@
     "common.status": "Status",
     "common.name": "Name",
     "common.actions": "Actions",
-
     "auth.login": "Login",
     "auth.password": "Password",
     "auth.wrongPassword": "Invalid password",
@@ -477,7 +452,6 @@
     "auth.lockedOutMinutes": "Too many failed attempts. Try again in {{wait}} minutes.",
     "auth.logout": "Logout",
     "auth.sessionExpired": "Session expired",
-
     "network.up": "UP",
     "network.down": "DOWN",
     "network.speed": "Mbps",
@@ -500,7 +474,6 @@
     "network.macClone.clone": "Clone MAC",
     "network.ipv4": "IPv4",
     "network.ipv6": "IPv6",
-
     "dns.blocked": "Blocked",
     "dns.totalQueries": "Total Queries",
     "dns.cacheHits": "Cache Hits",
@@ -529,15 +502,12 @@
     "dns.doh.probe": "Test",
     "dns.disableAutoPTR": "Disable auto PTR",
     "dns.disableAutoPTRHint": "Skip the reverse-DNS (in-addr.arpa) entry for this record; let upstream answer",
-
     "openvpn.pkiNotReady": "PKI not initialized",
     "openvpn.initPki": "Initialize PKI",
-
     "pppoe.captureTitle": "PPPoE Credential Capture",
     "pppoe.startCapture": "Start Capture",
     "pppoe.stopCapture": "Stop Capture",
     "pppoe.captureDesc": "Start PPPoE server on WAN interface to capture ISP credentials from modem.",
-
     "nav.backup": "Backup",
     "backup.title": "Automated Backup",
     "backup.runNow": "Run Now",
@@ -579,7 +549,6 @@
     "backup.history.size": "Size",
     "backup.history.targets": "Targets",
     "backup.history.message": "Message",
-
     "error.ackTokenRequired": "An acknowledgement token is required",
     "error.backupFileRequired": "A backup file is required",
     "error.backupTooLarge": "The backup archive is too large",
@@ -618,7 +587,7 @@
     "error.invalidHostname": "Invalid hostname",
     "error.invalidIP": "Invalid IP address",
     "error.invalidIndex": "Invalid index",
-    "error.invalidInterface": "Invalid interface",
+    "error.invalidInterface": "Invalid interface settings",
     "error.invalidInternalIP": "Invalid internal IP address",
     "error.invalidJSON": "Invalid JSON",
     "error.invalidMAC": "Invalid MAC address",
@@ -633,9 +602,7 @@
     "error.duplicateInterfaceDevice": "Another interface already uses that device",
     "error.interfaceNotFound": "Interface not found",
     "error.invalidRole": "Role must be lan or wan",
-    "error.invalidType": "Type must be static, dhcp-client or pppoe",
-    "error.invalidInterface": "Invalid interface settings",
-    "error.invalidMTU": "Invalid MTU",
+    "error.invalidType": "Invalid type",
     "error.invalidProtocol": "Invalid protocol",
     "error.invalidRateLimit": "Rate limit must look like 3/minute (second, minute, hour, day or week)",
     "error.invalidQoSProfile": "Invalid QoS profile",
@@ -644,7 +611,6 @@
     "error.invalidSchedule": "Invalid schedule",
     "error.invalidSourceAddress": "Invalid source IP or CIDR",
     "error.invalidTimezone": "Invalid timezone",
-    "error.invalidType": "Invalid type",
     "error.invalidUploadBandwidth": "Invalid upload bandwidth",
     "error.invalidVLANID": "Invalid VLAN ID",
     "error.nameRequired": "A name is required",
@@ -672,5 +638,11 @@
     "error.uploadSaveFailed": "The uploaded file could not be saved",
     "error.upstreamRequired": "An upstream is required",
     "error.urlRequired": "A URL is required",
-    "error.urlScheme": "The URL must use http or https"
+    "error.urlScheme": "The URL must use http or https",
+    "firstboot.title": "First-boot setup mode",
+    "firstboot.desc": "Every network card is bridged so this page is reachable from any port. The WAN card is bridged too, so do not connect the ISP line until you finish setup. Correct the interfaces below first, then finish.",
+    "firstboot.willDetach": "Will be detached from the bridge",
+    "firstboot.noWan": "no WAN interface configured yet",
+    "firstboot.complete": "Finish setup",
+    "firstboot.confirm": "Finish first-boot setup and detach the WAN card from the bridge?"
 }

@@ -1,6 +1,5 @@
 {
     "app.title": "LANKeeper",
-
     "nav.dashboard": "Gösterge Paneli",
     "nav.network": "Ağ",
     "nav.firewall": "Güvenlik Duvarı",
@@ -16,8 +15,7 @@
     "nav.syslog": "Syslog",
     "nav.ntp": "NTP",
     "nav.settings": "Ayarlar",
-
-    "ipv6.title": "IPv6 Prefix Delegation",
+    "ipv6.title": "IPv6 Yapılandırması",
     "ipv6.status": "Durum",
     "ipv6.active": "Aktif",
     "ipv6.inactive": "Aktif Değil",
@@ -79,7 +77,6 @@
     "ipv6.searchDomain": "Arama Domaini",
     "ipv6.ulaPrefix": "ULA Prefix (yerel)",
     "ipv6.ulaPending": "ilk lease olayında üretilecek",
-
     "dashboard.title": "Gösterge Paneli",
     "dashboard.uptime": "Çalışma Süresi",
     "dashboard.wanIp": "WAN IP",
@@ -89,7 +86,6 @@
     "dashboard.download": "İndirme",
     "dashboard.upload": "Yükleme",
     "dashboard.connectedFor": "{{duration}} süredir bağlı",
-
     "pppoe.title": "PPPoE Bağlantısı",
     "pppoe.connect": "Bağlan",
     "pppoe.disconnect": "Bağlantıyı Kes",
@@ -100,7 +96,6 @@
     "pppoe.confirmDisconnect": "PPPoE bağlantısı kesilsin mi?",
     "pppoe.username": "Kullanıcı Adı",
     "pppoe.password": "Şifre",
-
     "firewall.title": "Güvenlik Duvarı Kuralları",
     "firewall.addRule": "Kural Ekle",
     "firewall.portForward": "Port Yönlendirme",
@@ -142,7 +137,6 @@
     "firewall.extPort": "Dış Port",
     "firewall.intIP": "İç IP",
     "firewall.intPort": "İç Port",
-
     "vpn.title": "VPN Yönetimi",
     "vpn.addTunnel": "Tünel Ekle",
     "vpn.assignDevice": "Cihazı VPN'e atamak için sürükleyin",
@@ -193,7 +187,6 @@
     "vpn.s2s.signingKey.description": "Davet ve onay tokenları yalnızca bu yönlendiricide bulunan bir anahtarla imzalanır. Anahtarın ifşa olduğundan şüpheleniyorsanız veya dağıttığınız tokenların artık kullanılmasını istemiyorsanız anahtarı yenileyin. Kurulu tüneller etkilenmez.",
     "vpn.s2s.signingKey.rotate": "Anahtarı Yenile",
     "vpn.s2s.signingKey.confirm": "İmzalama anahtarı yenilensin mi? Bekleyen tüm davet ve onay tokenları anında geçersiz olur.",
-
     "openvpn.title": "OpenVPN Yönetimi",
     "openvpn.server": "Sunucu",
     "openvpn.clients": "İstemciler",
@@ -219,7 +212,6 @@
     "openvpn.remoteHostPlaceholder": "ör: vpn.example.com",
     "openvpn.rawConfig": "Ham Yapılandırma (.ovpn)",
     "openvpn.rawConfigPlaceholder": ".ovpn dosyasının içeriğini buraya yapıştırın (opsiyonel)",
-
     "routing.title": "Politika Tabanlı Yönlendirme",
     "routing.addPolicy": "Politika Ekle",
     "routing.editPolicy": "Politika Düzenle",
@@ -239,14 +231,12 @@
     "routing.ipExample": "ör: 10.10.10.50",
     "routing.domains": "Alan Adları",
     "routing.domainsExample": "ör: netflix.com",
-
     "dns.title": "DNS Yönetimi",
     "dns.upstream": "Upstream DNS",
     "dns.blocklist": "Engelleme Listesi",
     "dns.queryLog": "Sorgu Geçmişi",
     "dns.cache": "Önbellek",
     "dns.flushCache": "Önbelleği Temizle",
-
     "dhcp.title": "DHCP Yönetimi",
     "dhcp.leases": "Kira Listesi",
     "dhcp.addStatic": "Statik Kira Ekle",
@@ -257,7 +247,6 @@
     "dhcp.macExample": "ör: aa:bb:cc:dd:ee:ff",
     "dhcp.ipExample": "ör: 10.10.10.x",
     "dhcp.hostnameExample": "ör: cihaz-adı",
-
     "qos.title": "QoS / Trafik Şekillendirme",
     "qos.profile": "Profil",
     "qos.upload": "Yükleme Hızı",
@@ -278,7 +267,6 @@
     "qos.perClient.upload": "Yükleme",
     "qos.perClient.spark": "Trend",
     "qos.perClient.waiting": "Veri bekleniyor…",
-
     "nas.title": "NAS Dosya Paylaşımı",
     "nas.addShare": "Paylaşım Ekle",
     "nas.shares": "Paylaşımlar",
@@ -294,7 +282,6 @@
     "nas.readOnly": "Salt Okunur",
     "nas.pathExample": "ör: /mnt/raid/share",
     "nas.m3u.urlExample": "ör: http://example.com/playlist.m3u",
-
     "storage.title": "Depolama Yönetimi",
     "storage.raid": "RAID Durumu",
     "storage.smart": "Disk Sağlığı",
@@ -302,7 +289,6 @@
     "storage.raid.healthy": "Sağlıklı",
     "storage.raid.degraded": "Bozulmuş",
     "storage.raid.rebuilding": "Yeniden Oluşturuluyor",
-
     "syslog.title": "Syslog Yönetimi",
     "syslog.server": "Sunucu",
     "syslog.client": "İstemci",
@@ -328,7 +314,6 @@
     "syslog.tlsCert": "TLS Sertifika Dosyası",
     "syslog.tlsKey": "TLS Anahtar Dosyası",
     "syslog.tlsCA": "TLS CA Sertifika Dosyası",
-
     "ntp.title": "NTP Zaman Sunucusu",
     "ntp.server": "Sunucu",
     "ntp.client": "İstemci",
@@ -353,7 +338,6 @@
     "ntp.listenAddress": "Dinleme Adresi",
     "ntp.listenAddressHint": "Boş bırakılırsa tüm interface'lerde dinler",
     "ntp.listenPort": "Dinleme Portu (0 = default 123)",
-
     "settings.title": "Sistem Ayarları",
     "settings.hostname": "Ana Makine Adı",
     "settings.timezone": "Saat Dilimi",
@@ -376,7 +360,6 @@
     "settings.reboot": "Yeniden Başlat",
     "settings.confirmReboot": "Sistem yeniden başlatılsın mı?",
     "settings.confirmReset": "Tüm ayarlar sıfırlanacak. Emin misiniz?",
-
     "update.title": "Yazılım Güncelleme",
     "update.currentVersion": "Mevcut Sürüm",
     "update.checkForUpdates": "Güncelleme Kontrol Et",
@@ -390,7 +373,6 @@
     "update.releaseNotes": "Sürüm Notları",
     "update.size": "Boyut",
     "update.error": "Güncelleme hatası",
-
     "tls.title": "TLS Sertifikası",
     "tls.mode": "Mod",
     "tls.selfSigned": "Otomatik İmzalı",
@@ -400,22 +382,18 @@
     "tls.regenerate": "Sertifikayı Yenile",
     "tls.downloadCa": "CA Sertifikasını İndir",
     "tls.issuer": "Veren",
-
     "healthcheck.title": "Bağlantı Sağlığı",
     "healthcheck.status": "Durum",
     "healthcheck.healthy": "Sağlıklı",
     "healthcheck.unhealthy": "Sorunlu",
     "healthcheck.lastCheck": "Son Kontrol",
     "healthcheck.recovery": "Kurtarma Aksiyonu",
-
-    "ipv6.title": "IPv6 Yapılandırması",
     "ipv6.enabled": "IPv6 Durumu",
     "ipv6.auto": "Otomatik",
     "ipv6.on": "Açık",
     "ipv6.off": "Kapalı",
     "ipv6.prefix": "Prefix",
     "ipv6.ula": "ULA Prefix",
-
     "vlan.title": "VLAN Yönetimi",
     "vlan.add": "VLAN Ekle",
     "vlan.parent": "Üst Arayüz",
@@ -432,7 +410,6 @@
     "vlan.nameExample": "ör: guest",
     "vlan.parentExample": "ör: lan",
     "vlan.addressExample": "ör: 10.10.13.1/24",
-
     "usb.title": "USB Tethering",
     "usb.status": "Durum",
     "usb.connected": "Bağlı",
@@ -447,7 +424,6 @@
     "usb.noPhone": "Tethering arayüzünde bağlı telefon yok",
     "usb.confirmActivate": "WAN trafiği USB bağlantısı üzerinden yönlendirilsin mi?",
     "usb.confirmDeactivate": "USB bağlantısı WAN trafiği için kullanılmayı bıraksın mı?",
-
     "common.toggleTheme": "Tema Değiştir",
     "common.save": "Kaydet",
     "common.cancel": "İptal",
@@ -469,7 +445,6 @@
     "common.status": "Durum",
     "common.name": "Ad",
     "common.actions": "İşlemler",
-
     "auth.login": "Giriş Yap",
     "auth.password": "Şifre",
     "auth.wrongPassword": "Geçersiz şifre",
@@ -477,7 +452,6 @@
     "auth.lockedOutMinutes": "Çok fazla başarısız deneme. {{wait}} dakika sonra tekrar deneyin.",
     "auth.logout": "Çıkış Yap",
     "auth.sessionExpired": "Oturum süresi doldu",
-
     "network.up": "AÇIK",
     "network.down": "KAPALI",
     "network.speed": "Mbps",
@@ -500,7 +474,6 @@
     "network.macClone.clone": "Klonlanacak MAC",
     "network.ipv4": "IPv4",
     "network.ipv6": "IPv6",
-
     "dns.blocked": "Engellenen",
     "dns.totalQueries": "Toplam Sorgu",
     "dns.cacheHits": "Önbellek İsabet",
@@ -529,15 +502,12 @@
     "dns.doh.probe": "Test",
     "dns.disableAutoPTR": "Otomatik PTR'ı kapat",
     "dns.disableAutoPTRHint": "Bu kayıt için ters DNS (in-addr.arpa) üretilmesin; upstream'e düşsün",
-
     "openvpn.pkiNotReady": "PKI başlatılmamış",
     "openvpn.initPki": "PKI Oluştur",
-
     "pppoe.captureTitle": "PPPoE Kimlik Yakalama",
     "pppoe.startCapture": "Yakalamayı Başlat",
     "pppoe.stopCapture": "Yakalamayı Durdur",
     "pppoe.captureDesc": "ISP kimlik bilgilerini modemden yakalamak için WAN arayüzünde PPPoE sunucu başlatın.",
-
     "nav.backup": "Yedekleme",
     "backup.title": "Otomatik Yedekleme",
     "backup.runNow": "Şimdi Yedekle",
@@ -579,7 +549,6 @@
     "backup.history.size": "Boyut",
     "backup.history.targets": "Hedefler",
     "backup.history.message": "Mesaj",
-
     "error.ackTokenRequired": "Onay token'ı gerekli",
     "error.backupFileRequired": "Yedek dosyası gerekli",
     "error.backupTooLarge": "Yedek arşivi çok büyük",
@@ -618,7 +587,7 @@
     "error.invalidHostname": "Geçersiz sunucu adı",
     "error.invalidIP": "Geçersiz IP adresi",
     "error.invalidIndex": "Geçersiz sıra numarası",
-    "error.invalidInterface": "Geçersiz arayüz",
+    "error.invalidInterface": "Geçersiz arayüz ayarları",
     "error.invalidInternalIP": "Geçersiz iç IP adresi",
     "error.invalidJSON": "Geçersiz JSON",
     "error.invalidMAC": "Geçersiz MAC adresi",
@@ -633,9 +602,7 @@
     "error.duplicateInterfaceDevice": "Bu cihazı başka bir arayüz zaten kullanıyor",
     "error.interfaceNotFound": "Arayüz bulunamadı",
     "error.invalidRole": "Rol lan veya wan olmalıdır",
-    "error.invalidType": "Tür static, dhcp-client veya pppoe olmalıdır",
-    "error.invalidInterface": "Geçersiz arayüz ayarları",
-    "error.invalidMTU": "Geçersiz MTU",
+    "error.invalidType": "Geçersiz tür",
     "error.invalidProtocol": "Geçersiz protokol",
     "error.invalidRateLimit": "Hız sınırı 3/minute biçiminde olmalı (second, minute, hour, day veya week)",
     "error.invalidQoSProfile": "Geçersiz QoS profili",
@@ -644,7 +611,6 @@
     "error.invalidSchedule": "Geçersiz zamanlama",
     "error.invalidSourceAddress": "Geçersiz kaynak IP veya CIDR",
     "error.invalidTimezone": "Geçersiz saat dilimi",
-    "error.invalidType": "Geçersiz tür",
     "error.invalidUploadBandwidth": "Geçersiz yükleme bant genişliği",
     "error.invalidVLANID": "Geçersiz VLAN kimliği",
     "error.nameRequired": "Ad gerekli",
@@ -672,5 +638,11 @@
     "error.uploadSaveFailed": "Yüklenen dosya kaydedilemedi",
     "error.upstreamRequired": "Üst sunucu gerekli",
     "error.urlRequired": "URL gerekli",
-    "error.urlScheme": "URL http veya https olmalı"
+    "error.urlScheme": "URL http veya https olmalı",
+    "firstboot.title": "İlk kurulum modu",
+    "firstboot.desc": "Bu sayfaya her porttan ulaşılabilsin diye tüm ağ kartları köprülendi. WAN kartı da köprüde, bu yüzden kurulumu bitirmeden ISP hattını takmayın. Önce aşağıdaki arayüzleri düzeltin, sonra bitirin.",
+    "firstboot.willDetach": "Köprüden ayrılacak",
+    "firstboot.noWan": "henüz WAN arayüzü yapılandırılmadı",
+    "firstboot.complete": "Kurulumu bitir",
+    "firstboot.confirm": "İlk kurulum bitirilsin ve WAN kartı köprüden ayrılsın mı?"
 }
