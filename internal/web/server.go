@@ -235,8 +235,9 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	backupOrch := services.NewBackupOrchestrator(backupSvc, cfg)
 	monitorSvc := services.NewMonitorService()
 	systemSvc := services.NewSystemService()
+	tlsSvc := services.NewTLSService(cfg)
 	dashboardHandler := handlers.NewDashboardHandler(renderer, monitorSvc, pppoeSvc, dhcpSvc)
-	settingsHandler := handlers.NewSystemHandler(renderer, cfg, loc, dhcpSvc, backupSvc, updateSvc, systemSvc)
+	settingsHandler := handlers.NewSystemHandler(renderer, cfg, loc, dhcpSvc, backupSvc, updateSvc, systemSvc, tlsSvc)
 	// Without this the auth object keeps verifying against the hash it
 	// captured at startup, so a password change would report success
 	// while the old credential still worked.
@@ -447,21 +448,22 @@ func (s *Server) Serve(ctx context.Context) error {
 
 	log.Printf("web server listening on %s (TLS mode: %s)", s.http.Addr, s.cfg.System.TLS.Mode)
 
-	dataDir := "/var/lib/lankeeper"
+	dataDir := services.TLSDataDir()
 	certInfo, err := config.EnsureTLSCert(&s.cfg.System.TLS, dataDir)
 	if err != nil {
 		return fmt.Errorf("ensure TLS cert: %w", err)
 	}
 	log.Printf("TLS certificate ready: %s (expires: %s)", certInfo.Issuer, certInfo.NotAfter)
 
-	certFile := s.cfg.System.TLS.CertFile
-	keyFile := s.cfg.System.TLS.KeyFile
-	if certFile == "" {
-		certFile = "/var/lib/lankeeper/tls/server.crt"
-	}
-	if keyFile == "" {
-		keyFile = "/var/lib/lankeeper/tls/server.key"
-	}
+	// Taken from the info EnsureTLSCert just returned rather than
+	// recomputed. The fallbacks written out here were a second copy of
+	// the path logic, and they disagreed with it whenever only one of
+	// certFile and keyFile was configured: EnsureTLSCert requires both
+	// before it honours either, so a config with just certFile set had
+	// the certificate generated at the default location and then loaded
+	// from the configured one, which does not exist.
+	certFile := certInfo.CertPath
+	keyFile := certInfo.KeyPath
 
 	// Retro-mirror DHCP static leases to DNS so hosts added in older
 	// versions (or via direct router.yaml edits) become resolvable on
@@ -537,6 +539,7 @@ func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	mux.Handle("POST /settings/root-password", authed(http.HandlerFunc(s.settings.HandleChangeRootPassword)))
 	mux.Handle("POST /settings/hostname", authed(http.HandlerFunc(s.settings.HandleUpdateHostname)))
 	mux.Handle("POST /settings/timezone", authed(http.HandlerFunc(s.settings.HandleUpdateTimezone)))
+	mux.Handle("POST /settings/tls/regenerate", authed(http.HandlerFunc(s.settings.HandleRegenerateTLS)))
 	mux.Handle("POST /system/reboot", authed(http.HandlerFunc(s.settings.HandleReboot)))
 	mux.Handle("POST /system/factory-reset", authed(http.HandlerFunc(s.settings.HandleFactoryReset)))
 	mux.Handle("GET /system/backup/export", authed(http.HandlerFunc(s.settings.HandleExport)))

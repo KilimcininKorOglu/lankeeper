@@ -1,0 +1,138 @@
+package tmpl_test
+
+import (
+	"maps"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/KilimcininKorOglu/lankeeper/internal/config"
+	"github.com/KilimcininKorOglu/lankeeper/internal/i18n"
+	"github.com/KilimcininKorOglu/lankeeper/internal/tmpl"
+	webfs "github.com/KilimcininKorOglu/lankeeper/web"
+)
+
+func newTestRenderer(t *testing.T) *tmpl.Renderer {
+	t.Helper()
+	loc, err := i18n.New("en")
+	if err != nil {
+		t.Fatalf("init i18n: %v", err)
+	}
+	if err := loc.LoadFromFS(webfs.EmbeddedFS, "locales"); err != nil {
+		t.Fatalf("load locales: %v", err)
+	}
+	r, err := tmpl.NewRenderer(webfs.EmbeddedFS, loc)
+	if err != nil {
+		t.Fatalf("new renderer: %v", err)
+	}
+	return r
+}
+
+func settingsData(extra map[string]any) *tmpl.PageData {
+	fields := map[string]any{
+		"Hostname":       "hermes",
+		"Domain":         "lan",
+		"FQDN":           "hermes.lan",
+		"Timezone":       "Europe/Istanbul",
+		"Language":       "en",
+		"TLSMode":        "self-signed",
+		"TLSSelfSigned":  config.SelfSignedConfig{},
+		"Version":        map[string]any{},
+		"PendingUpdate":  false,
+		"PendingVersion": "",
+	}
+	maps.Copy(fields, extra)
+	return &tmpl.PageData{Lang: "en", Page: "settings", Data: fields}
+}
+
+// The certificate state on the settings page comes from a struct, not
+// the map every other field uses, so the field names in the template
+// have to match the Go type exactly. Parsing cannot catch a rename:
+// which field a dot resolves to is decided at execute time.
+func TestSettingsPageRendersCertificateDetail(t *testing.T) {
+	r := newTestRenderer(t)
+
+	notAfter := time.Date(2030, 4, 1, 12, 0, 0, 0, time.UTC)
+	data := settingsData(map[string]any{
+		"TLSSelfSigned": config.SelfSignedConfig{
+			CN: "hermes.lan", ValidDays: 365, SANs: []string{"hermes.lan", "10.10.10.1"},
+		},
+		"TLSCert": &config.TLSCertInfo{
+			Issuer:    "hermes.lan",
+			NotBefore: notAfter.AddDate(-1, 0, 0),
+			NotAfter:  notAfter,
+			SANs:      []string{"hermes.lan", "10.10.10.1"},
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	if err := r.Render(rec, "settings", "base", data); err != nil {
+		t.Fatalf("settings page does not execute: %v", err)
+	}
+
+	body := rec.Body.String()
+	for _, want := range []string{
+		"2030-04-01",
+		"hermes.lan, 10.10.10.1",
+		`hx-post="/settings/tls/regenerate"`,
+		`name="cn"`,
+		`name="sans"`,
+		`name="validDays"`,
+		`value="365"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("rendered settings page is missing %q", want)
+		}
+	}
+	if strings.Contains(body, "<no value>") {
+		t.Error("a lookup on the settings page resolved to nothing")
+	}
+}
+
+// The page has to render when there is no certificate, because that is
+// exactly when the operator comes looking. Failing the render here
+// would leave them with an error page and no control to fix it.
+func TestSettingsPageRendersWithoutACertificate(t *testing.T) {
+	r := newTestRenderer(t)
+
+	data := settingsData(map[string]any{"TLSCertError": "read cert: no such file"})
+
+	rec := httptest.NewRecorder()
+	if err := r.Render(rec, "settings", "base", data); err != nil {
+		t.Fatalf("settings page does not execute without a certificate: %v", err)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "No readable certificate") {
+		t.Error("the page does not tell the operator the certificate is missing")
+	}
+	if !strings.Contains(body, `hx-post="/settings/tls/regenerate"`) {
+		t.Error("the regenerate control is absent, so there is no way out of the missing-certificate state")
+	}
+	// The internal error string names a filesystem path. It belongs in
+	// the log, not in a page served to the browser.
+	if strings.Contains(body, "no such file") {
+		t.Error("the raw error text reached the page")
+	}
+}
+
+// The form is only meaningful in self-signed mode. Offering it under
+// mkcert or ACME would invite the operator to overwrite a certificate
+// this code did not issue and cannot reissue.
+func TestSettingsPageHidesRegenerateOutsideSelfSigned(t *testing.T) {
+	r := newTestRenderer(t)
+
+	for _, mode := range []string{"mkcert", "acme"} {
+		t.Run(mode, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			data := settingsData(map[string]any{"TLSMode": mode})
+			if err := r.Render(rec, "settings", "base", data); err != nil {
+				t.Fatalf("settings page does not execute in %s mode: %v", mode, err)
+			}
+			if strings.Contains(rec.Body.String(), `hx-post="/settings/tls/regenerate"`) {
+				t.Errorf("the regenerate form is offered in %s mode", mode)
+			}
+		})
+	}
+}

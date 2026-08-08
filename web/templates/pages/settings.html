@@ -100,8 +100,48 @@
         </div>
         <div class="settings-row">
             <span class="settings-label">{{ t $.Lang "tls.mode" }}</span>
-            <span class="settings-value">{{ .TLSMode }}</span>
+            <span class="settings-value">{{ if .TLSMode }}{{ .TLSMode }}{{ else }}self-signed{{ end }}</span>
         </div>
+        {{ with .TLSCert }}
+        <div class="settings-row">
+            <span class="settings-label">{{ t $.Lang "tls.issuer" }}</span>
+            <span class="settings-value">{{ .Issuer }}</span>
+        </div>
+        <div class="settings-row">
+            <span class="settings-label">{{ t $.Lang "tls.expires" }}</span>
+            <span class="settings-value">{{ .NotAfter.Format "2006-01-02" }}</span>
+        </div>
+        <div class="settings-row">
+            <span class="settings-label">{{ t $.Lang "tls.sans" }}</span>
+            <span class="settings-value">{{ range $i, $s := .SANs }}{{ if $i }}, {{ end }}{{ $s }}{{ end }}</span>
+        </div>
+        {{ end }}
+        {{ with .TLSCertError }}
+        <div class="alert alert-error" style="margin-top:var(--space-md);">{{ t $.Lang "tls.noCert" }}</div>
+        {{ end }}
+
+        {{ if or (eq .TLSMode "self-signed") (eq .TLSMode "") }}
+        <form hx-post="/settings/tls/regenerate" hx-swap="none" style="margin-top:var(--space-md);">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:var(--space-md);">
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "tls.commonName" }}</label>
+                    <input class="input" name="cn" value="{{ with .TLSSelfSigned.CN }}{{ . }}{{ else }}{{ $.Data.FQDN }}{{ end }}" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label">{{ t $.Lang "tls.validDays" }}</label>
+                    <input class="input" type="number" name="validDays" min="1" max="3650"
+                           value="{{ if .TLSSelfSigned.ValidDays }}{{ .TLSSelfSigned.ValidDays }}{{ else }}3650{{ end }}" required>
+                </div>
+            </div>
+            <div class="input-group" style="margin-top:var(--space-md);">
+                <label class="input-label">{{ t $.Lang "tls.sans" }}</label>
+                <input class="input" name="sans" placeholder="{{ t $.Lang "tls.sansPlaceholder" }}"
+                       value="{{ range $i, $s := .TLSSelfSigned.SANs }}{{ if $i }}, {{ end }}{{ $s }}{{ end }}">
+            </div>
+            <p class="modal-hint">{{ t $.Lang "tls.restartWarning" }}</p>
+            <button type="submit" class="btn btn-primary btn-sm" style="margin-top:var(--space-md);">{{ t $.Lang "tls.regenerate" }}</button>
+        </form>
+        {{ end }}
     </div>
 
     <!-- Backup -->

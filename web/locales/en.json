@@ -655,5 +655,11 @@
     "qr.loading": "Fetching the configuration...",
     "qr.tooLarge": "This configuration is too large for a QR code. Download the file instead.",
     "qr.failed": "Could not fetch the configuration.",
-    "qr.hint": "Scan the code with your VPN app. The code is cleared from memory when this closes."
+    "qr.hint": "Scan the code with your VPN app. The code is cleared from memory when this closes.",
+    "tls.sans": "Subject alternative names",
+    "tls.sansPlaceholder": "hermes.lan, 10.10.10.1",
+    "tls.commonName": "Common name (CN)",
+    "tls.validDays": "Validity (days)",
+    "tls.restartWarning": "The service restarts once the new certificate is written. The browser loses the connection for a few seconds and will warn about the new certificate.",
+    "tls.noCert": "No readable certificate on disk. Regenerate one."
 }

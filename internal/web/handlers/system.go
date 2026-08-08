@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
@@ -28,6 +29,7 @@ type SystemHandler struct {
 	backup   *services.BackupService
 	update   *services.UpdateService
 	system   *services.SystemService
+	tls      *services.TLSService
 	// passwordSink hands a newly generated hash back to the auth
 	// object, which caches it by value. A callback rather than a
 	// direct reference because Auth lives in the parent web package,
@@ -51,28 +53,39 @@ func (h *SystemHandler) SetCSRFRotator(fn func(w http.ResponseWriter) error) {
 	h.csrfRotator = fn
 }
 
-func NewSystemHandler(renderer *tmpl.Renderer, cfg *config.Config, loc *i18n.I18n, dhcp *services.DHCPService, backup *services.BackupService, update *services.UpdateService, system *services.SystemService) *SystemHandler {
-	return &SystemHandler{renderer: renderer, cfg: cfg, loc: loc, dhcp: dhcp, backup: backup, update: update, system: system}
+func NewSystemHandler(renderer *tmpl.Renderer, cfg *config.Config, loc *i18n.I18n, dhcp *services.DHCPService, backup *services.BackupService, update *services.UpdateService, system *services.SystemService, tlsSvc *services.TLSService) *SystemHandler {
+	return &SystemHandler{renderer: renderer, cfg: cfg, loc: loc, dhcp: dhcp, backup: backup, update: update, system: system, tls: tlsSvc}
 }
 
 func (h *SystemHandler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	lang := i18n.LangFromContext(r.Context())
 
-	data := &tmpl.PageData{
-		Lang: lang,
-		Page: "settings",
-		Data: map[string]any{
-			"Hostname":       h.cfg.System.Hostname,
-			"Domain":         h.cfg.System.Domain,
-			"FQDN":           h.cfg.System.Hostname + "." + h.cfg.System.Domain,
-			"Timezone":       h.cfg.System.Timezone,
-			"Language":       h.cfg.System.Language,
-			"TLSMode":        h.cfg.System.TLS.Mode,
-			"Version":        h.update.GetVersionInfo(),
-			"PendingUpdate":  h.update.HasPendingUpdate(),
-			"PendingVersion": h.update.PendingVersion(),
-		},
+	fields := map[string]any{
+		"Hostname":       h.cfg.System.Hostname,
+		"Domain":         h.cfg.System.Domain,
+		"FQDN":           h.cfg.System.Hostname + "." + h.cfg.System.Domain,
+		"Timezone":       h.cfg.System.Timezone,
+		"Language":       h.cfg.System.Language,
+		"TLSMode":        h.cfg.System.TLS.Mode,
+		"TLSSelfSigned":  h.cfg.System.TLS.SelfSigned,
+		"Version":        h.update.GetVersionInfo(),
+		"PendingUpdate":  h.update.HasPendingUpdate(),
+		"PendingVersion": h.update.PendingVersion(),
 	}
+
+	// A missing or unreadable certificate is a state the page has to be
+	// able to show, not a reason to fail the whole render: the operator
+	// reaches this page precisely when TLS is in a bad way.
+	if h.tls != nil {
+		info, err := h.tls.Info()
+		if err != nil {
+			fields["TLSCertError"] = err.Error()
+		} else {
+			fields["TLSCert"] = info
+		}
+	}
+
+	data := &tmpl.PageData{Lang: lang, Page: "settings", Data: fields}
 
 	if err := h.renderer.Render(w, "settings", "base", data); err != nil {
 		log.Printf("render settings: %v", err)
@@ -236,6 +249,67 @@ func (h *SystemHandler) HandleUpdateTimezone(w http.ResponseWriter, r *http.Requ
 	log.Printf("timezone changed to %s", tz)
 
 	respondTrigger(w, r, "settingsUpdated", "/settings")
+}
+
+// HandleRegenerateTLS issues a fresh self-signed certificate and brings
+// the service back on it.
+//
+// The restart is fired after the response is written, from a goroutine
+// with its own context. Running it inline would kill the process that
+// is still holding the connection, so the operator would see a network
+// error and have no way to tell a successful regeneration from a failed
+// one. r.Context() is cancelled when the handler returns, which is why
+// the goroutine cannot borrow it.
+func (h *SystemHandler) HandleRegenerateTLS(w http.ResponseWriter, r *http.Request) {
+	if h.tls == nil {
+		clientError(w, r, http.StatusNotImplemented, "error.internal")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		clientError(w, r, http.StatusBadRequest, "error.badForm")
+		return
+	}
+
+	cn := r.FormValue("cn")
+	sans, err := services.ParseSANs(r.FormValue("sans"))
+	if err != nil {
+		clientErrorf(w, r, http.StatusBadRequest, "error.badForm", err.Error())
+		return
+	}
+
+	validDays, err := strconv.Atoi(r.FormValue("validDays"))
+	if err != nil {
+		clientErrorf(w, r, http.StatusBadRequest, "error.badForm", services.ErrInvalidValidity.Error())
+		return
+	}
+
+	info, err := h.tls.Regenerate(r.Context(), cn, sans, validDays)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, services.ErrNotSelfSigned) {
+			status = http.StatusConflict
+		}
+		fail(w, r, status, err)
+		return
+	}
+	// cn passed ValidateDomain inside Regenerate, which is a label
+	// allowlist and admits no line break.
+	// #nosec G706
+	log.Printf("TLS certificate regenerated for %s, expires %s", cn, info.NotAfter)
+
+	respondRefresh(w, r, "/settings")
+
+	// The restart deliberately outlives the request: it has to run
+	// after the response has reached the client, because it takes down
+	// the process that would otherwise be writing it.
+	// #nosec G118
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := h.tls.Restart(ctx); err != nil {
+			log.Printf("tls: restart after regeneration: %v", err)
+		}
+	}()
 }
 
 func (h *SystemHandler) HandleReboot(w http.ResponseWriter, r *http.Request) {

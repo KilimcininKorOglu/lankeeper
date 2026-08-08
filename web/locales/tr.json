@@ -655,5 +655,11 @@
     "qr.loading": "Yapılandırma alınıyor...",
     "qr.tooLarge": "Bu yapılandırma bir QR koda sığmayacak kadar büyük. Dosyayı indirin.",
     "qr.failed": "Yapılandırma alınamadı.",
-    "qr.hint": "Kodu VPN uygulamanızla okutun. Pencere kapandığında kod bellekten silinir."
+    "qr.hint": "Kodu VPN uygulamanızla okutun. Pencere kapandığında kod bellekten silinir.",
+    "tls.sans": "Alternatif adlar",
+    "tls.sansPlaceholder": "hermes.lan, 10.10.10.1",
+    "tls.commonName": "Ortak ad (CN)",
+    "tls.validDays": "Geçerlilik (gün)",
+    "tls.restartWarning": "Yeni sertifika üretildikten sonra servis yeniden başlar. Tarayıcı birkaç saniye bağlantıyı kaybeder ve yeni sertifika için tekrar uyarı gösterir.",
+    "tls.noCert": "Diskte okunabilir bir sertifika yok. Yeniden üretin."
 }

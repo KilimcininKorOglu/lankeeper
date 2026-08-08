@@ -25,17 +25,9 @@ type TLSCertInfo struct {
 }
 
 func EnsureTLSCert(cfg *TLSConfig, dataDir string) (*TLSCertInfo, error) {
-	certDir := filepath.Join(dataDir, "tls")
-	if err := os.MkdirAll(certDir, 0o700); err != nil {
-		return nil, fmt.Errorf("create tls dir: %w", err)
-	}
-
-	certPath := filepath.Join(certDir, "server.crt")
-	keyPath := filepath.Join(certDir, "server.key")
-
-	if cfg.CertFile != "" && cfg.KeyFile != "" {
-		certPath = cfg.CertFile
-		keyPath = cfg.KeyFile
+	certPath, keyPath, err := certPaths(cfg, dataDir)
+	if err != nil {
+		return nil, err
 	}
 
 	switch cfg.Mode {
@@ -54,6 +46,47 @@ func EnsureTLSCert(cfg *TLSConfig, dataDir string) (*TLSCertInfo, error) {
 	default:
 		return nil, fmt.Errorf("unknown TLS mode: %s", cfg.Mode)
 	}
+}
+
+// RegenerateSelfSigned issues a new pair unconditionally, replacing
+// whatever is on disk.
+//
+// EnsureTLSCert deliberately keeps an unexpired certificate, which is
+// right on every boot and wrong when the operator has just changed the
+// name or the SAN list: the settings they submitted would be persisted
+// and then ignored until the old certificate happened to expire.
+func RegenerateSelfSigned(cfg *TLSConfig, dataDir string) (*TLSCertInfo, error) {
+	certPath, keyPath, err := certPaths(cfg, dataDir)
+	if err != nil {
+		return nil, err
+	}
+	return generateSelfSigned(cfg, certPath, keyPath)
+}
+
+// ReadTLSCertInfo reports the certificate on disk without creating one.
+//
+// The settings page needs to be able to say "no certificate yet", and
+// EnsureTLSCert cannot answer that: in self-signed mode it generates,
+// so merely rendering the page would have produced a key pair.
+func ReadTLSCertInfo(cfg *TLSConfig, dataDir string) (*TLSCertInfo, error) {
+	certPath, keyPath, err := certPaths(cfg, dataDir)
+	if err != nil {
+		return nil, err
+	}
+	return readCertInfo(certPath, keyPath)
+}
+
+// certPaths resolves where the pair lives, creating the directory but
+// not the certificate.
+func certPaths(cfg *TLSConfig, dataDir string) (certPath, keyPath string, err error) {
+	certDir := filepath.Join(dataDir, "tls")
+	if err := os.MkdirAll(certDir, 0o700); err != nil {
+		return "", "", fmt.Errorf("create tls dir: %w", err)
+	}
+	if cfg.CertFile != "" && cfg.KeyFile != "" {
+		return cfg.CertFile, cfg.KeyFile, nil
+	}
+	return filepath.Join(certDir, "server.crt"), filepath.Join(certDir, "server.key"), nil
 }
 
 func ensureSelfSigned(cfg *TLSConfig, certPath, keyPath string) (*TLSCertInfo, error) {
