@@ -8,12 +8,23 @@
 
     function el(id) { return document.getElementById(id); }
 
+    // The server accepts the CSRF token as a header or a form field, and
+    // only the login and logout forms carry the field. Every POST here is
+    // a bare fetch, so without this header the whole wizard is answered
+    // 403 with no hint as to why.
+    function withCSRF(headers) {
+        headers = headers || {};
+        var token = window.lankeeperCSRFToken && window.lankeeperCSRFToken();
+        if (token) headers['X-CSRF-Token'] = token;
+        return headers;
+    }
+
     function postForm(url, form) {
         var body = new URLSearchParams();
         new FormData(form).forEach(function (v, k) { body.append(k, v); });
         return fetch(url, {
             method: 'POST',
-            headers: { 'Accept': 'application/json' },
+            headers: withCSRF({ 'Accept': 'application/json' }),
             body: body,
             credentials: 'same-origin',
         }).then(function (res) {
@@ -100,6 +111,7 @@
     ns.testReachability = function (name) {
         fetch('/vpn/s2s/' + encodeURIComponent(name) + '/reachability', {
             method: 'POST',
+            headers: withCSRF(),
             credentials: 'same-origin',
         }).then(function (res) {
             if (res.status === 204) {
@@ -112,10 +124,31 @@
         });
     };
 
+    // Delegated rather than inline onclick attributes: the policy the
+    // server sends carries no 'unsafe-inline', so an onclick never runs.
+    function bindActions() {
+        document.addEventListener('click', function (evt) {
+            var el = evt.target.closest('[data-s2s-action]');
+            if (!el) return;
+            switch (el.dataset.s2sAction) {
+            case 'copy-token':
+                ns.copyToken();
+                break;
+            case 'copy-ack':
+                ns.copyAck();
+                break;
+            case 'test-reachability':
+                ns.testReachability(el.dataset.s2sPeer);
+                break;
+            }
+        });
+    }
+
     function init() {
         bindIssue();
         bindFinalize();
         bindJoin();
+        bindActions();
     }
 
     if (document.readyState === 'loading') {

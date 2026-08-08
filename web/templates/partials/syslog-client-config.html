@@ -29,7 +29,7 @@
 <div style="margin-top:var(--space-lg);">
     <div class="input-label" style="margin-bottom:var(--space-xs);">{{ t $.Lang "syslog.facilities" }}</div>
     <form hx-post="/syslog/client/facilities" hx-swap="none"
-          hx-on::after-request="this.reset();"
+          data-reset-after-request
           style="display:grid; grid-template-columns:1fr auto; gap:var(--space-sm); margin-bottom:var(--space-sm);">
         <input class="input" name="name" placeholder="{{ t $.Lang "syslog.facilityExample" }}" required>
         <button class="btn btn-primary btn-sm" type="submit">{{ t $.Lang "syslog.addFacility" }}</button>

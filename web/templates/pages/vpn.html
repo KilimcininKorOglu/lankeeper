@@ -43,13 +43,13 @@
         {{ end }}
 
         <div style="margin-top:var(--space-md); display:flex; gap:var(--space-sm);">
-            <button class="btn btn-primary btn-sm" onclick="document.getElementById('peer-form').style.display='block'">
+            <button class="btn btn-primary btn-sm" data-open="peer-form">
                 {{ t $.Lang "vpn.addPeer" }}
             </button>
             <a class="btn btn-secondary btn-sm" href="/vpn/s2s">{{ t $.Lang "vpn.s2s.openWizard" }}</a>
         </div>
         <form id="peer-form" hx-post="/vpn/server/peer" style="display:none; padding:var(--space-md); border:1px solid var(--border-color); border-radius:var(--radius-md); margin-top:var(--space-md);"
-              hx-on::after-request="this.reset(); this.style.display='none';">
+              data-reset-after-request data-hide-after-request>
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:var(--space-md);">
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "common.name" }}</label>
@@ -57,7 +57,7 @@
                 </div>
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "vpn.peerType" }}</label>
-                    <select class="input" name="peerType" onchange="document.getElementById('s2s-fields').style.display = this.value === 'site-to-site' ? 'contents' : 'none'">
+                    <select class="input" name="peerType" data-toggle="s2s-fields" data-toggle-when="site-to-site">
                         <option value="road-warrior">{{ t $.Lang "vpn.roadWarrior" }}</option>
                         <option value="site-to-site">{{ t $.Lang "vpn.siteToSite" }}</option>
                     </select>
@@ -77,7 +77,7 @@
             </div>
             <div style="display:flex; gap:var(--space-sm); margin-top:var(--space-md);">
                 <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
-                <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('form').style.display='none'">{{ t $.Lang "common.cancel" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-close-closest="form">{{ t $.Lang "common.cancel" }}</button>
             </div>
         </form>
     </div>

@@ -61,12 +61,12 @@
         {{ end }}
 
         <div style="margin-top:var(--space-md);">
-            <button class="btn btn-primary btn-sm" onclick="document.getElementById('ovpn-client-form').style.display='block'">
+            <button class="btn btn-primary btn-sm" data-open="ovpn-client-form">
                 {{ t $.Lang "openvpn.addClient" }}
             </button>
         </div>
         <form id="ovpn-client-form" hx-post="/openvpn/server/client" style="display:none; padding:var(--space-md); border:1px solid var(--border-color); border-radius:var(--radius-md); margin-top:var(--space-md);"
-              hx-on::after-request="this.reset(); this.style.display='none';">
+              data-reset-after-request data-hide-after-request>
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:var(--space-md);">
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "common.name" }}</label>
@@ -74,7 +74,7 @@
                 </div>
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "openvpn.peerType" }}</label>
-                    <select class="input" name="peerType" onchange="document.getElementById('ovpn-s2s-fields').style.display = this.value === 'site-to-site' ? 'contents' : 'none'">
+                    <select class="input" name="peerType" data-toggle="ovpn-s2s-fields" data-toggle-when="site-to-site">
                         <option value="road-warrior">{{ t $.Lang "openvpn.roadWarrior" }}</option>
                         <option value="site-to-site">{{ t $.Lang "openvpn.siteToSite" }}</option>
                     </select>
@@ -94,7 +94,7 @@
             </div>
             <div style="display:flex; gap:var(--space-sm); margin-top:var(--space-md);">
                 <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
-                <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('form').style.display='none'">{{ t $.Lang "common.cancel" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-close-closest="form">{{ t $.Lang "common.cancel" }}</button>
             </div>
         </form>
         {{ end }}
@@ -125,12 +125,12 @@
         {{ end }}
 
         <div style="margin-top:var(--space-md);">
-            <button class="btn btn-primary btn-sm" onclick="document.getElementById('ovpn-outbound-form').style.display='block'">
+            <button class="btn btn-primary btn-sm" data-open="ovpn-outbound-form">
                 {{ t $.Lang "openvpn.addOutbound" }}
             </button>
         </div>
         <form id="ovpn-outbound-form" hx-post="/openvpn/client" style="display:none; padding:var(--space-md); border:1px solid var(--border-color); border-radius:var(--radius-md); margin-top:var(--space-md);"
-              hx-on::after-request="this.reset(); this.style.display='none';">
+              data-reset-after-request data-hide-after-request>
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:var(--space-md);">
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "common.name" }}</label>
@@ -166,7 +166,7 @@
             </div>
             <div style="display:flex; gap:var(--space-sm); margin-top:var(--space-md);">
                 <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
-                <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('form').style.display='none'">{{ t $.Lang "common.cancel" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-close-closest="form">{{ t $.Lang "common.cancel" }}</button>
             </div>
         </form>
     </div>

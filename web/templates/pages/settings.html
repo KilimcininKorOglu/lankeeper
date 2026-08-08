@@ -62,7 +62,7 @@
         <div class="card-header">
             <span class="card-title">{{ t $.Lang "settings.changeWebPassword" }}</span>
         </div>
-        <form hx-post="/settings/web-password" hx-swap="none" hx-on::after-request="this.reset();" style="padding-top:var(--space-md);">
+        <form hx-post="/settings/web-password" hx-swap="none" data-reset-after-request style="padding-top:var(--space-md);">
             <div class="input-group" style="margin-bottom:var(--space-md);">
                 <label class="input-label">{{ t $.Lang "settings.newPassword" }}</label>
                 <input type="password" class="input" name="newPassword" minlength="8" required>
@@ -80,7 +80,7 @@
         <div class="card-header">
             <span class="card-title">{{ t $.Lang "settings.changeRootPassword" }}</span>
         </div>
-        <form hx-post="/settings/root-password" hx-swap="none" hx-on::after-request="this.reset();" style="padding-top:var(--space-md);">
+        <form hx-post="/settings/root-password" hx-swap="none" data-reset-after-request style="padding-top:var(--space-md);">
             <div class="input-group" style="margin-bottom:var(--space-md);">
                 <label class="input-label">{{ t $.Lang "settings.rootPassword" }}</label>
                 <input type="password" class="input" name="rootPassword" minlength="8" required>

@@ -41,13 +41,13 @@
         <div class="card-header">
             <span class="card-title">{{ t $.Lang "ntp.clientSources" }}</span>
             <button class="btn btn-primary btn-sm" type="button"
-                onclick="document.getElementById('ntp-source-form').style.display='block'">
+                data-open="ntp-source-form">
                 {{ t $.Lang "ntp.addSource" }}
             </button>
         </div>
         <form id="ntp-source-form" style="display:none; margin-bottom:var(--space-md);"
               hx-post="/ntp/sources" hx-swap="none"
-              hx-on::after-request="this.reset(); this.style.display='none';">
+              data-reset-after-request data-hide-after-request>
             <div style="display:grid; grid-template-columns:1fr auto; gap:var(--space-sm);">
                 <input class="input" name="host" placeholder="{{ t $.Lang "ntp.sourceExample" }}" required>
                 <button class="btn btn-primary btn-sm" type="submit">{{ t $.Lang "common.add" }}</button>
@@ -80,13 +80,13 @@
         <div class="card-header">
             <span class="card-title">{{ t $.Lang "ntp.allowSubnets" }}</span>
             <button class="btn btn-primary btn-sm" type="button"
-                onclick="document.getElementById('ntp-allow-form').style.display='block'">
+                data-open="ntp-allow-form">
                 {{ t $.Lang "ntp.addSubnet" }}
             </button>
         </div>
         <form id="ntp-allow-form" style="display:none; margin-bottom:var(--space-md);"
               hx-post="/ntp/allow" hx-swap="none"
-              hx-on::after-request="this.reset(); this.style.display='none';">
+              data-reset-after-request data-hide-after-request>
             <div style="display:grid; grid-template-columns:1fr auto; gap:var(--space-sm);">
                 <input class="input" name="cidr" placeholder="{{ t $.Lang "ntp.subnetExample" }}" required>
                 <button class="btn btn-primary btn-sm" type="submit">{{ t $.Lang "common.add" }}</button>

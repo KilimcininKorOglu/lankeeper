@@ -9,13 +9,13 @@
     <div class="card" style="margin-bottom:var(--space-lg);">
         <div class="card-header">
             <span class="card-title">{{ t $.Lang "nas.shares" }}</span>
-            <button class="btn btn-primary btn-sm" onclick="document.getElementById('share-form').style.display='block'">
+            <button class="btn btn-primary btn-sm" data-open="share-form">
                 {{ t $.Lang "nas.addShare" }}
             </button>
         </div>
 
         <form id="share-form" style="display:none; padding:var(--space-md); border:1px solid var(--border-color); border-radius:var(--radius-md); margin-bottom:var(--space-md);"
-              hx-post="/nas/shares" hx-swap="none" hx-on::after-request="this.reset(); this.style.display='none';">
+              hx-post="/nas/shares" hx-swap="none" data-reset-after-request data-hide-after-request>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-md); margin-bottom:var(--space-md);">
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "common.name" }}</label>
@@ -38,7 +38,7 @@
             </div>
             <div style="display:flex; gap:var(--space-sm);">
                 <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
-                <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('form').style.display='none'">{{ t $.Lang "common.cancel" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-close-closest="form">{{ t $.Lang "common.cancel" }}</button>
             </div>
         </form>
 

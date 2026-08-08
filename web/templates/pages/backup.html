@@ -82,7 +82,7 @@
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-md);">
                         <label class="input-label">
                             {{ t $.Lang "backup.targets.type" }}
-                            <select class="input" name="type" id="backup-target-type" onchange="lankeeperBackupTargetType(this.value)">
+                            <select class="input" name="type" id="backup-target-type" data-switch="data-target-section">
                                 <option value="local">local</option>
                                 <option value="s3">s3</option>
                                 <option value="sftp">sftp</option>
@@ -219,12 +219,4 @@
     {{ end }}
 </div>
 
-<script>
-function lankeeperBackupTargetType(value) {
-    var sections = document.querySelectorAll('[data-target-section]');
-    sections.forEach(function (s) {
-        s.style.display = (s.getAttribute('data-target-section') === value) ? '' : 'none';
-    });
-}
-</script>
 {{ end }}

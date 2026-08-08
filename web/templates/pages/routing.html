@@ -9,7 +9,7 @@
     <div class="card" style="margin-bottom:var(--space-lg);">
         <div class="card-header">
             <span class="card-title">{{ t $.Lang "routing.title" }}</span>
-            <button class="btn btn-primary btn-sm" onclick="document.getElementById('policy-form').style.display='block'">
+            <button class="btn btn-primary btn-sm" data-open="policy-form">
                 {{ t $.Lang "routing.addPolicy" }}
             </button>
         </div>
@@ -40,7 +40,7 @@
         <div class="card-header">
             <span class="card-title">{{ t $.Lang "routing.addPolicy" }}</span>
         </div>
-        <form hx-post="/routing/policy" hx-swap="none" hx-on::after-request="this.reset(); document.getElementById('policy-form').style.display='none';" style="padding-top:var(--space-md);">
+        <form hx-post="/routing/policy" hx-swap="none" data-reset-after-request data-hide-after-request="policy-form" style="padding-top:var(--space-md);">
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-md); margin-bottom:var(--space-md);">
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "common.name" }}</label>
@@ -61,7 +61,7 @@
             </div>
             <div style="display:flex; gap:var(--space-sm);">
                 <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
-                <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('policy-form').style.display='none'">{{ t $.Lang "common.cancel" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-close="policy-form">{{ t $.Lang "common.cancel" }}</button>
             </div>
         </form>
     </div>

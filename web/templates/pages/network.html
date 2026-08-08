@@ -134,7 +134,7 @@
                 <label style="display:flex; align-items:center; gap:var(--space-xs); cursor:pointer;">
                     <input type="checkbox" name="enabled" value="true"
                            {{ if .USB.AutoFailover }}checked{{ end }}
-                           onchange="this.form.requestSubmit()">
+                           data-submit-on-change>
                     {{ t $.Lang "usb.autoFailover" }}
                 </label>
             </form>
@@ -186,7 +186,7 @@
     <div class="card" style="margin-top:var(--space-lg);">
         <div class="card-header">
             <span class="card-title">{{ t $.Lang "network.configured" }}</span>
-            <button class="btn btn-primary btn-sm" onclick="document.getElementById('iface-form').style.display='block'">
+            <button class="btn btn-primary btn-sm" data-open="iface-form">
                 {{ t $.Lang "network.addInterface" }}
             </button>
         </div>
@@ -196,7 +196,7 @@
 
         <form id="iface-form" style="display:none; padding:var(--space-md); border:1px solid var(--border-color); border-radius:var(--radius-md); margin-bottom:var(--space-md);"
               hx-post="/network/interface" hx-swap="none"
-              hx-on::after-request="this.reset(); this.style.display='none';">
+              data-reset-after-request data-hide-after-request>
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:var(--space-md);">
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "network.ifaceId" }}</label>
@@ -240,7 +240,7 @@
             </div>
             <div style="display:flex; gap:var(--space-sm); margin-top:var(--space-md);">
                 <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
-                <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('form').style.display='none'">{{ t $.Lang "common.cancel" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-close-closest="form">{{ t $.Lang "common.cancel" }}</button>
             </div>
         </form>
 
@@ -268,14 +268,14 @@
     <div class="card" style="margin-top:var(--space-lg);">
         <div class="card-header">
             <span class="card-title">{{ t $.Lang "vlan.title" }}</span>
-            <button class="btn btn-primary btn-sm" onclick="document.getElementById('vlan-form').style.display='block'">
+            <button class="btn btn-primary btn-sm" data-open="vlan-form">
                 {{ t $.Lang "vlan.add" }}
             </button>
         </div>
 
         <form id="vlan-form" style="display:none; padding:var(--space-md); border:1px solid var(--border-color); border-radius:var(--radius-md); margin-bottom:var(--space-md);"
               hx-post="/network/vlan" hx-swap="none"
-              hx-on::after-request="this.reset(); this.style.display='none';">
+              data-reset-after-request data-hide-after-request>
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:var(--space-md);">
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "common.name" }}</label>
@@ -328,7 +328,7 @@
             </div>
             <div style="display:flex; gap:var(--space-sm);">
                 <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
-                <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('form').style.display='none'">{{ t $.Lang "common.cancel" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-close-closest="form">{{ t $.Lang "common.cancel" }}</button>
             </div>
         </form>
 

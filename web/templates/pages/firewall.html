@@ -54,7 +54,7 @@
     <div class="card" style="margin-bottom: var(--space-lg);">
         <div class="card-header">
             <span class="card-title">{{ t $.Lang "firewall.openPorts" }}</span>
-            <button class="btn btn-primary btn-sm" onclick="document.getElementById('openport-form').style.display='block'">
+            <button class="btn btn-primary btn-sm" data-open="openport-form">
                 {{ t $.Lang "firewall.addOpenPort" }}
             </button>
         </div>
@@ -64,7 +64,7 @@
 
         <form id="openport-form" style="display:none; padding:var(--space-md); border:1px solid var(--border-color); border-radius:var(--radius-md); margin-bottom:var(--space-md);"
               hx-post="/firewall/open-ports" hx-swap="none"
-              hx-on::after-request="this.reset(); this.style.display='none';">
+              data-reset-after-request data-hide-after-request>
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:var(--space-md);">
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "common.name" }}</label>
@@ -93,7 +93,7 @@
             </div>
             <div style="margin-top:var(--space-md); display:flex; gap:var(--space-sm);">
                 <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
-                <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('form').style.display='none'">{{ t $.Lang "common.cancel" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-close-closest="form">{{ t $.Lang "common.cancel" }}</button>
             </div>
         </form>
 
@@ -124,7 +124,7 @@
     <div class="card" style="margin-bottom: var(--space-lg);">
         <div class="card-header">
             <span class="card-title">{{ t $.Lang "firewall.portForward" }}</span>
-            <button class="btn btn-primary btn-sm" onclick="document.getElementById('pf-form').style.display='block'">
+            <button class="btn btn-primary btn-sm" data-open="pf-form">
                 {{ t $.Lang "common.add" }}
             </button>
         </div>
@@ -132,7 +132,7 @@
         <!-- Add Form (hidden by default) -->
         <form id="pf-form" style="display:none; margin-bottom:var(--space-lg); padding:var(--space-md); border:1px solid var(--border-color); border-radius:var(--radius-md);"
               hx-post="/firewall/port-forwards" hx-swap="none"
-              hx-on::after-request="this.reset(); this.style.display='none';">
+              data-reset-after-request data-hide-after-request>
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:var(--space-md);">
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "common.name" }}</label>
@@ -160,7 +160,7 @@
             </div>
             <div style="margin-top:var(--space-md); display:flex; gap:var(--space-sm);">
                 <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
-                <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('form').style.display='none'">{{ t $.Lang "common.cancel" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-close-closest="form">{{ t $.Lang "common.cancel" }}</button>
             </div>
         </form>
 
@@ -186,7 +186,7 @@
     <div class="card" style="margin-bottom: var(--space-lg);">
         <div class="card-header">
             <span class="card-title">{{ t $.Lang "firewall.customRules" }}</span>
-            <button class="btn btn-primary btn-sm" onclick="document.getElementById('rule-form').style.display='block'">
+            <button class="btn btn-primary btn-sm" data-open="rule-form">
                 {{ t $.Lang "firewall.addRule" }}
             </button>
         </div>
@@ -194,7 +194,7 @@
         <!-- Add Rule Form -->
         <form id="rule-form" style="display:none; margin-bottom:var(--space-lg); padding:var(--space-md); border:1px solid var(--border-color); border-radius:var(--radius-md);"
               hx-post="/firewall/rules" hx-swap="none"
-              hx-on::after-request="this.reset(); this.style.display='none';">
+              data-reset-after-request data-hide-after-request>
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:var(--space-md);">
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "common.name" }}</label>
@@ -251,7 +251,7 @@
             </div>
             <div style="margin-top:var(--space-md); display:flex; gap:var(--space-sm);">
                 <button type="submit" class="btn btn-primary btn-sm">{{ t $.Lang "common.save" }}</button>
-                <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('form').style.display='none'">{{ t $.Lang "common.cancel" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-close-closest="form">{{ t $.Lang "common.cancel" }}</button>
             </div>
         </form>
 

@@ -49,6 +49,13 @@
         if (token) evt.detail.headers['X-CSRF-Token'] = token;
     });
 
+    // Exposed because every fetch() that mutates state needs the same
+    // token htmx gets above, and reading the cookie in a second place
+    // would be a second thing to keep in step with the server.
+    window.lankeeperCSRFToken = function() {
+        return getCookie('csrf_token');
+    };
+
     function getCookie(name) {
         var match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
         return match ? match[2] : null;

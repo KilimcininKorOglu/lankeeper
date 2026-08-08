@@ -252,4 +252,7 @@ func TestNoTemplateNeedsAWiderPolicy(t *testing.T) {
 	}
 }
 
-var formAction = regexp.MustCompile(`action="([^"]*)"`)
+// The leading space anchors this to the form's own action attribute.
+// Without it the pattern also matched data-action and data-s2s-action,
+// which name a delegated handler rather than a submission target.
+var formAction = regexp.MustCompile(`\saction="([^"]*)"`)

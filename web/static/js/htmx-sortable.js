@@ -30,10 +30,16 @@
         var url = container.dataset.reorderUrl;
         if (!url) return;
         var order = rowsOf(container).map(function(r) { return r.dataset.name; });
+        var headers = {'Content-Type': 'application/json'};
+        // Without the token the reorder is answered 403 and the rows
+        // snap back on the next page load with no error shown.
+        var token = window.lankeeperCSRFToken && window.lankeeperCSRFToken();
+        if (token) headers['X-CSRF-Token'] = token;
         fetch(url, {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(order)
+            headers: headers,
+            body: JSON.stringify(order),
+            credentials: 'same-origin'
         });
     }
 

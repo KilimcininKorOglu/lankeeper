@@ -10,7 +10,7 @@
         <div class="card-header">
             <span class="card-title">{{ t $.Lang "dhcp.addStatic" }}</span>
         </div>
-        <form hx-post="/dhcp/static" hx-swap="none" hx-on::after-request="this.reset()">
+        <form hx-post="/dhcp/static" hx-swap="none" data-reset-after-request>
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:var(--space-md);">
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "dhcp.mac" }}</label>

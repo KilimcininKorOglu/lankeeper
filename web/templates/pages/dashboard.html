@@ -44,35 +44,7 @@
 </div>
 
 <script src="/static/js/chart.js"></script>
-<script>
-(function() {
-    var chart = window.BandwidthChart('bandwidth-canvas', 60);
-    if (!chart) return;
-
-    var evtSource = new EventSource('/events/stats');
-    evtSource.addEventListener('stats', function(e) {
-        try {
-            var data = JSON.parse(e.data);
-            if (data.CPUPercent !== undefined) {
-                var cpu = document.getElementById('stat-cpu');
-                if (cpu) cpu.innerHTML = Math.round(data.CPUPercent) + '<span class="stat-unit">%</span>';
-            }
-            if (data.RAMPercent !== undefined) {
-                var ram = document.getElementById('stat-ram');
-                if (ram) ram.innerHTML = Math.round(data.RAMPercent) + '<span class="stat-unit">%</span>';
-            }
-            if (data.Interfaces) {
-                var totalRx = 0, totalTx = 0;
-                for (var k in data.Interfaces) {
-                    totalRx += data.Interfaces[k].RxBytesPerSec || 0;
-                    totalTx += data.Interfaces[k].TxBytesPerSec || 0;
-                }
-                chart.addPoint(totalRx, totalTx);
-            }
-        } catch(err) {}
-    });
-})();
-</script>
+<script src="/static/js/dashboard.js" defer></script>
 {{ end }}
 
 {{ define "panel" }}

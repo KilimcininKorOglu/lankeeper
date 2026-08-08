@@ -71,15 +71,15 @@
             {{ $mode := "plain" }}{{ if .DoTEnabled }}{{ $mode = "dot" }}{{ else if .DoHEnabled }}{{ $mode = "doh" }}{{ end }}
             <div role="radiogroup" style="display:flex; gap:var(--space-md); flex-wrap:wrap;">
                 <label style="display:flex; gap:var(--space-xs);">
-                    <input type="radio" name="encryption_mode" value="plain" onclick="lankeeperDNSMode('plain')" {{ if eq $mode "plain" }}checked{{ end }}>
+                    <input type="radio" name="encryption_mode" value="plain" data-switch="data-mode-section" {{ if eq $mode "plain" }}checked{{ end }}>
                     <span>{{ t $.Lang "dns.encryption.plain" }}</span>
                 </label>
                 <label style="display:flex; gap:var(--space-xs);">
-                    <input type="radio" name="encryption_mode" value="dot" onclick="lankeeperDNSMode('dot')" {{ if eq $mode "dot" }}checked{{ end }}>
+                    <input type="radio" name="encryption_mode" value="dot" data-switch="data-mode-section" {{ if eq $mode "dot" }}checked{{ end }}>
                     <span>{{ t $.Lang "dns.encryption.dot" }}</span>
                 </label>
                 <label style="display:flex; gap:var(--space-xs);">
-                    <input type="radio" name="encryption_mode" value="doh" onclick="lankeeperDNSMode('doh')" {{ if eq $mode "doh" }}checked{{ end }}>
+                    <input type="radio" name="encryption_mode" value="doh" data-switch="data-mode-section" {{ if eq $mode "doh" }}checked{{ end }}>
                     <span>{{ t $.Lang "dns.encryption.doh" }}</span>
                 </label>
             </div>
@@ -105,7 +105,7 @@
             <div data-mode-section="doh" style="{{ if ne $mode "doh" }}display:none;{{ end }}">
                 <label>
                     <div class="input-label">{{ t $.Lang "dns.doh.upstream" }}</div>
-                    <select class="input" id="doh-preset" onchange="lankeeperDoHPreset(this.value)">
+                    <select class="input" id="doh-preset" data-fill="doh-upstream-input">
                         <option value="custom">{{ t $.Lang "dns.doh.custom" }}</option>
                         {{ range .DoHResolvers }}
                         <option value="{{ .Name }}" {{ if eq $.Data.DoHUpstream .Name }}selected{{ end }}>{{ .Description }}</option>
@@ -132,37 +132,20 @@
         </form>
     </div>
 
-    <script>
-    function lankeeperDNSMode(mode) {
-        document.querySelectorAll('[data-mode-section]').forEach(function (s) {
-            s.style.display = (s.getAttribute('data-mode-section') === mode) ? '' : 'none';
-        });
-    }
-    function lankeeperDoHPreset(value) {
-        var input = document.getElementById('doh-upstream-input');
-        if (!input) return;
-        if (value === 'custom') {
-            input.removeAttribute('readonly');
-            return;
-        }
-        input.value = value;
-        input.setAttribute('readonly', 'readonly');
-    }
-    </script>
 
     <!-- Local DNS Records -->
     <div class="card" style="margin-top:var(--space-lg);">
         <div class="card-header">
             <span class="card-title">{{ t $.Lang "dns.localRecords" }}</span>
             <button class="btn btn-primary btn-sm" type="button"
-                onclick="document.getElementById('dns-record-form').style.display='block'">
+                data-open="dns-record-form">
                 {{ t $.Lang "dns.addRecord" }}
             </button>
         </div>
 
         <form id="dns-record-form" style="display:none; gap:var(--space-md); margin-bottom:var(--space-md);"
               hx-post="/dns/records" hx-swap="none"
-              hx-on::after-request="this.reset(); this.style.display='none';">
+              data-reset-after-request data-hide-after-request>
             <div style="display:grid; grid-template-columns:2fr 1fr auto; gap:var(--space-sm);">
                 <input class="input" name="name" placeholder="printer.hermes.lan" required>
                 <input class="input" name="ip" placeholder="10.10.10.50" required>

@@ -41,7 +41,7 @@
             <div style="color:var(--text-secondary); font-size:var(--font-sm); margin-bottom:var(--space-sm);">{{ t $.Lang "vpn.s2s.tokenInstructions" }}</div>
             <textarea id="s2s-invite-token" readonly rows="6" style="width:100%; font-family:var(--font-mono); font-size:var(--font-xs);"></textarea>
             <div style="display:flex; gap:var(--space-sm); margin-top:var(--space-sm);">
-                <button type="button" class="btn btn-secondary btn-sm" onclick="vpnS2S.copyToken()">{{ t $.Lang "common.copy" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-s2s-action="copy-token">{{ t $.Lang "common.copy" }}</button>
                 <span id="s2s-token-expires" style="color:var(--text-secondary); font-size:var(--font-xs); align-self:center;"></span>
             </div>
 
@@ -79,7 +79,7 @@
             <div style="color:var(--text-secondary); font-size:var(--font-sm); margin-bottom:var(--space-sm);">{{ t $.Lang "vpn.s2s.ackInstructions" }}</div>
             <textarea id="s2s-ack-token" readonly rows="6" style="width:100%; font-family:var(--font-mono); font-size:var(--font-xs);"></textarea>
             <div style="display:flex; gap:var(--space-sm); margin-top:var(--space-sm);">
-                <button type="button" class="btn btn-secondary btn-sm" onclick="vpnS2S.copyAck()">{{ t $.Lang "common.copy" }}</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-s2s-action="copy-ack">{{ t $.Lang "common.copy" }}</button>
             </div>
         </div>
     </div>
@@ -108,7 +108,7 @@
                     {{ if .Pending }}
                     <button class="btn btn-danger btn-sm" hx-delete="/vpn/s2s/{{ .Name }}" hx-swap="none">{{ t $.Lang "common.cancel" }}</button>
                     {{ else }}
-                    <button class="btn btn-secondary btn-sm" onclick="vpnS2S.testReachability('{{ .Name }}')">{{ t $.Lang "vpn.s2s.testButton" }}</button>
+                    <button class="btn btn-secondary btn-sm" data-s2s-action="test-reachability" data-s2s-peer="{{ .Name }}">{{ t $.Lang "vpn.s2s.testButton" }}</button>
                     {{ end }}
                 </div>
             </div>
