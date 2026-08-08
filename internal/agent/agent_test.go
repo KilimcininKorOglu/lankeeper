@@ -33,6 +33,37 @@ func waitForSocket(t *testing.T, sock string, errCh <-chan error) {
 	t.Fatalf("socket %s never became ready after 2s", sock)
 }
 
+// waitForSettledSocketMode blocks until the agent has finished
+// restricting the socket, and returns the mode it settled on.
+//
+// A successful dial is not that signal. net.Listen creates the socket
+// file, and only the next statement restricts it, so a dial succeeds
+// while the mode is still whatever the umask allowed - 0755 under the
+// usual 022. Any test that stats straight after waitForSocket is racing
+// that chmod, which is why it passes on a developer machine and fails
+// on a loaded CI runner. restrictSocket settles on 0660 when it can
+// hand the socket to the service group and 0600 when it cannot, so
+// reaching either value means the boundary is in place.
+func waitForSettledSocketMode(t *testing.T, sock string) os.FileMode {
+	t.Helper()
+	for range 200 {
+		info, err := os.Stat(sock)
+		if err == nil {
+			switch mode := info.Mode().Perm(); mode {
+			case 0o600, 0o660:
+				return mode
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	info, err := os.Stat(sock)
+	if err != nil {
+		t.Fatalf("stat socket: %v", err)
+	}
+	t.Fatalf("socket mode never settled after 2s; last seen %o", info.Mode().Perm())
+	return 0
+}
+
 // shortSocketPath returns a socket path short enough for the platform's
 // sun_path limit (104 bytes on darwin). Deriving the path from the test
 // name overflows it and turns these tests into silent skips.
@@ -158,11 +189,7 @@ func TestSocketIsNotWorldAccessible(t *testing.T) {
 	go func() { errCh <- srv.Serve(ctx) }()
 	waitForSocket(t, sock, errCh)
 
-	info, err := os.Stat(sock)
-	if err != nil {
-		t.Fatalf("stat socket: %v", err)
-	}
-	mode := info.Mode().Perm()
+	mode := waitForSettledSocketMode(t, sock)
 
 	if mode&0o007 != 0 {
 		t.Errorf("socket mode %o grants access to other; the agent runs as root", mode)
@@ -210,11 +237,7 @@ func TestUnknownServiceGroupFailsClosed(t *testing.T) {
 	go func() { errCh <- srv.Serve(ctx) }()
 	waitForSocket(t, sock, errCh)
 
-	info, err := os.Stat(sock)
-	if err != nil {
-		t.Fatalf("stat socket: %v", err)
-	}
-	if mode := info.Mode().Perm(); mode != 0o600 {
+	if mode := waitForSettledSocketMode(t, sock); mode != 0o600 {
 		t.Errorf("socket mode %o, want 600 when the service group cannot be resolved", mode)
 	}
 }
