@@ -27,7 +27,8 @@ ISP modems (particularly Turkish ISPs like Turkcell Superonline) lack SQM/QoS su
 | Backup         | Encrypted (AES-256-GCM) archives to local disk, S3-compatible storage, or SFTP, on a cron schedule |
 | Monitoring     | Real-time CPU/RAM/bandwidth via SSE with Canvas charts, plus a Prometheus `/metrics` endpoint |
 | Updates        | Over-the-air via GitHub Releases, atomic swap, 60 s watchdog rollback           |
-| System         | Hostname/domain/timezone management, TLS, factory reset                         |
+| TLS            | Three modes from the UI: self-signed, mkcert local CA, ACME over DNS-01         |
+| System         | Hostname/domain/timezone management, factory reset, first-boot bridge          |
 | Deployment     | Offline installer ISO with preseed (amd64 + arm64), single-binary install       |
 
 ## Hardware Requirements
@@ -58,6 +59,13 @@ The fastest path is the offline installer ISO from the latest release.
    SSH with a password (default no), root password, and disk selection.
 5. Install runs fully offline; the ISO embeds every required `.deb`.
 6. After reboot, access the web UI at `https://<router-ip>:8443`.
+
+On the first boot only, every physical NIC is enslaved into a `br0`
+bridge at `10.10.10.1/24`, so the UI answers on whichever port you happen
+to have plugged in before any WAN interface has been assigned. Completing
+setup clears the first-boot flag but deliberately leaves the bridge up,
+because it holds the address you are connected on; tearing it down is a
+separate, explicit action.
 
 Root SSH defaults to key-only access. Answer yes to the SSH question only
 if you need password login as root; a missing or unrecognised answer is
@@ -129,7 +137,7 @@ Only the tarballs and ISOs carry the version in their filename.
                     |    (unprivileged user)    |
                     |                           |
                     |  Web Server + Auth + SSE  |
-                    |  23 Services + Handlers   |
+                    |  Services + 133 Routes    |
                     |  Template Renderer + i18n |
                     +-------------+-------------+
                                   | JSON-RPC 2.0
@@ -144,9 +152,11 @@ Only the tarballs and ISOs carry the version in their filename.
                     +---------------------------+
 ```
 
-Two-process privilege separation: the web process never runs as root. All privileged operations go through the agent via a strict 46-command whitelist over a Unix domain socket. File operations are similarly path-restricted, with separate rule sets for reads and writes.
+Two-process privilege separation: the web process never runs as root. All privileged operations go through the agent via a strict 47-command whitelist over a Unix domain socket. File operations are similarly path-restricted, with separate rule sets for reads and writes, so a readable path is not automatically writable.
 
-The socket is the privilege boundary itself. It is owned `root:lankeeper` at mode 0660, falls back to owner-only 0600 when the group cannot be resolved, and the agent additionally verifies the peer UID through `SO_PEERCRED`. The agent serves at most 16 connections concurrently, which also bounds how many privileged subprocesses can run at once.
+The whitelist checks more than the name. The agent discards the caller's path string and re-resolves the basename against a fixed set of trusted bin directories, so a file merely named after an allowed command cannot be executed. The environment is decided agent-side too: the RPC carries no env field, because the loader honours `LD_PRELOAD` at execve time whatever binary was validated.
+
+The socket is the privilege boundary itself. It is owned `root:lankeeper` at mode 0660 (the group is the agent's `--service-group` flag, defaulting to `lankeeper`), falls back to owner-only 0600 when the group cannot be resolved, and the agent additionally verifies the peer UID through `SO_PEERCRED`. The agent serves at most 16 connections concurrently, which also bounds how many privileged subprocesses can run at once.
 
 ### Technology Stack
 
@@ -163,7 +173,7 @@ The socket is the privilege boundary itself. It is owned `root:lankeeper` at mod
 | QoS          | CAKE qdisc + IFB ingress shaping; per-MAC nftables counters                       |
 | Backup       | Local + S3-compatible (native SigV4, no AWS SDK) + SFTP, cron-scheduled           |
 | Monitoring   | Prometheus `/metrics`, exposition format 0.0.4, written with the standard library |
-| TLS          | Self-signed ECDSA P-256 (auto-generated), mkcert, ACME                            |
+| TLS          | Self-signed ECDSA P-256 (auto-generated), mkcert local CA, ACME DNS-01 (Let's Encrypt staging by default) |
 | Updates      | GitHub Releases + SHA-256 verify + atomic swap                                    |
 | Deploy       | Single binary (`go:embed`), systemd, preseed ISO                                  |
 
@@ -207,15 +217,17 @@ Metric families exposed (all prefixed `lankeeper_`):
 | `interface_rx_bytes_total` / `_tx_`     | counter | device         |
 | `dhcp_active_leases`                    | gauge   | -              |
 | `dns_queries_total` / `cache_hits_total` / `cache_misses_total` / `blocked_total` | counter | - |
-| `client_rx_bytes_total` / `_tx_` / `_rx_bps` / `_tx_bps` | counter+gauge | mac,hostname |
-| `wireguard_peer_online` / `_handshake_age_seconds` / `_rx_bytes_total` / `_tx_` | gauge+counter | peer |
-| `s2s_peer_online` / `_handshake_age_seconds` | gauge | peer |
+| `client_rx_bytes_total` / `_tx_` / `_rx_bps` / `_tx_bps` | counter+gauge | mac (hashed) |
+| `wireguard_peer_online` / `_handshake_age_seconds` / `_rx_bytes_total` / `_tx_` | gauge+counter | peer (hashed) |
+| `s2s_peer_online` / `_handshake_age_seconds` | gauge | peer (hashed) |
 | `openvpn_active_sessions`               | gauge   | -              |
 | `backup_last_run_timestamp` / `_last_status_ok` / `_history_total` | gauge | - |
 | `pppoe_connected` / `ipv6_active` / `firewall_active` | gauge | - |
 | `ipv6_mode_info`                        | gauge   | mode           |
 
-Per-client labels (`mac`, `hostname`) are capped at 64 entries per scrape and the MAC value is a stable 8-char SHA1 prefix to bound cardinality on busy networks. Hostnames are escaped per the Prometheus spec. The scrape is a pure read: it composes cached service state and read-only probes, and a dead subsystem degrades its own family rather than failing the whole endpoint.
+The endpoint carries no authentication, so it names nobody. Every operator- or client-assigned identifier is reduced to a stable 8-character SHA-1 prefix before it is emitted: `mac` for LAN clients and `peer` for WireGuard and site-to-site peers, the latter because a remote peer is not otherwise observable from the local segment, which made the exposition itself the disclosure. The hash is a series key, not a security control; it keeps each subject a distinct, stable series without labelling it. There is no `hostname` label at all, since `mac` already keys the series and a second identifier would add cardinality and no information.
+
+Per-client rows are capped at 64 per scrape to bound cardinality on busy networks. The scrape is a pure read: it composes cached service state and read-only probes, and a dead subsystem degrades its own family rather than failing the whole endpoint.
 
 Sample Prometheus scrape config:
 
@@ -276,14 +288,23 @@ go test ./internal/web/handlers/ -race -count=1               # single package
 
 ### Continuous Integration
 
-`.github/workflows/ci.yml` runs five gates on push and pull request to
-`main`: `go build ./...`, `go test ./... -race -count=1`,
-`go vet ./...`, `golangci-lint`, and `govulncheck ./...`.
-`make lint test` covers the first four locally.
+`.github/workflows/ci.yml` runs seven gates across five jobs on push and
+pull request to `main`: `go build ./...`,
+`go test ./... -race -count=1` and `go vet ./...` (all three in the
+`build-test` job), then `golangci-lint`, `govulncheck ./...`,
+`gosec ./...`, and `make cross-all`, which also runs the amd64 artifact
+and checks that its stamped version is not the un-stamped fallback.
+`make lint test cross-all` covers most of it locally.
+
+A non-zero `gosec` exit means something genuinely new. Every standing
+finding carries a line-scoped `// #nosec` with its justification, so the
+baseline is exit 0.
 
 Third-party actions are pinned to a full commit SHA and tool versions are
 explicit, so two runs of the same tree execute the same code. Tests in
-`buildsys/` enforce that rather than leaving it to convention.
+`buildsys/` enforce that rather than leaving it to convention. There is
+no Dependabot configuration, so every module bump, action SHA and tool
+version is raised by hand.
 
 ### Project Structure
 
@@ -296,13 +317,14 @@ internal/
   config/               YAML structs, atomic writes, AES-256-GCM, TLS
   i18n/                 Flat dot-separated locale system
   netutil/              Exec wrapper, validators, AtomicChange
-  services/             Business logic (23 services across 34 files)
+  services/             Business logic (38 non-test files, one service
+                         per domain)
   tmpl/                 Template renderer with layout inheritance
   web/                  HTTP server, auth, middleware, SSE broker
-    handlers/           One handler per page (118 HTTP routes total)
+    handlers/           One handler per page (23 files, 133 HTTP routes)
 web/
   templates/            HTML templates (layouts, pages, partials)
-  static/               CSS, JS, icons (HTMX bundled)
+  static/               CSS, JS, icons (htmx 2.0.10 vendored, not a CDN)
   locales/              tr.json, en.json (must stay in sync)
 configs/
   sysconf/              17 system config templates (nftables, unbound,
@@ -311,13 +333,18 @@ configs/
   defaults/             Default YAML configs
 deploy/                 install.sh, systemd units, preseed.cfg, ISO builder
 buildsys/               Test-only. Guards release checksums, artifact
-                         names, CI workflow pins, ISO bind mounts, and
-                         the go.mod require blocks
+                         names, CI workflow pins, gofmt config, ISO bind
+                         mounts, the go.mod require blocks, the CSP
+                         template rules, and the vendored asset digests
 ```
 
-`buildsys/` and `deploy/iso/` hold no production code. They exist to
-guard properties a unit test on the Go source cannot reach, such as the
-shape of a build recipe or the contents of an installer shell script.
+`buildsys/` and `deploy/iso/` hold no production code, so they cannot
+break `go build ./...` or `go vet ./...`. They exist to guard properties
+a unit test on the Go source cannot reach, such as the shape of a build
+recipe, the contents of an installer shell script, or the SHA-256 of a
+vendored browser bundle. That last one is not hypothetical: the htmx file
+was once a 212-byte placeholder, which left every `hx-post` and `hx-get`
+in the tree inert with nothing reporting it.
 
 ## Deployment
 
@@ -380,7 +407,9 @@ web UI.
 
 Read `CHANGELOG.md` before applying an update. Every fix and security
 change is listed there, which is how an operator decides whether a
-release is worth taking.
+release is worth taking. That file was restarted from a bare header, so
+it carries no section for v0.5.0 or earlier; those release notes live on
+their GitHub Releases and the full detail is in the git history.
 
 ## License
 
