@@ -531,7 +531,7 @@ func drainBackground(wg *sync.WaitGroup, timeout time.Duration) {
 
 func (s *Server) routes(mux *http.ServeMux, webFS fs.FS) {
 	staticFS, _ := fs.Sub(webFS, "static")
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
+	mux.Handle("GET /static/", http.StripPrefix("/static/", newStaticHandler(staticFS)))
 
 	// One attempt every 5 seconds sustained, burst 5. A person signing
 	// in makes one or two attempts, so the burst absorbs a mistyped
