@@ -217,6 +217,41 @@ func TestTheCSPRestrictsTheDirectivesThatDoNotFallBack(t *testing.T) {
 	}
 }
 
+// TestTheDefaultCacheDirectiveIsNoStore pins the safe default. Sending
+// no directive at all left every page to heuristic freshness, where a
+// browser may reuse a response that carries no validator, and nearly
+// every page here is bound to a session and shows live network state.
+func TestTheDefaultCacheDirectiveIsNoStore(t *testing.T) {
+	handler := web.SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/settings", nil))
+
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store when the handler sets none", got)
+	}
+}
+
+// TestAHandlerCanOverrideTheCacheDefault is the other half of that
+// default: the middleware runs first, so a handler serving something
+// genuinely cacheable must still be able to say so. Without this the
+// static asset handler's no-cache and its ETag would be dead weight.
+func TestAHandlerCanOverrideTheCacheDefault(t *testing.T) {
+	handler := web.SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/js/app.js", nil))
+
+	if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("Cache-Control = %q, want the handler's no-cache to win over the middleware default", got)
+	}
+}
+
 // TestNoTemplateNeedsAWiderPolicy backs the two directives above with
 // the reason they cost nothing here: a <base> tag would stop resolving
 // and an off-site form target would stop submitting.

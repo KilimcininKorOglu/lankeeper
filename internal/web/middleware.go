@@ -334,6 +334,21 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+
+		// Default every response to uncacheable, and let the handlers
+		// that serve something genuinely cacheable say so.
+		//
+		// This is a router's management UI: nearly every page is bound
+		// to a session and shows the state of the network it is sitting
+		// on. Sending no cache directive at all left that to heuristic
+		// freshness, where a browser is entitled to reuse a response
+		// with no validator, so the safe value has to be the one that
+		// applies when a handler says nothing. Handlers run after this
+		// and overwrite the header, which is why the static asset
+		// handler can still send no-cache and the metrics and download
+		// handlers keep the no-store they set themselves.
+		w.Header().Set("Cache-Control", "no-store")
+
 		next.ServeHTTP(w, r)
 	})
 }
