@@ -25,8 +25,24 @@ Turkcell Superonline'ın ISP modemleri bufferbloat sorununa neden oluyor ve 1 Gb
 
 ## Current State
 
-- Proje dizini boş — sıfırdan (greenfield) geliştirme
-- Donanım hazır: 2x Gigabit NIC, RAID-1 depolama, Debian 12 Bookworm (minimal)
+Bu bölüm proje ilerledikçe güncellenir. Aşağıdaki plan metninin geri kalanı, aksi belirtilmedikçe **tasarım niyetini** anlatır; mimari sapmalar "Plan ile Gerçek Arasındaki Sapmalar" bölümünde, eksik kalan özellikler "Sonraki adaylar" bölümündedir.
+
+**Son sürüm:** v0.5.0 (`git describe` → `v0.5.0-100-g1bee872`), 419 commit.
+
+| Ölçüt | Değer |
+|---|---|
+| Go dosyası | 231 (138'i `_test.go`) |
+| Servis | 23 domain, 34 non-test dosya (`internal/services/`) |
+| Handler | 23 dosya, 118 HTTP route (`internal/web/handlers/`) |
+| Sistem config şablonu | 17 (`configs/sysconf/`) |
+| Locale anahtarı | 616 (tr.json ve en.json senkron) |
+| Agent komut whitelist | 46 komut |
+| Harici Go bağımlılığı | 6 direct modül |
+| Hedef mimari | linux/amd64 + linux/arm64 |
+
+**Tamamlanan:** 11 implementation phase'in tamamı, ayrıca v0.2.0-v0.5.0 roadmap başlıkları (IPv6 PD UI, 6in4 tunneling, Prometheus metrics, DoH upstream, backup scheduling, per-client bandwidth, WireGuard S2S wizard, OTA update, preseed ISO builder).
+
+**Donanım:** 2x Gigabit NIC, RAID-1 depolama, Debian 12 Bookworm (minimal), Intel i5 3470.
 
 ## What We're NOT Doing
 
@@ -35,8 +51,29 @@ Turkcell Superonline'ın ISP modemleri bufferbloat sorununa neden oluyor ve 1 Gb
 - Veritabanı (tüm config YAML dosyalarında)
 - JavaScript framework (React/Vue/Svelte yok — HTMX + server-side rendering)
 - Çoklu ISP / load balancing (tek PPPoE ana bağlantı + USB tethering yedek)
-- Konteyner/Docker desteği
+- Konteyner/Docker desteği (ÜRÜNDE. Docker yalnızca ISO derlemek için build makinesinde kullanılır)
 - ORM veya SQL — dosya tabanlı config
+
+---
+
+## Plan ile Gerçek Arasındaki Sapmalar
+
+Bu plan tasarım aşamasında yazıldı. Uygulama bazı kararları değiştirdi. Aşağıdakiler mimari seviyedeki sapmalardır; özellik seviyesindeki eksikler "Sonraki adaylar" bölümündedir.
+
+| Konu | Plan | Gerçek |
+|---|---|---|
+| Partial endpoint şeması | Her partial için ayrı `GET /partials/*` route'u | Partial'lar sayfa handler'ı içinde render edilir; `/partials/*` route'u YOK |
+| Route sayısı ve yolları | 127 route, `/pppoe/*` gibi kısa önekler | 118 route, `/network/pppoe/*` gibi alan altına yuvalanmış yollar |
+| Kaynak düzenleme | Çoğu liste için POST + PUT + DELETE | Ekle + sil; PUT yok, toggle yalnızca firewall kuralları ve açık portlarda |
+| Harici Go bağımlılığı | 3 modül | 6 direct modül (DoT/DoH probe, SFTP hedefi, fsnotify eklendi) |
+| Sayfa dağılımı | Interface, VLAN, PPPoE, health ayrı sayfalar | Hepsi tek `network.html` sayfasında; ayrıca planda olmayan `ipv6.html`, `backup.html`, `vpn-s2s.html` eklendi |
+| Config şeması | 17 üst düzey anahtar | 19 anahtar (`routing`, `backup` eklendi; `ipv6.tunnel` alt bloğu 6in4 için eklendi) |
+| Deploy | `scp` + `systemctl restart` | `make install`, offline preseed ISO, ve web UI'dan OTA update |
+| Release otomasyonu | `.goreleaser.yaml` (opsiyonel) | goreleaser YOK; arşiv ve checksum üretimi Makefile hedeflerinde |
+| Hedef mimari | linux/amd64 | linux/amd64 + linux/arm64 |
+| Per-client QoS istatistiği | CAKE class stats | CAKE per-host stats netlink-only ve pretty-print edilmiyor; ayrı `lankeeper_qos` nftables sayaç tablosu yazıldı |
+| Test paketleri | Yalnızca `_test.go` dosyaları paket içinde | Ayrıca üretim kodu içermeyen `buildsys/` ve `deploy/iso/` test-only paketleri; build recipe, CI pin ve installer script özelliklerini denetler |
+| DoH upstream | Unbound doğrudan DoH konuşur | Unbound hiçbir sürümde DoH upstream desteklemiyor; `dnscrypt-proxy` stub'ı zorunlu ara katman oldu |
 
 ---
 
@@ -641,64 +678,101 @@ type Config struct {
 lankeeper/
 ├── cmd/
 │   └── lankeeper/
-│       └── main.go               # CLI entry point (serve | agent)
+│       ├── main.go               # CLI dispatch + version/commit/date ldflags hedefi
+│       ├── serve.go              # serve subcommand: agent client wiring + web.Serve
+│       ├── agent.go              # agent subcommand: root UDS sunucusu
+│       ├── gen-cert.go           # gen-cert subcommand: self-signed sertifika üretimi
+│       └── render-configs.go     # render-configs subcommand: kurulum anında tüm sysconf render
 ├── internal/
 │   ├── agent/
-│   │   ├── server.go             # Root agent — UDS listener, op dispatcher
+│   │   ├── server.go             # Root agent — UDS listener, op dispatcher, 16 eşzamanlı bağlantı sınırı
 │   │   ├── client.go             # Web'den agent'a IPC istemcisi
-│   │   ├── operations.go         # İzin verilen op tanımları + registry
-│   │   └── watchdog.go           # Rollback watchdog timer (goroutine)
+│   │   ├── operations.go         # Komut whitelist (46) + write/read path kuralları + trustedBinDirs çözümlemesi
+│   │   ├── watchdog.go           # Rollback watchdog timer (goroutine)
+│   │   ├── peercred_linux.go     # SO_PEERCRED ile peer UID doğrulaması
+│   │   └── peercred_other.go     # Linux dışı build için no-op
 │   ├── config/
-│   │   ├── config.go             # YAML load/save, struct tanımları
+│   │   ├── config.go             # YAML load/save, struct tanımları, SaveToFile
 │   │   ├── crypto.go             # AES-256-GCM encrypt/decrypt
-│   │   ├── tls.go               # TLS sertifika yönetimi (self-signed, ACME, mkcert)
+│   │   ├── secrets.go            # enc:v1: prefix'li alan şifreleme + /var/lib key dosyası
+│   │   ├── tls.go                # TLS sertifika yönetimi (self-signed, ACME, mkcert)
 │   │   ├── defaults.go           # Varsayılan config değerleri
 │   │   └── validate.go           # Config doğrulama
 │   ├── web/
-│   │   ├── server.go             # HTTP sunucu setup, middleware chain
-│   │   ├── middleware.go         # Auth, CSRF, rate limit, LAN-only
+│   │   ├── server.go             # HTTP sunucu setup, tüm servis/handler wiring, setupRoutes (118 route)
+│   │   ├── middleware.go         # CSRF, rate limit, LAN-only, security headers, request log
 │   │   ├── auth.go               # Login/logout, session/cookie, bcrypt
-│   │   ├── sse.go                # SSE broker (real-time stats broadcast)
+│   │   ├── login_guard.go        # Login lockout + brute-force sayacı
+│   │   ├── errors.go             # Lokalize HTTP hata cevapları
+│   │   ├── firstboot.go          # İlk açılış br0 köprüsü (TANIMLI, ÜRETİMDE ÇAĞRILMIYOR)
+│   │   ├── sse.go                # SSE broker (broker başına 32 stream sınırı + 30s keep-alive)
 │   │   └── handlers/
 │   │       ├── dashboard.go      # GET / → dashboard sayfası
-│   │       ├── network.go        # Interface bilgileri
-│   │       ├── pppoe.go          # WAN bağlantı yönetimi
-│   │       ├── firewall.go       # nftables kuralları
-│   │       ├── dns.go            # Unbound DNS yönetimi + istatistik
+│   │       ├── network.go        # Interface + VLAN + PPPoE + USB + health birleşik sayfası
+│   │       ├── vlan.go           # VLAN CRUD
+│   │       ├── pppoe.go          # WAN bağlantı yönetimi + credential sniff
+│   │       ├── healthcheck.go    # Health check reset (HandleStatus tanımlı ama route'a bağlı DEĞİL)
+│   │       ├── firewall.go       # nftables kuralları + watchdog confirm/rollback
+│   │       ├── dns.go            # Unbound DNS + blocklist + DoT/DoH şifreleme modu
 │   │       ├── dhcp.go           # dnsmasq DHCP lease yönetimi
+│   │       ├── ipv6.go           # DHCPv6-PD + 6in4 tunnel + subnet map
 │   │       ├── qos.go            # SQM/QoS profilleri
-│   │       ├── vpn.go            # WireGuard tünel yönetimi
-│   │       ├── openvpn.go       # OpenVPN server/client handler'ları
-│   │       ├── routing.go       # Policy-based routing kuralları (CRUD + sıralama)
-│   │       ├── nas.go            # Samba paylaşımları
+│   │       ├── vpn.go            # WireGuard client/server + S2S wizard
+│   │       ├── openvpn.go        # OpenVPN server/client + PKI
+│   │       ├── routing.go        # Policy-based routing (CRUD + sıralama)
+│   │       ├── nas.go            # Samba paylaşımları + M3U
 │   │       ├── storage.go        # RAID durumu, disk sağlığı
-│   │       ├── healthcheck.go     # Health check durum/config handler'ları
-│   │       ├── syslog.go          # Syslog sunucu/client yapılandırma
+│   │       ├── syslog.go         # Syslog sunucu/client yapılandırma
 │   │       ├── ntp.go            # NTP sunucu/client yapılandırma + durum
-│   │       └── system.go         # Ayarlar, yedekleme, reboot
+│   │       ├── backup.go         # Zamanlanmış yedekleme hedefleri + history
+│   │       ├── metrics.go        # Prometheus /metrics exposition
+│   │       ├── system.go         # Ayarlar, yedekleme, OTA update, reboot, factory reset
+│   │       ├── download.go       # Gizli dosya indirmelerinde Cache-Control: no-store
+│   │       ├── respond.go        # Paylaşılan HTMX cevap yardımcıları
+│   │       └── errors.go         # Handler seviyesinde lokalize hata cevapları
 │   ├── services/
-│   │   ├── pppoe.go              # pppd yönetimi
-│   │   ├── firewall.go           # nftables ruleset oluşturma + uygulama
-│   │   ├── dns.go                # Unbound config yönetimi + blocklist + unbound-control
-│   │   ├── dhcp.go               # dnsmasq config yönetimi + lease parse
-│   │   ├── qos.go                # tc + CAKE qdisc yönetimi
-│   │   ├── vpn.go                # WireGuard tunnel yönetimi
-│   │   ├── openvpn.go            # OpenVPN server + client yönetimi + PKI
+│   │   ├── network.go            # Interface + VLAN yönetimi
+│   │   ├── pppoe.go              # pppd yönetimi + credential sniff
+│   │   ├── usbtethering.go       # Android USB tethering failover (SERVİS VAR, ROUTE YOK)
+│   │   ├── healthcheck.go        # Interface internet checker + otomatik recovery
+│   │   ├── firewall.go           # nftables ruleset oluşturma + AtomicChange + 30s watchdog
+│   │   ├── dns.go                # Unbound config + blocklist + unbound-control
+│   │   ├── doh.go                # dnscrypt-proxy stub orchestration (DoH upstream)
+│   │   ├── doh_resolvers.go      # 10 hazır DoH sağlayıcı + sdns:// stamp parser
+│   │   ├── dhcp.go               # dnsmasq config + lease parse + DNS mirror DI
+│   │   ├── ipv6.go               # dhcp6c PD + RA drop-in + fsnotify lease watcher
+│   │   ├── sixinfour.go          # HE.net 6in4 tunnel + DDNS update
+│   │   ├── qos.go                # tc + CAKE qdisc + IFB ingress shaping
+│   │   ├── qos_clients.go        # Per-MAC nftables counter tablosu (lankeeper_qos)
+│   │   ├── vpn.go                # WireGuard tunnel + peer yönetimi
+│   │   ├── vpn_s2s.go            # Site-to-site invite/ack token state machine
+│   │   ├── openvpn.go            # OpenVPN server + client + easy-rsa PKI
 │   │   ├── routing.go            # Policy-based routing motoru (PBR)
 │   │   ├── nas.go                # Samba config + M3U parser
-│   │   ├── storage.go            # mdadm + smartctl
+│   │   ├── storage.go            # mdadm + smartctl + fstab
 │   │   ├── monitor.go            # Sistem istatistikleri toplayıcı (goroutine)
-│   │   ├── healthcheck.go       # Interface internet checker + otomatik recovery
-│   │   ├── usbtethering.go     # Android USB tethering failover yönetimi
 │   │   ├── syslog.go             # rsyslog config yönetimi (sunucu + client)
 │   │   ├── ntp.go                # chrony config yönetimi (sunucu + client)
-│   │   └── backup.go             # Config export/import
+│   │   ├── system.go             # Hostname, timezone, şifre, reboot, factory reset
+│   │   ├── update.go             # OTA update: GitHub Releases + 60s watchdog rollback
+│   │   ├── safefetch.go          # SSRF korumalı paylaşılan HTTP client'ları
+│   │   ├── backup.go             # Config export/import + scrypt AES-GCM pipeline
+│   │   ├── backup_local.go       # Local hedef (/var/lib/lankeeper/backups/ whitelist)
+│   │   ├── backup_s3.go          # S3-uyumlu hedef, native SigV4 (aws-sdk-go YOK)
+│   │   ├── backup_sftp.go        # SFTP hedef, PosixRename ile atomic overwrite
+│   │   ├── backup_schedule.go    # Cron parser (@aliases + 5 alan, Vixie DOM/DOW)
+│   │   ├── backup_orchestration.go # Scheduler goroutine + RunNow(ctx) runMu altında
+│   │   ├── metrics.go            # Nil-safe MetricsSnapshot composer
+│   │   ├── metrics_collectors.go # Servislerden read-only state toplama
+│   │   └── metrics_exposition.go # Exposition format 0.0.4 writer (stdlib fmt.Fprintf)
 │   ├── i18n/
 │   │   ├── i18n.go               # Locale yükleme, T() ve WithParams() fonksiyonları
+│   │   ├── default.go            # Varsayılan dil sabitleri
 │   │   └── middleware.go         # Dil tespiti middleware (cookie → Accept-Language → default)
 │   ├── netutil/
 │   │   ├── atomic.go             # AtomicChange struct + rollback logic
-│   │   ├── exec.go               # Güvenli exec.Command wrapper
+│   │   ├── exec.go               # Run/RunSimple — agent IPC proxy veya lokal os/exec
+│   │   ├── agenterr.go           # Agent hata tipleri
 │   │   ├── iface.go              # Interface bilgisi okuma (/proc/net/dev)
 │   │   └── validate.go           # IP, CIDR, MAC, port doğrulama
 │   └── tmpl/
@@ -709,46 +783,40 @@ lankeeper/
 │   │   ├── layouts/
 │   │   │   ├── base.html         # Ana layout (sidebar + content area)
 │   │   │   └── auth.html         # Login layout (sidebar'sız)
-│   │   ├── pages/
-│   │   │   ├── dashboard.html    # Dashboard tam sayfa
-│   │   │   ├── network.html
+│   │   ├── pages/                # 18 sayfa
+│   │   │   ├── dashboard.html
+│   │   │   ├── network.html      # Interface + VLAN + PPPoE + USB + health tek sayfada
 │   │   │   ├── firewall.html
-│   │   │   ├── vpn.html
-│   │   │   ├── openvpn.html      # OpenVPN server + client yönetimi
-│   │   │   ├── routing.html      # Policy-based routing yönetimi
 │   │   │   ├── dns.html
 │   │   │   ├── dhcp.html
+│   │   │   ├── ipv6.html         # DHCPv6-PD + 6in4 tunnel + subnet map
 │   │   │   ├── qos.html
+│   │   │   ├── vpn.html
+│   │   │   ├── vpn-s2s.html      # Site-to-site kurulum sihirbazı
+│   │   │   ├── openvpn.html
+│   │   │   ├── routing.html
 │   │   │   ├── nas.html
 │   │   │   ├── storage.html
 │   │   │   ├── syslog.html
 │   │   │   ├── ntp.html
+│   │   │   ├── backup.html       # Zamanlanmış yedekleme hedefleri + history
 │   │   │   ├── settings.html
 │   │   │   └── login.html
-│   │   └── partials/
-│   │       ├── sidebar.html      # Sidebar navigasyon
-│   │       ├── stats_card.html   # Dashboard stat kartı (SSE ile güncellenir)
-│   │       ├── bandwidth.html    # Bandwidth grafiği container
-│   │       ├── lease_table.html  # DHCP lease tablosu (HTMX swap)
-│   │       ├── dns_querylog.html # DNS sorgu geçmişi (filtre + pagination)
-│   │       ├── fw_rules.html     # Firewall kural listesi
-│   │       ├── vpn_clients.html   # WG client tünel listesi + durum
-│   │       ├── vpn_server.html   # WG server durumu + peer listesi + QR
-│   │       ├── vpn_peer_form.html# WG peer ekleme/düzenleme formu
-│   │       ├── ovpn_clients.html # OpenVPN client listesi + durum
-│   │       ├── ovpn_server.html  # OpenVPN server durumu + client listesi
-│   │       ├── ovpn_client_form.html # OpenVPN client sertifika oluşturma
-│   │       ├── vpn_panel.html    # VPN cihaz atama paneli (PBR entegrasyonu)
-│   │       ├── vpn_device.html   # Tekil cihaz kartı (draggable)
-│   │       ├── policy_list.html  # PBR politika listesi (sürükle-bırak sıralama)
-│   │       ├── policy_form.html  # PBR politika ekleme/düzenleme formu
-│   │       ├── policy_status.html# PBR canlı eşleşme durumu
-│   │       ├── share_list.html   # Samba paylaşım listesi
-│   │       ├── raid_status.html  # RAID durumu
-│   │       ├── healthcheck.html  # Health check durum kartları + config formu
-│   │       ├── ntp_status.html   # NTP senkronizasyon durumu + kaynak listesi
-│   │       ├── toast.html        # Toast notification
-│   │       └── confirm.html      # Onay dialog
+│   │   └── partials/             # 14 partial
+│   │       ├── sidebar.html
+│   │       ├── wan-status.html
+│   │       ├── pppoe-sniff.html
+│   │       ├── vlan_list.html
+│   │       ├── healthcheck.html
+│   │       ├── dns-blocklist.html
+│   │       ├── share_list.html
+│   │       ├── m3u-status.html
+│   │       ├── raid_status.html
+│   │       ├── ntp_status.html
+│   │       ├── syslog-server-config.html
+│   │       ├── syslog-client-config.html
+│   │       ├── syslog-sources.html
+│   │       └── syslog-logs.html
 │   ├── static/
 │   │   ├── css/
 │   │   │   ├── reset.css
@@ -756,55 +824,79 @@ lankeeper/
 │   │   │   ├── layout.css
 │   │   │   ├── components.css
 │   │   │   └── pages.css
-│   │   ├── js/
-│   │   │   ├── htmx.min.js      # HTMX library (~14KB gzip)
-│   │   │   ├── htmx-sse.js      # HTMX SSE extension
-│   │   │   ├── htmx-sortable.js # HTMX Sortable extension (drag-drop)
-│   │   │   ├── chart.js         # Canvas-based grafik helper (minimal, custom)
-│   │   │   └── app.js           # Tema toggle, chart init (~50 satır)
-│   │   └── icons/               # SVG ikonlar (inline veya sprite)
+│   │   └── js/
+│   │       ├── htmx.min.js       # HTMX library (~14KB gzip)
+│   │       ├── htmx-sortable.js  # Drag-drop extension (PBR sıralama)
+│   │       ├── chart.js          # Canvas-based grafik helper
+│   │       ├── qos-chart.js      # Per-client bandwidth SSE tablosu + sparkline
+│   │       ├── vpn-s2s.js        # S2S sihirbazı adım geçişleri
+│   │       └── app.js            # Tema toggle, chart init
 │   ├── locales/
-│   │   ├── tr.json               # Türkçe çeviriler (varsayılan dil)
-│   │   └── en.json               # İngilizce çeviriler
+│   │   ├── tr.json               # Türkçe çeviriler (616 anahtar)
+│   │   └── en.json               # İngilizce çeviriler (616 anahtar)
 │   └── embed.go                  # go:embed ile static + template + locale'leri binary'ye göm
 ├── configs/
-│   ├── sysconf/                  # Sistem config şablonları
-│   │   ├── nftables.conf.tmpl    # nftables ruleset (Go text/template)
-│   │   ├── pppoe-peer.tmpl       # /etc/ppp/peers/wan
-│   │   ├── pppoe-options.tmpl    # pppd seçenekleri
-│   │   ├── unbound.conf.tmpl     # Unbound recursive DNS config
-│   │   ├── dnsmasq.conf.tmpl    # dnsmasq DHCP-only config
-│   │   ├── rsyslog.conf.tmpl    # rsyslog sunucu/client config
-│   │   ├── chrony.conf.tmpl     # chrony NTP sunucu/client config
-│   │   ├── wireguard.conf.tmpl  # WireGuard interface config
-│   │   ├── openvpn-server.conf.tmpl # OpenVPN server config
-│   │   ├── openvpn-client.conf.tmpl # OpenVPN client config
-│   │   └── smb.conf.tmpl         # Samba paylaşım config
-│   └── defaults/
-│       ├── router.yaml           # Varsayılan ana config
-│       ├── firewall.yaml         # Varsayılan firewall kuralları
-│       ├── qos.yaml              # Varsayılan QoS profilleri
-│       ├── vpn.yaml              # Boş VPN config
-│       ├── routing.yaml          # Varsayılan PBR politikaları (boş)
-│       └── nas.yaml              # Boş NAS config
+│   ├── sysconf/                  # 17 sistem config şablonu, hepsi servislere bağlı
+│   │   ├── nftables.conf.tmpl
+│   │   ├── pppoe-peer.tmpl
+│   │   ├── pppoe-options.tmpl
+│   │   ├── pppoe-server-options.tmpl
+│   │   ├── unbound.conf.tmpl
+│   │   ├── dnsmasq.conf.tmpl
+│   │   ├── dnsmasq-ipv6-ra.conf.tmpl
+│   │   ├── dnscrypt-proxy.toml.tmpl
+│   │   ├── dhcp6c.conf.tmpl
+│   │   ├── dhcp6c-script.tmpl
+│   │   ├── rsyslog.conf.tmpl
+│   │   ├── chrony.conf.tmpl
+│   │   ├── wireguard-server.conf.tmpl
+│   │   ├── wireguard-client.conf.tmpl
+│   │   ├── openvpn-server.conf.tmpl
+│   │   ├── openvpn-client.conf.tmpl
+│   │   └── smb.conf.tmpl
+│   └── defaults/                 # go:embed ile gömülür — factory reset buradan geri yükler
+│       ├── router.yaml
+│       ├── firewall.yaml
+│       ├── qos.yaml
+│       ├── vpn.yaml
+│       ├── routing.yaml
+│       └── nas.yaml
 ├── deploy/
 │   ├── systemd/
-│   │   ├── lankeeper.target    # Orchestration target
-│   │   ├── lankeeper-agent.service
-│   │   └── lankeeper-web.service
+│   │   ├── lankeeper.target          # Orchestration target
+│   │   ├── lankeeper-agent.service   # Root agent
+│   │   ├── lankeeper-web.service     # Unprivileged web (Restart=always, RestartSec=3)
+│   │   └── lankeeper-dhcp6c.service  # wide-dhcpv6 client (Conflicts=wide-dhcpv6-client.service)
 │   ├── install.sh                # Tam kurulum scripti (Debian 12 üzerine)
-│   ├── setup-interfaces.sh       # udev kuralları + NIC isimlendirme
 │   ├── factory-reset.sh          # Fabrika ayarlarına dönüş
 │   ├── backup.sh                 # Cron backup scripti
+│   ├── dhcp-dns-update.sh        # DHCP lease → DNS kaydı senkronizasyon hook'u
 │   └── iso/
-│       ├── build-iso.sh          # Debian preseed ISO oluşturma scripti
-│       ├── preseed.cfg           # Debian unattended install preseed dosyası
-│       ├── post-install.sh       # Preseed sonrası çalışan kurulum scripti
-│       └── grub.cfg              # UEFI/BIOS dual-boot GRUB config
+│       ├── Dockerfile.build      # ISO builder image (macOS'ta xorriso yok)
+│       ├── build-iso.sh          # Debian preseed ISO oluşturma
+│       ├── preseed.cfg           # Debian unattended install preseed
+│       ├── post-install.sh       # Preseed sonrası kurulum
+│       ├── grub.cfg              # UEFI/BIOS dual-boot GRUB config
+│       ├── debian-images.sha512  # Kaynak ISO checksum pinleri
+│       ├── verify_source_iso_test.go  # TEST-ONLY: kaynak ISO doğrulaması
+│       └── ssh_root_access_test.go    # TEST-ONLY: installer script guard'ları
+├── buildsys/                     # TEST-ONLY paket, üretim kodu yok
+│   ├── checksums_test.go         # Release checksum üretimi
+│   ├── artifact_names_test.go    # README + Makefile artefakt adı tutarlılığı
+│   ├── csprng_test.go            # CSPRNG kullanımı
+│   ├── workflow_pins_test.go     # CI action SHA pinleri
+│   ├── iso_mounts_test.go        # ISO builder bind mount şekli
+│   ├── gomod_markers_test.go     # go.mod direct/indirect require blokları
+│   └── formatting_test.go        # gofmt + .golangci.yml formatter girdisi
+├── .github/
+│   └── workflows/
+│       └── ci.yml                # 7 gate: build, test, vet, lint, govulncheck, gosec, cross-all
+├── .golangci.yml                 # Upstream default linter seti + gofmt formatter
 ├── go.mod
 ├── go.sum
-├── Makefile                      # build, test, lint, deploy, cross-compile
-├── .goreleaser.yaml              # Release automation (opsiyonel)
+├── Makefile                      # build, test, lint, cross, iso, release, install, check, clean
+├── CLAUDE.md                     # Claude Code rehberi (gitignore'da)
+├── AGENTS.md                     # Diğer AI agent'lar için aynı rehber (gitignore'da)
 └── README.md
 ```
 
@@ -1020,7 +1112,7 @@ dhcp:
 
 ipv6:
   enabled: "auto"                          # auto | on | off — auto: ISP IPv6CP başarılırsa etkinleşir
-  mode: "dhcpv6-pd"                        # dhcpv6-pd | static | slaac — WAN tarafı IPv6 alma yöntemi
+  mode: "dhcpv6-pd"                        # dhcpv6-pd | 6in4 | static | slaac — WAN tarafı IPv6 alma yöntemi
   wan:
     acceptRA: true                         # Router Advertisement kabul et (ISP'den)
     requestPrefix: true                    # DHCPv6-PD ile prefix talep et
@@ -1032,6 +1124,14 @@ ipv6:
       prefix: "fd00:abcd:1234::/48"        # ULA prefix (otomatik üretilebilir)
     raInterval: 30                         # Router Advertisement gönderim aralığı (saniye)
     rdnss: true                            # RA ile DNS sunucu bilgisi (RDNSS option)
+  tunnel:                                  # mode: "6in4" iken kullanılır — dhcpv6-pd ile mutually exclusive
+    provider: "he.net"                     # Bugün sabit; ileride başka broker'lar için alan hazır
+    serverIPv4: "216.66.80.30"             # Tunnel broker POP IPv4
+    clientIPv6: "2001:470:1f0a:abc::2/64"  # Point-to-point tunnel /64'ünün bizim ucumuz
+    routedPrefix: "2001:470:1f0b:abc::/64" # LAN'a dağıtılan ayrı Routed /64 veya /48
+    tunnelID: "123456"                     # HE.net tunnel ID (DDNS update hostname'i)
+    username: "heuser"                     # HE.net kullanıcı adı (Basic Auth)
+    updateKey: "..."                       # /nic/update Basic Auth parolası (plaintext, PPPoE.Password ile aynı seviye)
   privacy: true                            # RFC 4941 — temporary address (privacy extensions) önerisi RA'da
 
 vpn:
@@ -1163,226 +1263,284 @@ storage:
     level: 1
     members: ["/dev/sda1", "/dev/sdb1"]
   smartCheckInterval: 3600
+
+routing:                                   # Policy-based routing politikaları
+  policies:
+    - name: "kids-vpn"
+      enabled: true
+      priority: 100                        # Küçük değer önce değerlendirilir
+      srcMacs: ["aa:bb:cc:dd:ee:ff"]
+      srcIps: []
+      dstIps: []
+      dstPorts: []
+      domains: []
+      protocol: ""                         # "" | tcp | udp
+      tunnel: "nl-amsterdam"               # Hedef VPN tüneli
+      killSwitch: true                     # Tünel düşerse trafiği düşür, WAN'a sızdırma
+      schedule: ""                         # Boş = her zaman aktif
+
+backup:                                    # Zamanlanmış şifreli yedekleme
+  enabled: true
+  schedule: "@daily"                       # @hourly | @daily | @weekly | @monthly | @yearly | 5 alan cron
+  passphrase: "enc:v1:..."                 # AES-256-GCM at rest (secrets.go), boş form alanı mevcut değeri korur
+  retention: 7                             # Hedef başına saklanacak en yeni N arşiv
+  targets:
+    - type: "local"                        # local | s3 | sftp
+      name: "yerel"
+      path: "/var/lib/lankeeper/backups/"  # local hedef bu dizine whitelist'li
+    - type: "s3"
+      name: "minio"
+      endpoint: "https://s3.example.com"
+      region: "us-east-1"
+      bucket: "lankeeper"
+      prefix: "router/"
+      accessKeyId: "enc:v1:..."
+      secretAccessKey: "enc:v1:..."
+      usePathStyle: true                   # MinIO / B2 / Spaces için
+    - type: "sftp"
+      name: "nas"
+      host: "10.10.10.20"
+      port: 22
+      user: "backup"
+      password: "enc:v1:..."               # veya keyPath
+      keyPath: ""
+      remoteDir: "/backups/lankeeper"
+      hostKeyFingerprint: "SHA256:..."     # Boşken bağlantı REDDEDİLİR; sır değil, şifrelenmez
+  lastRun: "2026-08-07T03:00:00Z"          # Çalışma zamanı yazılır
+  lastStatus: "ok"                         # ok | partial | error
+  history: []                              # 50 girişlik ring buffer
 ```
+
+**Not:** `system.tls`, `interfaces`, `vlans`, `healthCheck`, `pppoe`, `usbTethering`, `firewall`, `qos`, `dns`, `dhcp`, `ipv6`, `vpn`, `openvpn`, `nas`, `syslog`, `ntp`, `storage`, `routing`, `backup` — toplam 19 üst düzey anahtar `internal/config/config.go` içindeki `Config` struct'ı ile birebir eşleşir. OTA update durumu config'de DEĞİL, `/var/lib/lankeeper/update-state.json` içinde tutulur (restart'ta korunur).
 
 ---
 
 ## Route + Handler Inventory
 
-Go'da HTMX ile iki tür endpoint var: **sayfa** (tam HTML) ve **partial** (HTML fragment).
+`internal/web/server.go` `setupRoutes()` içinde **118 route** kayıtlı. Uygulama, tasarım aşamasında planlanan `/partials/*` şemasını kullanMAdı: partial'lar ilgili sayfa handler'ı içinde render edilir, ayrı GET endpoint'i açılmaz. Liste `grep -oE '"(GET|POST|PUT|DELETE) [^"]+"' internal/web/server.go` çıktısıyla senkron tutulur.
 
-### Auth + i18n
-| Method | Path           | Tür     | Açıklama                                |
-|--------|----------------|---------|-----------------------------------------|
-| GET    | /login         | Sayfa   | Login formu render                      |
-| POST   | /login         | Partial | Oturum aç → cookie set → redirect       |
-| POST   | /logout        | Partial | Oturum kapat → cookie clear → redirect  |
-| POST   | /settings/lang | Partial | Dil değiştir → lang cookie → HX-Refresh |
+**Kimlik doğrulaması istemeyen route'lar:** `GET /static/`, `GET /login`, `POST /login`, `POST /logout`, `POST /settings/lang`, `GET /api/version`, `GET /metrics`. Geri kalan her şey `AuthRequired` sarmalı içindedir. `POST /settings/lang` auth'suz olarak durum değiştirir.
 
-### Dashboard
-| Method | Path            | Tür     | Açıklama                           |
-|--------|-----------------|---------|------------------------------------|
-| GET    | /               | Sayfa   | Dashboard tam sayfa                |
-| GET    | /partials/stats | Partial | Stat kartları (HTMX poll/SSE)      |
-| GET    | /events/stats   | SSE     | Real-time sistem metrikleri stream |
+### Auth + i18n + Genel
 
-### Network / PPPoE
-| Method | Path                              | Tür     | Açıklama                                 |
-|--------|-----------------------------------|---------|------------------------------------------|
-| GET    | /network                          | Sayfa   | Ağ ayarları + interface yönetimi         |
-| GET    | /partials/interfaces              | Partial | Algılanan tüm NIC'ler + durumları        |
-| PUT    | /network/interface/{id}           | Partial | Interface label, role, MTU düzenle       |
-| GET    | /partials/vlans                   | Partial | VLAN listesi + durumları                 |
-| POST   | /network/vlan                     | Partial | Yeni VLAN ekle                           |
-| PUT    | /network/vlan/{id}                | Partial | VLAN düzenle                             |
-| DELETE | /network/vlan/{id}                | Partial | VLAN sil                                 |
-| GET    | /partials/wan-status              | Partial | WAN durum kartı                          |
-| POST   | /pppoe/connect                    | Partial | PPPoE bağlantısını başlat                |
-| POST   | /pppoe/disconnect                 | Partial | PPPoE bağlantısını kes                   |
-| PUT    | /pppoe/config                     | Partial | PPPoE ayarlarını güncelle                |
-| POST   | /pppoe/sniff                      | Partial | PPPoE credential yakalama başlat         |
-| GET    | /partials/pppoe-sniff             | Partial | Yakalama durumu + bulunan credentials    |
-| POST   | /pppoe/sniff/stop                 | Partial | Yakalama işlemini durdur                 |
-| GET    | /partials/usb-tethering           | Partial | USB tethering durumu (bağlı/bağlı değil) |
-| POST   | /network/usb-tethering/enable     | Partial | USB tethering failover'ı etkinleştir     |
-| POST   | /network/usb-tethering/disable    | Partial | USB tethering failover'ı kapat           |
-| POST   | /network/usb-tethering/activate   | Partial | Manuel olarak USB'ye geç                 |
-| POST   | /network/usb-tethering/deactivate | Partial | Manuel olarak PPPoE'ye dön               |
+| Method | Path           | Açıklama                                     |
+|--------|----------------|----------------------------------------------|
+| GET    | /login         | Login formu                                  |
+| POST   | /login         | Oturum aç (ayrı sıkı rate limit: 5s'de bir)  |
+| POST   | /logout        | Oturum kapat                                 |
+| POST   | /settings/lang | Dil değiştir (auth GEREKMEZ)                 |
+| GET    | /static/       | Gömülü CSS/JS varlıkları                     |
+| GET    | /api/version   | Sürüm bilgisi (auth GEREKMEZ, OTA istemcisi) |
+| GET    | /metrics       | Prometheus exposition (auth GEREKMEZ, LAN-only) |
 
-### Health Check
-| Method | Path                              | Tür     | Açıklama                                       |
-|--------|-----------------------------------|---------|------------------------------------------------|
-| GET    | /partials/healthcheck-status      | Partial | Tüm check'lerin güncel durumu (HTMX poll)      |
-| PUT    | /network/healthcheck/config       | Partial | Health check ayarlarını güncelle               |
-| POST   | /network/healthcheck/{name}/run   | Partial | Tek bir check'i manuel çalıştır                |
-| POST   | /network/healthcheck/{name}/reset | Partial | Failure counter'ı sıfırla                      |
-| GET    | /events/healthcheck               | SSE     | Health check olay stream'i (durum değişikliği) |
+### Dashboard + SSE
+
+| Method | Path          | Açıklama                                  |
+|--------|---------------|-------------------------------------------|
+| GET    | /{$}          | Dashboard tam sayfa                       |
+| GET    | /events/stats | SSE: sistem metrikleri stream             |
+| GET    | /events/qos   | SSE: per-client bandwidth stream          |
+
+### Network / VLAN / PPPoE / Health Check
+
+| Method | Path                                | Açıklama                            |
+|--------|-------------------------------------|-------------------------------------|
+| GET    | /network                            | Interface + VLAN + PPPoE + USB + health tek sayfa |
+| POST   | /network/vlan                       | VLAN ekle                           |
+| DELETE | /network/vlan/{id}                  | VLAN sil                            |
+| POST   | /network/pppoe/connect              | PPPoE bağlan                        |
+| POST   | /network/pppoe/disconnect           | PPPoE bağlantısını kes              |
+| POST   | /network/pppoe/sniff/start          | Credential yakalama başlat          |
+| POST   | /network/pppoe/sniff/stop           | Credential yakalama durdur          |
+| POST   | /network/healthcheck/{name}/reset   | Failure counter sıfırla             |
 
 ### Firewall
-| Method | Path                        | Tür     | Açıklama                        |
-|--------|-----------------------------|---------|---------------------------------|
-| GET    | /firewall                   | Sayfa   | Firewall kuralları sayfası      |
-| GET    | /partials/fw-rules          | Partial | Kural listesi (HTMX swap)       |
-| POST   | /firewall/port-forward      | Partial | Port yönlendirme ekle           |
-| DELETE | /firewall/port-forward/{id} | Partial | Port yönlendirme sil            |
-| POST   | /firewall/confirm           | Partial | Watchdog onay (30s timeout)     |
-| PUT    | /firewall/ttl-fix           | Partial | TTL Fix aç/kapat + değer ayarla |
 
-### DNS (Unbound)
-| Method | Path                      | Tür     | Açıklama                                |
-|--------|---------------------------|---------|-----------------------------------------|
-| GET    | /dns                      | Sayfa   | DNS ayarları + istatistikler            |
-| GET    | /partials/dns-stats       | Partial | DNS cache/query istatistikleri          |
-| PUT    | /dns/config               | Partial | DNS ayarlarını güncelle                 |
-| POST   | /dns/blocklist/update     | Partial | Blocklist'i şimdi güncelle              |
-| GET    | /partials/dns-blocklist   | Partial | Blocklist durumu + kaynak listesi       |
-| GET    | /partials/dns-querylog    | Partial | Son DNS sorguları (filtreli, paginated) |
-| GET    | /partials/dns-top-clients | Partial | En çok sorgu yapan cihazlar             |
-| GET    | /partials/dns-top-domains | Partial | En çok sorgulanan domainler             |
-| GET    | /partials/dns-top-blocked | Partial | En çok engellenen domainler             |
-| PUT    | /dns/querylog/toggle      | Partial | Query logging aç/kapat                  |
-| DELETE | /dns/querylog/clear       | Partial | Query log geçmişini temizle             |
+| Method | Path                                  | Açıklama                          |
+|--------|---------------------------------------|-----------------------------------|
+| GET    | /firewall                             | Firewall sayfası                  |
+| POST   | /firewall/rules                       | Kural ekle                        |
+| DELETE | /firewall/rules/{index}               | Kural sil                         |
+| POST   | /firewall/rules/{index}/toggle        | Kuralı etkinleştir/devre dışı     |
+| POST   | /firewall/open-ports                  | Açık port ekle                    |
+| DELETE | /firewall/open-ports/{index}          | Açık port sil                     |
+| POST   | /firewall/open-ports/{index}/toggle   | Açık portu etkinleştir/devre dışı |
+| POST   | /firewall/port-forwards               | Port yönlendirme ekle             |
+| DELETE | /firewall/port-forwards/{index}       | Port yönlendirme sil              |
+| POST   | /firewall/apply                       | Ruleset uygula (30s watchdog arm) |
+| POST   | /firewall/confirm                     | Watchdog onayı                    |
+| POST   | /firewall/rollback                    | Manuel geri alma                  |
+
+### DNS (Unbound + DoT/DoH)
+
+| Method | Path                     | Açıklama                                    |
+|--------|--------------------------|---------------------------------------------|
+| GET    | /dns                     | DNS ayarları + istatistik + blocklist       |
+| POST   | /dns/records             | Statik DNS kaydı ekle                       |
+| DELETE | /dns/records/{index}     | Statik DNS kaydı sil                        |
+| POST   | /dns/blocklist/update    | Blocklist'i şimdi güncelle                  |
+| POST   | /dns/clear-log           | Query log geçmişini temizle                 |
+| POST   | /dns/dot                 | Şifreleme modunu ayarla (plain/DoT/DoH)     |
+| POST   | /dns/dot/probe           | DoT upstream canlılık testi (1s'de bir limit)|
+| POST   | /dns/doh/probe           | DoH upstream canlılık testi (1s'de bir limit)|
 
 ### DHCP (dnsmasq)
-| Method | Path              | Tür     | Açıklama                     |
-|--------|-------------------|---------|------------------------------|
-| GET    | /dhcp             | Sayfa   | DHCP lease listesi + ayarlar |
-| GET    | /partials/leases  | Partial | Aktif lease tablosu          |
-| POST   | /dhcp/lease       | Partial | Statik lease ekle            |
-| DELETE | /dhcp/lease/{mac} | Partial | Statik lease sil             |
-| PUT    | /dhcp/config      | Partial | DHCP aralık/süre ayarları    |
+
+| Method | Path                    | Açıklama                                  |
+|--------|-------------------------|-------------------------------------------|
+| GET    | /dhcp                   | Lease listesi + ayarlar                   |
+| POST   | /dhcp/static            | Statik lease ekle (DNS kaydına aynalanır) |
+| DELETE | /dhcp/static/{index}    | Statik lease sil                          |
+
+### IPv6 (DHCPv6-PD + 6in4)
+
+| Method | Path                  | Açıklama                                |
+|--------|-----------------------|-----------------------------------------|
+| GET    | /ipv6                 | Status + Config + Subnet Map + Tunnel    |
+| POST   | /ipv6/save            | IPv6 ayarlarını kaydet                  |
+| POST   | /ipv6/start           | IPv6 planını başlat                     |
+| POST   | /ipv6/stop            | IPv6 planını durdur                     |
+| POST   | /ipv6/renew           | DHCPv6 prefix renew                     |
+| POST   | /ipv6/release         | DHCPv6 prefix release                   |
+| POST   | /ipv6/subnet-map      | LAN/VLAN sub-prefix atamalarını kaydet  |
+| POST   | /ipv6/tunnel/update   | HE.net /nic/update DDNS çağrısı         |
 
 ### QoS
-| Method | Path                 | Tür     | Açıklama                       |
-|--------|----------------------|---------|--------------------------------|
-| GET    | /qos                 | Sayfa   | QoS ayarları sayfası           |
-| GET    | /partials/qos-status | Partial | Aktif QoS profili + istatistik |
-| PUT    | /qos/profile         | Partial | Profil değiştir                |
-| PUT    | /qos/limits          | Partial | Bant genişliği limitleri       |
-| PUT    | /qos/congestion      | Partial | Congestion control (BBR/CUBIC) |
 
-### VPN Client (Outbound Tüneller)
-| Method | Path                  | Tür     | Açıklama                               |
-|--------|-----------------------|---------|----------------------------------------|
-| GET    | /vpn                  | Sayfa   | VPN yönetimi (client + server) sayfası |
-| GET    | /partials/vpn-clients | Partial | Client tünel listesi + durum           |
-| POST   | /vpn/client           | Partial | Yeni client tünel ekle                 |
-| PUT    | /vpn/client/{name}    | Partial | Client tünel düzenle                   |
-| DELETE | /vpn/client/{name}    | Partial | Client tünel sil                       |
+| Method | Path        | Açıklama                        |
+|--------|-------------|---------------------------------|
+| GET    | /qos        | QoS ayarları + per-client tablo |
+| POST   | /qos/apply  | CAKE qdisc + IFB uygula         |
+| POST   | /qos/clear  | Shaping'i kaldır                |
 
-### VPN Server (Inbound)
-| Method | Path                           | Tür      | Açıklama                                 |
-|--------|--------------------------------|----------|------------------------------------------|
-| GET    | /partials/vpn-server           | Partial  | Server durumu + peer listesi             |
-| PUT    | /vpn/server/config             | Partial  | Server ayarları (port, subnet, DNS)      |
-| POST   | /vpn/server/toggle             | Partial  | Server'ı aç/kapat                        |
-| POST   | /vpn/server/peer               | Partial  | Yeni peer ekle (keypair otomatik üret)   |
-| PUT    | /vpn/server/peer/{name}        | Partial  | Peer düzenle                             |
-| DELETE | /vpn/server/peer/{name}        | Partial  | Peer sil                                 |
-| GET    | /vpn/server/peer/{name}/config | Download | Peer client config dosyası indir (.conf) |
-| GET    | /vpn/server/peer/{name}/qr     | Partial  | Peer QR kodu (mobil WireGuard app için)  |
+### WireGuard VPN
 
-### OpenVPN Client (Outbound)
-| Method | Path                              | Tür     | Açıklama                                   |
-|--------|-----------------------------------|---------|--------------------------------------------|
-| GET    | /openvpn                          | Sayfa   | OpenVPN yönetimi (client + server) sayfası |
-| GET    | /partials/ovpn-clients            | Partial | Client bağlantı listesi + durum            |
-| POST   | /openvpn/client                   | Partial | Yeni client ekle (.ovpn dosya import)      |
-| DELETE | /openvpn/client/{name}            | Partial | Client bağlantı sil                        |
-| POST   | /openvpn/client/{name}/connect    | Partial | Client bağlantısını başlat                 |
-| POST   | /openvpn/client/{name}/disconnect | Partial | Client bağlantısını kes                    |
+| Method | Path                             | Açıklama                              |
+|--------|----------------------------------|---------------------------------------|
+| GET    | /vpn                             | Client tünelleri + server + peer'lar   |
+| POST   | /vpn/client/{name}/connect       | Client tünelini bağla                 |
+| POST   | /vpn/client/{name}/disconnect    | Client tünelini kes                   |
+| POST   | /vpn/server/start                | WG server başlat                      |
+| POST   | /vpn/server/stop                 | WG server durdur                      |
+| POST   | /vpn/server/peer                 | Peer ekle (keypair otomatik üretilir) |
+| DELETE | /vpn/server/peer/{name}          | Peer sil                              |
 
-### OpenVPN Server (Inbound)
-| Method | Path                                 | Tür      | Açıklama                                 |
-|--------|--------------------------------------|----------|------------------------------------------|
-| GET    | /partials/ovpn-server                | Partial  | Server durumu + client listesi           |
-| PUT    | /openvpn/server/config               | Partial  | Server ayarları (port, protocol, cipher) |
-| POST   | /openvpn/server/toggle               | Partial  | Server'ı aç/kapat                        |
-| POST   | /openvpn/server/init-pki             | Partial  | PKI altyapısı oluştur (CA + server cert) |
-| POST   | /openvpn/server/client               | Partial  | Yeni client sertifikası oluştur          |
-| DELETE | /openvpn/server/client/{name}        | Partial  | Client sertifikasını revoke et           |
-| POST   | /openvpn/server/client/{name}/toggle | Partial  | Client'ı etkinleştir/devre dışı bırak    |
-| GET    | /openvpn/server/client/{name}/config | Download | Client .ovpn config dosyası indir        |
-| GET    | /openvpn/server/client/{name}/qr     | Partial  | Client config QR kodu (mobil app için)   |
+### WireGuard Site-to-Site
 
-### Policy-Based Routing (PBR)
-| Method | Path                          | Tür     | Açıklama                                            |
-|--------|-------------------------------|---------|-----------------------------------------------------|
-| GET    | /routing                      | Sayfa   | PBR politika yönetimi sayfası                       |
-| GET    | /partials/policies            | Partial | Politika listesi (sürükle-bırak sıralama)           |
-| POST   | /routing/policy               | Partial | Yeni politika ekle                                  |
-| PUT    | /routing/policy/{name}        | Partial | Politika düzenle                                    |
-| DELETE | /routing/policy/{name}        | Partial | Politika sil                                        |
-| PUT    | /routing/policy/{name}/toggle | Partial | Politikayı etkinleştir/devre dışı bırak             |
-| PUT    | /routing/reorder              | Partial | Politika sıralamasını güncelle (drag-drop)          |
-| GET    | /partials/policy-status       | Partial | Canlı eşleşme durumu (hangi cihaz hangi politikada) |
-| GET    | /events/routing               | SSE     | PBR durum değişiklikleri (real-time)                |
+| Method | Path                            | Açıklama                                |
+|--------|---------------------------------|-----------------------------------------|
+| GET    | /vpn/s2s                        | S2S kurulum sihirbazı                   |
+| POST   | /vpn/s2s/invite                 | HMAC-imzalı invite token üret           |
+| POST   | /vpn/s2s/join                   | Karşı taraftan gelen invite'ı kabul et  |
+| POST   | /vpn/s2s/finalize               | Ack token ile peer'ı kalıcı hale getir  |
+| POST   | /vpn/s2s/rotate-key             | Token imzalama anahtarını döndür        |
+| GET    | /vpn/s2s/{name}/health          | Peer sağlık durumu                      |
+| POST   | /vpn/s2s/{name}/reachability    | Erişilebilirlik testi                   |
+| DELETE | /vpn/s2s/{name}                 | S2S peer'ı sil                          |
+
+### OpenVPN
+
+| Method | Path                                   | Açıklama                              |
+|--------|----------------------------------------|---------------------------------------|
+| GET    | /openvpn                               | Server + client yönetimi              |
+| POST   | /openvpn/init-pki                      | easy-rsa PKI oluştur (CA + server)    |
+| POST   | /openvpn/server/start                  | Server başlat                         |
+| POST   | /openvpn/server/stop                   | Server durdur                         |
+| POST   | /openvpn/server/client                 | Client sertifikası üret               |
+| DELETE | /openvpn/server/client/{name}          | Client sertifikasını sil              |
+| GET    | /openvpn/server/client/{name}/config   | .ovpn indir (Cache-Control: no-store) |
+| POST   | /openvpn/client                        | Outbound client profili ekle          |
+| POST   | /openvpn/client/{name}/connect         | Client bağlantısını başlat            |
+| POST   | /openvpn/client/{name}/disconnect      | Client bağlantısını kes               |
+
+### Policy-Based Routing
+
+| Method | Path                      | Açıklama                          |
+|--------|---------------------------|-----------------------------------|
+| GET    | /routing                  | PBR politika yönetimi             |
+| POST   | /routing/policy           | Politika ekle                     |
+| DELETE | /routing/policy/{name}    | Politika sil                      |
+| POST   | /routing/reorder          | Sürükle-bırak sıralama            |
 
 ### NAS
-| Method | Path                 | Tür     | Açıklama                   |
-|--------|----------------------|---------|----------------------------|
-| GET    | /nas                 | Sayfa   | NAS yönetimi sayfası       |
-| GET    | /partials/shares     | Partial | Paylaşım listesi           |
-| POST   | /nas/share           | Partial | Yeni paylaşım ekle         |
-| PUT    | /nas/share/{name}    | Partial | Paylaşım güncelle          |
-| DELETE | /nas/share/{name}    | Partial | Paylaşım sil               |
-| POST   | /nas/m3u/sync        | Partial | M3U senkronizasyonu başlat |
-| GET    | /partials/m3u-status | Partial | M3U senkronizasyon durumu  |
 
-### Storage
-| Method | Path                 | Tür     | Açıklama              |
-|--------|----------------------|---------|-----------------------|
-| GET    | /storage             | Sayfa   | Depolama sayfası      |
-| GET    | /partials/raid       | Partial | RAID durumu           |
-| GET    | /partials/smart      | Partial | Disk sağlık bilgileri |
-| GET    | /partials/disk-usage | Partial | Disk kullanımı        |
+| Method | Path                        | Açıklama                       |
+|--------|-----------------------------|--------------------------------|
+| GET    | /nas                        | Paylaşımlar + M3U durumu       |
+| POST   | /nas/shares                 | Paylaşım ekle                  |
+| DELETE | /nas/shares/{name}          | Paylaşım sil                   |
+| POST   | /nas/m3u/sync               | M3U senkronizasyonu başlat     |
+| POST   | /nas/m3u/discover-groups    | M3U grup listesini keşfet      |
 
-### Syslog
-| Method | Path                     | Tür     | Açıklama                                    |
-|--------|--------------------------|---------|---------------------------------------------|
-| GET    | /syslog                  | Sayfa   | Syslog yapılandırma + log görüntüle         |
-| GET    | /partials/syslog-logs    | Partial | Uzak cihaz logları (filtreli, paginated)    |
-| PUT    | /syslog/server           | Partial | Sunucu ayarları (enable/disable, port, TLS) |
-| PUT    | /syslog/client           | Partial | Client ayarları (remote host, protocol)     |
-| GET    | /partials/syslog-sources | Partial | Log gönderen cihaz listesi                  |
+### Storage / Syslog / NTP
 
-### NTP
-| Method | Path                 | Tür     | Açıklama                                 |
-|--------|----------------------|---------|------------------------------------------|
-| GET    | /ntp                 | Sayfa   | NTP yapılandırma + senkronizasyon durumu |
-| GET    | /partials/ntp-status | Partial | chrony sources + tracking durumu         |
-| PUT    | /ntp/server          | Partial | NTP sunucu ayarları (enable/disable)     |
-| PUT    | /ntp/client          | Partial | NTP client ayarları (upstream sunucular) |
-| POST   | /ntp/force-sync      | Partial | Manuel zaman senkronizasyonu başlat      |
+| Method | Path                                  | Açıklama                          |
+|--------|---------------------------------------|-----------------------------------|
+| GET    | /storage                              | RAID + SMART + disk kullanımı     |
+| GET    | /syslog                               | Syslog yapılandırma + loglar      |
+| POST   | /syslog/server                        | Sunucu ayarları                   |
+| POST   | /syslog/client                        | Client ayarları                   |
+| POST   | /syslog/client/facilities             | Facility filtresi ekle            |
+| DELETE | /syslog/client/facilities/{index}     | Facility filtresi sil             |
+| GET    | /ntp                                  | NTP yapılandırma + durum          |
+| POST   | /ntp/settings                         | NTP ayarları                      |
+| POST   | /ntp/sources                          | Upstream kaynak ekle              |
+| DELETE | /ntp/sources/{index}                  | Upstream kaynak sil               |
+| POST   | /ntp/allow                            | Erişim izni verilen subnet ekle   |
+| DELETE | /ntp/allow/{index}                    | Subnet izni sil                   |
+| POST   | /ntp/force-sync                       | Manuel senkronizasyon             |
+
+### Backup (zamanlanmış)
+
+| Method | Path                      | Açıklama                        |
+|--------|---------------------------|---------------------------------|
+| GET    | /backup                   | Hedefler + zamanlama + history  |
+| GET    | /backup/history           | Çalışma geçmişi tablosu         |
+| POST   | /backup/schedule          | Cron zamanlaması + passphrase   |
+| POST   | /backup/target            | Hedef ekle (local/s3/sftp)      |
+| DELETE | /backup/target/{name}     | Hedef sil                       |
+| POST   | /backup/run               | Şimdi çalıştır                  |
 
 ### System
-| Method | Path                   | Tür     | Açıklama                           |
-|--------|------------------------|---------|------------------------------------|
-| GET    | /settings              | Sayfa   | Sistem ayarları                    |
-| PUT    | /settings/system       | Partial | Hostname, timezone güncelle        |
-| PUT    | /settings/password     | Partial | Şifre değiştir                     |
-| GET    | /partials/tls-status   | Partial | TLS sertifika durumu (mod, expire) |
-| PUT    | /settings/tls          | Partial | TLS modu değiştir + ayarlar        |
-| POST   | /settings/tls/generate | Partial | Sertifika yeniden oluştur          |
-| GET    | /settings/tls/ca       | Dosya   | mkcert CA sertifikası indir (.crt) |
-| POST   | /system/reboot         | Partial | Sistemi yeniden başlat             |
-| GET    | /partials/logs         | Partial | journalctl çıktısı (paginated)     |
-| POST   | /backup/export         | Dosya   | Config dışa aktar (.tar.gz)        |
-| POST   | /backup/import         | Partial | Config içe aktar                   |
+
+| Method | Path                       | Açıklama                                    |
+|--------|----------------------------|---------------------------------------------|
+| GET    | /settings                  | Sistem ayarları                             |
+| POST   | /settings/hostname         | Hostname değiştir (RFC 1123 doğrulama)      |
+| POST   | /settings/timezone         | Timezone değiştir (tz-database doğrulama)   |
+| POST   | /settings/web-password     | Web UI şifresi değiştir                     |
+| POST   | /settings/root-password    | Sistem root şifresi değiştir                |
+| GET    | /system/backup/export      | Config dışa aktar (Cache-Control: no-store) |
+| POST   | /system/backup/import      | Config içe aktar (MaxBytesReader'lı upload) |
+| POST   | /system/factory-reset      | Gömülü defaults'tan fabrika ayarları        |
+| POST   | /system/reboot             | Sistemi yeniden başlat                      |
+| GET    | /system/update/check       | GitHub Releases'te yeni sürüm ara           |
+| POST   | /system/update/apply       | Binary'yi değiştir (60s watchdog arm)       |
+| POST   | /system/update/confirm     | Güncellemeyi onayla                         |
+| POST   | /system/update/rollback    | Önceki binary'ye dön                        |
 
 ---
 
 ## Go Bağımlılıkları (go.mod)
 
 ```
-module github.com/user/lankeeper
+module github.com/KilimcininKorOglu/lankeeper
 
-go 1.23
+go 1.26.5
 
 require (
-    gopkg.in/yaml.v3 v3.0.1         // Config YAML parse
-    golang.org/x/crypto v0.31.0      // bcrypt, AES-GCM
-    github.com/gorilla/sessions v1.4.0 // Cookie-based session
+    github.com/fsnotify/fsnotify v1.10.1   // ipv6.go — DHCPv6 lease dosyası izleme
+    github.com/gorilla/sessions v1.4.0     // Cookie-based session
+    github.com/pkg/sftp v1.13.10           // backup_sftp.go — PosixRename ile atomic overwrite
+    golang.org/x/crypto v0.54.0            // bcrypt, scrypt, ssh (SFTP taşıyıcısı)
+    golang.org/x/net v0.56.0               // dns/dnsmessage — DoT/DoH probe
+    gopkg.in/yaml.v3 v3.0.1                // Config YAML parse
+)
+
+require (
+    github.com/gorilla/securecookie v1.1.2 // indirect
+    github.com/kr/fs v0.1.0                // indirect
+    golang.org/x/sys v0.47.0               // indirect
 )
 ```
 
@@ -1392,13 +1550,20 @@ require (
 - Template engine yok — `html/template` (stdlib)
 - WebSocket yok — SSE (çok daha basit, HTMX native desteği)
 - JSON API yok — HTML partial'lar döner (HTMX paradigması)
+- `client_golang` yok — Prometheus exposition 0.0.4 stdlib `fmt.Fprintf` ile (~50 satır)
+- `aws-sdk-go` yok — S3 SigV4 imzalama stdlib ile (~150 satır)
+- `robfig/cron` yok — cron parser elle yazıldı (alias + 5 alan)
 
-**Toplam harici bağımlılık: 3 modül.** Geri kalan her şey Go stdlib.
+**Toplam harici bağımlılık: 6 direct modül.** Plan başlangıçta 3 öngörüyordu; DoT/DoH probe, SFTP yedekleme hedefi ve DHCPv6 lease izleme sonradan üçünü ekledi. Geri kalan her şey Go stdlib.
+
+`buildsys/gomod_markers_test.go` require bloklarını iki yönlü doğrular: üretim kodunun import ettiği bir modül `// indirect` taşıyamaz, direct blokta duran bir modül de bir yerden import edilmek zorundadır. CI'da `go mod tidy` çalışmadığı için tek denetim budur.
+
+`dnscrypt-proxy` bir Go bağımlılığı DEĞİL, Debian sistem paketidir.
 
 ## Sistem Gereksinimleri (install.sh)
 
 ```bash
-apt install -y \
+apt-get install -y -qq \
     ppp pppoe \
     nftables \
     wireguard-tools \
@@ -1410,38 +1575,56 @@ apt install -y \
     dnsmasq \
     rsyslog \
     chrony \
-    qrencode \                   # WireGuard peer QR kodu üretimi
-    wide-dhcpv6-client \           # DHCPv6-PD prefix delegation client
-    mkcert                        # Lokal CA + güvenilir sertifika (opsiyonel TLS modu)
+    qrencode \
+    wide-dhcpv6-client \
+    dnscrypt-proxy \
+    curl \
+    jq \
+    hdparm
 
 # dnsmasq: DNS kapalı (port=0), sadece DHCP
 # unbound: recursive DNS resolver + blocklist
 # rsyslog: syslog sunucu (ağdan log alma) + client (log forwarding)
 # chrony: NTP sunucu (LAN cihazlarına zaman servisi) + client (upstream senkronizasyon)
+# dnscrypt-proxy: DoH upstream stub'ı (127.0.0.1:5353), kurulumda disable edilir
+# hdparm: HDD spin-down / spin-up stagger
 # Go sadece build makinede gerekli, hedef makinede gerekli DEĞİL
 ```
 
+**Plan ile fark:**
+
+- `mkcert` kuruluma DAHİL DEĞİL. `internal/config/tls.go` `mkcert` ve `acme` modlarını destekler ama ikisi de config dosyasından elle seçilir ve gerekli araç kurulmaz. Varsayılan `self-signed` ECDSA P-256 otomatik üretilir.
+- `qrencode` kuruluyor ama HİÇBİR Go kodu onu çağırmıyor. QR kodu üretimi (WireGuard peer, OpenVPN client) planlandı, uygulanMAdı.
+- `dnscrypt-proxy`, `curl`, `jq`, `hdparm` plan yazıldıktan sonra eklendi.
+
+ISO kurulum yolu ayrı bir paket listesi kullanır (`LANKEEPER_PACKAGES`, `deploy/iso/build-iso.sh`). İki liste birebir aynı DEĞİLDİR: ISO ayrıca Debian Standard task'ı, `dbus`, `openssh-server` ve `htop` taşır. Yeni bir sistem paketi eklerken İKİ listeyi birden güncelleyin.
+
 ## Build & Deploy
 
-```makefile
-# Makefile
-BINARY  := lankeeper
-VERSION := $(shell git describe --tags --always)
-LDFLAGS := -s -w -X main.version=$(VERSION)
+Sürümün TEK kaynağı git tag'idir. `Makefile:3` bunu `git describe --tags --always --dirty` ile çözer ve linker `-X main.version=` ile enjekte eder. Bump edilecek bir sürüm dosyası YOKTUR; böyle bir dosya eklemek tag ile çelişebilecek ikinci bir kaynak yaratır.
 
-build:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/lankeeper
+| Hedef | Karşılığı |
+|---|---|
+| `make dev` | Sürümsüz hızlı build → `dist/lankeeper` |
+| `make build` | version/commit/date ldflags ile production build |
+| `make test` | `go test ./... -race -count=1` (cache YASAK) |
+| `make lint` | `golangci-lint run` (default set + `gofmt` formatter) |
+| `make cross` / `cross-all` | `CGO_ENABLED=0` linux/amd64 (+ arm64) |
+| `make install` | Host mimarisini algıla, derle, `sudo bash deploy/install.sh` |
+| `make check` | Hedefte kurulum ön koşullarını doğrula |
+| `make iso` / `iso-all` | Docker ile offline preseed installer ISO |
+| `make release` / `release-all` | Arşivler + `SHA256SUMS` (+ ISO'lar) |
+| `make clean` | `dist/` temizle, `dist/packages/` cache'ini KORU |
 
-test:
-	go test ./... -race -count=1
+Asla çıplak `go build` / `go test` çalıştırılmaz; tek istisna Makefile'da per-test hedefi olmadığı için alt küme çalıştırmadır:
 
-lint:
-	golangci-lint run
-
-deploy: build
-	scp $(BINARY) router:/opt/lankeeper/
-	ssh router "systemctl restart lankeeper.target"
+```bash
+go test ./internal/services/ -run TestVPN -race -count=1 -v
 ```
+
+`.github/workflows/ci.yml` push ve PR'da yedi gate çalıştırır: `go build ./...`, `go test ./... -race -count=1`, `go vet ./...`, `golangci-lint`, `govulncheck ./...`, `gosec ./...` ve `make cross-all` (amd64 artefaktını çalıştırıp damgalanmış sürümünü de doğrular).
+
+Deploy planda `scp` + `systemctl restart` idi. Uygulamada iki gerçek yol var: `make install` (mevcut Debian 12 üzerine) ve `make iso` (sıfırdan unattended kurulum). Ayrıca web UI üzerinden OTA update, GitHub Releases'ten indirip binary'yi atomik değiştirir ve 60 saniyelik watchdog ile geri alır.
 
 ---
 
@@ -2544,109 +2727,50 @@ firewallSvc.Apply(rules)
 
 ## Roadmap — Post-v0.1.0
 
-v0.1.0 (2026-05-06) ile yukarıdaki 11 faz tamamlandı. Aşağıdaki başlıklar ilerleyen sürümlere planlanmıştır.
-
-### v0.2.0: IPv6 Operator Visibility
-
-#### DHCPv6 Prefix Delegation UI
-
-**Mevcut durum:** `wide-dhcpv6-client` (`dhcp6c` daemon) WAN'da çalışıyor. ISP prefix delege ediyor, kernel routing tablosu güncelleniyor, LAN cihazları SLAAC üzerinden global IPv6 alıyor. Ancak hiçbir şey web UI'da görünmüyor; tüm konfigürasyon `dhcp6c.conf` dosyası üzerinden, status `ip -6 addr` ve `ip -6 route` çıktısından okunuyor.
-
-**Hedefler:**
-
-| Alan | Eklenecek |
-|---|---|
-| Status | Mevcut delegated prefix, yenilenme süresi (T1/T2), ISP DUID, prefix değişim geçmişi (son 10 olay) |
-| Konfigürasyon | İstenen prefix length (`/48`, `/56`, `/60`, `/64`), Information-Refresh-Time, Stateful vs SLAAC tercihi |
-| Dağıtım haritası | Hangi LAN/VLAN'ın hangi sub-prefix'i (`::/64`) aldığını gösteren tablo + drag-and-drop yeniden atama |
-| Lifecycle | Manuel renew/release butonları, prefix değiştiğinde nftables ruleset re-render trigger'ı |
-| Alert | ISP prefix lease-time'ı dolmadan refresh başarısız olursa SSE üzerinden uyarı |
-
-**Çalışma noktaları:**
-
-1. `internal/services/ipv6.go` (yeni) — `dhcp6c` config render + status parse + RA settings (radvd değil; native kernel RA via `iproute2`).
-2. `configs/sysconf/dhcp6c.conf.tmpl` (yeni) — şu anki manual config'in template'lenmiş hali.
-3. `internal/web/handlers/ipv6.go` (yeni) — `/ipv6/*` rotaları.
-4. `web/templates/pages/ipv6.html` (yeni) — Status, Config, Subnet Map, History sekmeleri.
-5. `internal/services/firewall.go` — IPv6 prefix değişiminde rules re-render hook.
-6. Locale: `tr.json` + `en.json` ipv6.* anahtarları.
-
-**Kabul kriterleri:**
-
-- ISP prefix değiştiğinde LAN cihazları en geç 30 sn içinde yeni adresleri alır (RA interval).
-- Web UI'da "current /56" gerçek zamanlı görünür ve tablo `dhcp6c` lease dosyasıyla senkron.
-- Config form değişikliği `AtomicChange` üzerinden uygulanır; başarısız olursa 30 sn watchdog rollback.
-
-#### 6in4 Tunneling
-
-**Mevcut durum:** Hiç yok. ISP IPv6 vermiyorsa kullanıcı IPv6 alamaz.
-
-**Hedefler:**
-
-| Alan | Eklenecek |
-|---|---|
-| Tunnel broker desteği | Hurricane Electric (HE.net), tunnelbroker.net statik tunnel |
-| Konfigürasyon | Tunnel server IPv4, client IPv4 (otomatik mevcut WAN), client IPv6 (`/64` POP-side), routed `/48` veya `/64` |
-| Lifecycle | Tunnel UP/DOWN durumu (ICMPv6 echo ile probe), reconnect logic, MTU 1480 default |
-| Auth | HE.net'in update API'si için username/password (`https://ipv4.tunnelbroker.net/nic/update`) — dynamic IPv4 değişiminde otomatik update |
-| Routing | Tunnel `sit0` üzerinden default IPv6 route, prefix LAN'a SLAAC ile dağıtım (DHCPv6-PD UI ile aynı backend) |
-
-**Çalışma noktaları:**
-
-1. `internal/services/sixinfour.go` (yeni) — `ip tunnel add ... mode sit ...` orchestration, MTU/MSS clamp.
-2. Agent whitelist'e `ip tunnel` zaten dahil (`ip` komutuyla); ek izin gerekmiyor.
-3. UI: ipv6.html içinde "Tunnel" sekmesi (DHCPv6-PD ile aynı sayfa, mutually exclusive).
-4. Failover: WAN IPv4 değiştiğinde tunnel re-establish + HE.net update API çağrısı.
-5. IPv6 firewall: tunnel interface'i dış zone olarak işaretle (`iifname sit1 ...`).
-
-**Kabul kriterleri:**
-
-- HE.net free tier ile IPv6 trafiği akar, `curl -6 ifconfig.co` cevap verir.
-- WAN IPv4 yeniden alındığında tunnel 60 sn içinde yeniden aktif.
-- DHCPv6-PD ve 6in4 aynı anda etkin değil — UI form-level mutex.
+v0.1.0 (2026-05-06) ile yukarıdaki 11 faz tamamlandı. v0.2.0 ile v0.5.0 arasında planlanan başlıkların tamamı gerçeklendi; hepsi aşağıdaki "Tamamlananlar" bölümündedir.
 
 ### Sonraki adaylar (önceliksiz)
 
-- DoH SERVER (Unbound 1.20+ ile clientler 443'te LANKeeper'a DoH
-  yapsın). TLS sertifika yönetimi mevcut `EnsureTLSCert` ile
-  uyumlu; ayrı feature olarak takip.
-- Grafana dashboard JSON paketi (mevcut `/metrics` üzerinde,
-  sample scrape config README'de hazır).
+Aşağıdakiler ya hiç başlamadı ya da yarım kaldı. Sıralama öncelik belirtmez.
+
+**Planlanmış ama uygulanMAmış işler:**
+
+- **QR kodu üretimi.** `qrencode` `install.sh` ile kuruluyor ama hiçbir Go kodu onu çağırmıyor. WireGuard peer ve OpenVPN client config'lerini mobil uygulamalara aktarmak için planlanmıştı; `/vpn/server/peer/{name}/qr` ve `/openvpn/server/client/{name}/qr` route'ları yok.
+- **WireGuard peer config indirme.** OpenVPN'de `GET /openvpn/server/client/{name}/config` var, WireGuard'da karşılığı yok. Peer eklendikten sonra config'i UI'dan almanın yolu bulunmuyor.
+- **TLS yönetim arayüzü.** `internal/config/tls.go` `self-signed`, `mkcert` ve `acme` modlarını destekliyor ama `/settings` sayfası yalnızca mevcut modu OKUYOR. Mod değiştirme, sertifika yeniden üretme ve mkcert CA indirme route'ları yok; üç mod da yalnızca config dosyası düzenlenerek seçilebiliyor. `mkcert` paketi ayrıca kurulmuyor.
+- **USB tethering kontrolü.** `internal/services/usbtethering.go` ve `network.html` içindeki durum göstergesi mevcut, fakat enable/disable/activate/deactivate route'ları yok. Failover yalnızca health check zinciri üzerinden otomatik tetikleniyor, operatör elle devreye alamıyor.
+- **TTL Fix arayüzü.** Config alanı (`firewall.ttlFix`), servis desteği ve nftables şablonu hazır; firewall sayfası değerleri gösteriyor ama değiştirecek route yok.
+- **Health check durum endpoint'i.** `handlers.HealthCheckHandler.HandleStatus` yazılmış ama hiçbir route'a bağlanMAmış (ölü kod). Yalnızca `POST /network/healthcheck/{name}/reset` canlı.
+- **Kaynak düzenleme (PUT) route'ları.** Plan çoğu liste için ekle/düzenle/sil öngörüyordu; uygulama ekle + sil ile yetindi. Firewall kuralları ve açık portlar dışında toggle da yok. PBR politikaları düzenlenemiyor, yalnızca silinip yeniden eklenebiliyor.
+- **WireGuard client tüneli CRUD.** `/vpn/client/{name}/connect` ve `/disconnect` var; tünel ekleme ve silme yok. Outbound tüneller yalnızca config dosyasından tanımlanıyor.
+- **`/events/healthcheck` ve `/events/routing` SSE kanalları.** Yalnızca `/events/stats` ve `/events/qos` uygulandı.
+- **First-boot köprüsü.** `internal/web/firstboot.go` tam API'yi (`IsFirstBoot`, `SetupFirstBootNetworking`, `TeardownFirstBootBridge`, `RemoveFirstBootBridge`) export ediyor ve `deploy/iso/post-install.sh` `/var/lib/lankeeper/.first-boot` bayrağını oluşturuyor, fakat üretimde hiçbir kod yolu bunları ÇAĞIRMIYOR. Yalnızca `firstboot_test.go` referans veriyor. Bayrağın tüketildiğini varsaymayın; davranış gerekiyorsa `serve.go` içinde bağlayın.
+
+**Yeni fikirler:**
+
+- DoH SERVER (Unbound 1.20+ ile client'lar 443'te LANKeeper'a DoH yapsın). TLS sertifika yönetimi mevcut `EnsureTLSCert` ile uyumlu; ayrı feature olarak takip.
+- Grafana dashboard JSON paketi (mevcut `/metrics` üzerinde, sample scrape config README'de hazır).
+
+**Bakım borcu:**
+
+- `.claude/skills/version-update/` hâlâ `CHANGELOG.md` üzerinden çalışıyor (Step 4 dosyayı günceller, Step 5 stage'ler, Step 9 release notlarını awk ile çıkarır) ama `CHANGELOG.md` depodan silindi. Skill şu anda çalışmaz; ya onarılmalı ya changelog geri getirilmeli.
+- `ci.yml` ve `buildsys/workflow_pins_test.go` içindeki `actions/*` tag muafiyetinin gerekçesi Dependabot'a dayanıyor, fakat `.github/dependabot.yml` kaldırıldı. Tag'ler artık elle bump ediliyor; gerekçe metni bunu yansıtmıyor.
+- `dns.go` ve `monitor.go` içindeki iki `bufio.Scanner` döngüsü `scanner.Err()` kontrol etmiyor. golangci-lint yakalamıyor, yalnızca gopls işaretliyor.
 
 ### Tamamlananlar
 
-- Prometheus `/metrics` endpoint — LAN-only (mevcut LANOnly
-  middleware), no auth, exposition format 0.0.4. Stdlib-only
-  writer (~50 LOC `fmt.Fprintf`), client_golang dep yok. ~30
-  metric family: build/uptime/CPU/RAM/temp/iface bytes/DHCP/DNS/
-  per-client bandwidth (64 cap, SHA1[:4] MAC hash) /WG peers/S2S/
-  OpenVPN/backup/PPPoE/IPv6/firewall.
-- DNS-over-HTTPS upstream — `/dns` sayfasında "DNS Şifreleme Modu"
-  kartı: Plain / DoT / DoH radyosuyla seçim. Unbound DoH upstream'i
-  HİÇBİR sürümde desteklemediği için (NLnetLabs/unbound#525 hâlâ
-  açık), `dnscrypt-proxy` Debian paketi 5. dep olarak değil sistem
-  paketi olarak install edilir; 127.0.0.1:5353'te localhost-only
-  dinler ve Unbound `forward-zone "."` ile oraya yönlendirir. 10
-  hazır sağlayıcı (Cloudflare/Quad9/Google/AdGuard/Mullvad) +
-  `https://host/dns-query` URL veya `sdns://` stamp özel girişi.
-  SSRF guard, port allowlist, char allowlist; native `dnsmessage`
-  ile probe (5s outer timeout). DoT ile mutex.
-- Backup snapshot scheduling — `/backup` sayfası ile cron-bazlı
-  otomatik şifreli dışa aktarım. Local + S3-uyumlu (SigV4 native,
-  aws-sdk-go yok) + SFTP (`pkg/sftp` 5. direct dep) hedefleri,
-  per-target retention, 50 girişlik history ring buffer. Cron parser
-  `@hourly`/`@daily`/`@weekly`/`@monthly`/`@yearly` aliases + 5 alan
-  destekli (`*`, n, n-m, n,m,p, `*/k`). Hedef başına atomic write
-  (tmp + rename local/sftp; tek PUT s3). AES-256-GCM scrypt
-  pipeline'ına bağlı; boş passphrase form alanı stored değeri korur.
-- Per-client (per-MAC) bandwidth grafiği — `lankeeper_qos` nftables
-  tablosuyla per-MAC counter çiftleri, `/events/qos` SSE kanalı,
-  `/qos` sayfasında canlı tablo + sparkline. CAKE class stats yerine
-  nftables forward sayaçları kullanıldı (CAKE per-host stats
-  netlink-only; pretty-print yok).
-- WireGuard site-to-site sihirbazı — iki LANKeeper arasında HMAC-imzalı
-  invite + ack token alışverişiyle tek-tıklık peer kurulumu. Pending
-  peer state machine, `wg syncconf` ile canlı reload, expired-invite
-  GC ticker. `/vpn/s2s` wizard sayfası, `/events/qos` ile aynı patern.
-  Plain `wg`/pfSense ile birlikte çalışırlık manuel paste-config ile
-  korunuyor; LANKeeper↔LANKeeper akışı tamamen otomatik.
+**v0.2.0 — IPv6 Operator Visibility**
+
+- DHCPv6 Prefix Delegation UI — `internal/services/ipv6.go`, `configs/sysconf/dhcp6c.conf.tmpl` ve `dhcp6c-script.tmpl`, `internal/web/handlers/ipv6.go`, `web/templates/pages/ipv6.html`. `wide-dhcpv6` `dhcp6c` ayrı bir systemd unit'i olarak çalışır (`lankeeper-dhcp6c.service`, `Conflicts=wide-dhcpv6-client.service`). Lease JSON'u `/var/lib/lankeeper/state/ipv6-prefix.json` altına yazılır; fsnotify ile parent dizin izlenir (atomik mv Create+Rename+Chmod ürettiği için 150ms debounce) ve prefix değişimi `SetOnLeaseChange` üzerinden firewall'ı otomatik Apply + Confirm eder, 30 saniyelik watchdog atlanır. RA drop-in'i (`/etc/dnsmasq.d/lankeeper-ipv6-ra.conf`) yalnızca `IPv6Service` sahiplenir; yükü RDNSS + DNSSL + MTU + ULA fallback'tir. Renew/release butonları, subnet map ve prefix geçmişi UI'da.
+- 6in4 Tunneling — `internal/services/sixinfour.go`. HE.net tunnelbroker: `ip tunnel add <dev> mode sit`, MTU 1480 (PPPoE altında 1452). Tunnel /64'ü point-to-point, LAN'a dağıtılan prefix ayrı Routed /64 veya /48. DDNS `https://ipv4.tunnelbroker.net/nic/update?hostname=<ID>` Basic Auth ile, good/nochg/badauth/abuse cevapları ayrıştırılır; WAN IPv4 değişiminde on-connect zincirinden tetiklenir. Firewall IPv4 WAN'da `ip protocol 41 accept` açar, IPv6 için MASQUERADE uygulanmaz. DHCPv6-PD ile mutually exclusive (mod geçişinde eski düzlem `ApplyConfig` ÖNCE söker, yeni düzlem SONRA başlar).
+
+**v0.3.x-v0.5.0 — Gözlemlenebilirlik, şifreli DNS, yedekleme, S2S**
+
+- Prometheus `/metrics` endpoint — LAN-only (mevcut LANOnly middleware), no auth, exposition format 0.0.4. Stdlib-only writer (~50 LOC `fmt.Fprintf`), client_golang dep yok. ~30 metric family: build/uptime/CPU/RAM/temp/iface bytes/DHCP/DNS/per-client bandwidth (64 cap, SHA1[:4] MAC hash)/WG peers/S2S/OpenVPN/backup/PPPoE/IPv6/firewall. Composer nil-safe: bir alt sistem ölü olsa scrape'in tamamı düşmez.
+- DNS-over-HTTPS upstream — `/dns` sayfasında "DNS Şifreleme Modu" kartı: Plain / DoT / DoH radyosuyla seçim. Unbound DoH upstream'i HİÇBİR sürümde desteklemediği için (NLnetLabs/unbound#525 hâlâ açık), `dnscrypt-proxy` Debian paketi 127.0.0.1:5353'te localhost-only dinler ve Unbound `forward-zone "."` ile oraya yönlendirir. 10 hazır sağlayıcı (Cloudflare/Quad9/Google/AdGuard/Mullvad) + `https://host/dns-query` URL veya `sdns://` stamp özel girişi. SSRF guard, port allowlist, char allowlist; native `dnsmessage` ile probe (5s outer timeout). DoT ile mutex. Uygulama sırası yöne bağlıdır: AÇARKEN önce dnscrypt-proxy sonra Unbound reload, KAPATIRKEN önce Unbound reload sonra dnscrypt-proxy stop.
+- Backup snapshot scheduling — `/backup` sayfası ile cron-bazlı otomatik şifreli dışa aktarım. Local + S3-uyumlu (SigV4 native, aws-sdk-go yok) + SFTP (`pkg/sftp`) hedefleri, per-target retention, 50 girişlik history ring buffer. Cron parser `@hourly`/`@daily`/`@weekly`/`@monthly`/`@yearly` aliases + 5 alan destekli (`*`, n, n-m, n,m,p, `*/k`); range+step (`1-10/2`) uygulanMAdı. Vixie DOM/DOW semantiği. Hedef başına atomic write (tmp + rename local/sftp; tek PUT s3). AES-256-GCM scrypt pipeline'ına bağlı; boş passphrase form alanı stored değeri korur. SFTP hedefi `hostKeyFingerprint` pinlenene kadar bağlanmayı reddeder ve red mesajı sunucunun sunduğu parmak izini adlandırır.
+- Per-client (per-MAC) bandwidth grafiği — `lankeeper_qos` nftables tablosuyla per-MAC counter çiftleri (forward chain priority -200), `/events/qos` SSE kanalı, `/qos` sayfasında canlı tablo + sparkline. CAKE class stats yerine nftables forward sayaçları kullanıldı (CAKE per-host stats netlink-only; pretty-print yok). Counter id'si `SHA1(normalize edilmiş MAC)[:4]`, tavan 64 istemci.
+- WireGuard site-to-site sihirbazı — iki LANKeeper arasında HMAC-imzalı invite + ack token alışverişiyle tek-tıklık peer kurulumu. Token zarfı Version ve Kind ("invite"/"ack") taşır, böylece rol replay'i engellenir; iki fazlı state machine, idempotent CancelInvite ve 5 dakikalık GC ticker. İmzalama anahtarı `/var/lib/lankeeper/credentials/s2s-token.key` altında, UI'dan döndürülebilir. `wg syncconf` ile canlı reload. Plain `wg`/pfSense ile birlikte çalışırlık manuel paste-config ile korunuyor.
+- OTA update — `UpdateService` GitHub Releases API'sinden `runtime.GOARCH`'a uygun tar.gz varlığını indirir, binary'yi atomik değiştirir, 60 saniyelik watchdog ile geri alır. Kalıcı update state'i `/var/lib/lankeeper/update-state.json` içinde restart'ı atlatır. GRUB boot branding'ini yeni sürümle günceller. `/api/version` auth'suz endpoint. Her release'e iki `linux-*.tar.gz` arşivi ve tam olarak `SHA256SUMS` adlı bir varlık eklenmelidir; aksi halde kurulu her router güncellemeyi görür ama uygulayamaz.
+- Preseed installer ISO + arm64 — `make iso` / `make iso-all` Docker içinde offline unattended kurulum imajı üretir; paket bağımlılıkları `dist/packages/{arch}/` altında build'ler arası cache'lenir. Hem amd64 hem arm64 hedeflenir. ISO builder root olarak çalışıp `xorriso`/`fdisk`/`dd` kullandığı için depo kökü ASLA mount edilmez: `configs/` ve `deploy/` read-only, yalnızca `dist/` yazılabilir girer.
+- Güvenlik sertleştirme — agent komut çözümlemesi `trustedBinDirs` üzerinden yeniden yapılır (doğrulanan değer ile çalıştırılan değer aynı string), UDS `root:<grup>` 0660 + `SO_PEERCRED` peer UID kontrolü, agent 16 eşzamanlı bağlantı sınırı, SSE broker başına 32 stream + 30s keep-alive, tüm outbound HTTP `safefetch.go` içindeki SSRF korumalı client'lardan geçer, CSP'ye `base-uri` ve `form-action` eklendi, CSRF token'ı auth sınırlarında döndürülür, `gosec` ve `govulncheck` CI gate'i oldu, üçüncü taraf GitHub Action'ları commit SHA'ya pinlendi.
