@@ -23,11 +23,16 @@ system:
       email: ""
       domain: ""
       provider: "letsencrypt"
+      # Empty means Let's Encrypt staging. Production allows five
+      # certificates per registered domain per week, so a fresh install
+      # must not default into it.
+      directoryUrl: ""
       dnsChallenge:
-        provider: ""
+        provider: "manual"
         apiToken: ""
     mkcert:
       caInstalled: false
+      sans: []
 
 interfaces:
   - id: "wan"

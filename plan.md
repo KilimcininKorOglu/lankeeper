@@ -32,11 +32,11 @@ Bu bölüm proje ilerledikçe güncellenir. Aşağıdaki plan metninin geri kala
 | Ölçüt | Değer |
 |---|---|
 | Go dosyası | 231 (138'i `_test.go`) |
-| Servis | 23 domain, 34 non-test dosya (`internal/services/`) |
-| Handler | 23 dosya, 118 HTTP route (`internal/web/handlers/`) |
+| Servis | 26 domain, 38 non-test dosya (`internal/services/`) |
+| Handler | 23 dosya, 133 HTTP route (`internal/web/handlers/`) |
 | Sistem config şablonu | 17 (`configs/sysconf/`) |
-| Locale anahtarı | 616 (tr.json ve en.json senkron) |
-| Agent komut whitelist | 46 komut |
+| Locale anahtarı | 679 (tr.json ve en.json senkron) |
+| Agent komut whitelist | 47 komut |
 | Harici Go bağımlılığı | 6 direct modül |
 | Hedef mimari | linux/amd64 + linux/arm64 |
 
@@ -63,11 +63,11 @@ Bu plan tasarım aşamasında yazıldı. Uygulama bazı kararları değiştirdi.
 | Konu | Plan | Gerçek |
 |---|---|---|
 | Partial endpoint şeması | Her partial için ayrı `GET /partials/*` route'u | Partial'lar sayfa handler'ı içinde render edilir; `/partials/*` route'u YOK |
-| Route sayısı ve yolları | 127 route, `/pppoe/*` gibi kısa önekler | 118 route, `/network/pppoe/*` gibi alan altına yuvalanmış yollar |
+| Route sayısı ve yolları | 127 route, `/pppoe/*` gibi kısa önekler | 133 route, `/network/pppoe/*` gibi alan altına yuvalanmış yollar |
 | Kaynak düzenleme | Çoğu liste için POST + PUT + DELETE | Ekle + sil; PUT yok, toggle yalnızca firewall kuralları ve açık portlarda |
 | Harici Go bağımlılığı | 3 modül | 6 direct modül (DoT/DoH probe, SFTP hedefi, fsnotify eklendi) |
 | Sayfa dağılımı | Interface, VLAN, PPPoE, health ayrı sayfalar | Hepsi tek `network.html` sayfasında; ayrıca planda olmayan `ipv6.html`, `backup.html`, `vpn-s2s.html` eklendi |
-| Config şeması | 17 üst düzey anahtar | 19 anahtar (`routing`, `backup` eklendi; `ipv6.tunnel` alt bloğu 6in4 için eklendi) |
+| Config şeması | 17 üst düzey anahtar | 19 anahtar (`routing`, `backup` eklendi; `ipv6.tunnel` alt bloğu 6in4 için, `system.tls.acme.directoryUrl` ve `system.tls.mkcert.sans` TLS modları için eklendi) |
 | Deploy | `scp` + `systemctl restart` | `make install`, offline preseed ISO, ve web UI'dan OTA update |
 | Release otomasyonu | `.goreleaser.yaml` (opsiyonel) | goreleaser YOK; arşiv ve checksum üretimi Makefile hedeflerinde |
 | Hedef mimari | linux/amd64 | linux/amd64 + linux/arm64 |
@@ -601,28 +601,33 @@ Web UI her zaman HTTPS üzerinden çalışır. Üç mod desteklenir:
 - İlk başlatmada Go `crypto/x509` + `crypto/ecdsa` (P-256) ile otomatik üretilir
 - SAN: LAN IP + hostname + `*.local` — tarayıcı uyarısı verir ama çalışır
 - 10 yıl geçerlilik, `/var/lib/lankeeper/tls/` altında saklanır
-- Yenileme: web UI'dan tek tıkla yeni cert üret
+- Yenileme: web UI'dan tek tıkla yeni cert üret. `EnsureTLSCert` süresi dolmamış sertifikayı KORUR, bu yüzden ayrı bir `RegenerateSelfSigned` yolu var
 
 **mkcert (LAN kullanımı):**
 - `mkcert` komutu ile lokal CA oluşturulur ve sertifika imzalanır
 - CA sertifikası LAN cihazlarına yüklenirse tarayıcı uyarısı olmaz
 - Web UI: "CA Sertifikası İndir" butonu → cihazlara import
-- Agent op: `tls.mkcert.generate` → `mkcert -install` + `mkcert {hostnames}`
-- System dependency: `mkcert` (Go binary, apt veya direct download)
+- Agent komutu: whitelist'e `mkcert` eklendi; `CAROOT` agent tarafındaki `commandEnv` tablosunda sabit
+- `mkcert -install` ÇAĞRILMAZ: router istemci değil sunucu; CA zaten ilk imzada oluşur
+- Sertifika `/var/lib/lankeeper/mkcert/` altına stage'lenir, okunur ve serving dizinine servis kullanıcısı tarafından yazılır (agent root çalıştığı için doğrudan yazım okunamayan bir key bırakırdı)
+- System dependency: `mkcert` (Debian paketi; hem `deploy/install.sh` hem `deploy/iso/build-iso.sh` listelerinde)
 
 **Let's Encrypt (ACME):**
 - LAN-only router'da HTTP-01 challenge çalışmaz → DNS-01 challenge zorunlu
-- Desteklenen DNS provider'lar: Cloudflare, Route53, manual (TXT record)
-- Go ACME client: `golang.org/x/crypto/acme/autocert` veya `lego` kütüphanesi
+- Desteklenen DNS provider'lar: Cloudflare (API) ve manual (TXT record). Route53 kapsam dışı
+- Go ACME client: `golang.org/x/crypto/acme` (RFC 8555 doğrudan; `autocert` HTTP-01/TLS-ALPN odaklı, `lego` yeni bir modül olurdu)
+- Varsayılan CA ortamı **staging**: production haftada beş sertifika ile sınırlı, yanlış yapılandırma günlerce bekletir
+- Tüm outbound istekler `safefetch.go` içindeki korumalı client üzerinden gider
 - Public domain gerekli (ör: `router.example.com`)
 - Otomatik yenileme: cert expire'a 30 gün kala goroutine ile renew
-- DNS API token'ı `.credentials.enc`'de saklanır
+- DNS API token'ı `enc:v1:` AES-256-GCM ile `router.yaml` içinde şifreli saklanır ve forma geri yazılmaz
 
 **Ortak:**
 - Tüm modlarda HSTS header gönderilmez (LAN-only, IP erişimi bozulur)
 - TLS 1.2+ zorunlu, TLS 1.0/1.1 kapalı
 - Cipher suite: Go'nun varsayılan güvenli seti (ECDHE + AES-GCM)
-- Sertifika değişikliği anında uygulanır (graceful restart)
+- Sertifika değişikliği `systemctl restart lankeeper.target` ile uygulanır; restart HTTP cevabı yazıldıktan SONRA ayrı bir goroutine'den tetiklenir
+- Mod değişimi sırası kesindir: önce sertifika üretilir ve doğrulanır, ANCAK ondan sonra mod yazılır. Ters sıra operatörü kendi router'ından kilitler
 
 ### 9. Deployment: İki Katmanlı Kurulum
 
@@ -699,12 +704,11 @@ lankeeper/
 │   │   ├── defaults.go           # Varsayılan config değerleri
 │   │   └── validate.go           # Config doğrulama
 │   ├── web/
-│   │   ├── server.go             # HTTP sunucu setup, tüm servis/handler wiring, setupRoutes (118 route)
+│   │   ├── server.go             # HTTP sunucu setup, tüm servis/handler wiring, setupRoutes (133 route)
 │   │   ├── middleware.go         # CSRF, rate limit, LAN-only, security headers, request log
 │   │   ├── auth.go               # Login/logout, session/cookie, bcrypt
 │   │   ├── login_guard.go        # Login lockout + brute-force sayacı
 │   │   ├── errors.go             # Lokalize HTTP hata cevapları
-│   │   ├── firstboot.go          # İlk açılış br0 köprüsü (TANIMLI, ÜRETİMDE ÇAĞRILMIYOR)
 │   │   ├── sse.go                # SSE broker (broker başına 32 stream sınırı + 30s keep-alive)
 │   │   └── handlers/
 │   │       ├── dashboard.go      # GET / → dashboard sayfası
@@ -756,6 +760,10 @@ lankeeper/
 │   │   ├── system.go             # Hostname, timezone, şifre, reboot, factory reset
 │   │   ├── update.go             # OTA update: GitHub Releases + 60s watchdog rollback
 │   │   ├── safefetch.go          # SSRF korumalı paylaşılan HTTP client'ları
+│   │   ├── tls.go                # Sertifika modları: self-signed yeniden üretme, mkcert
+│   │   ├── acme.go               # ACME RFC 8555 akışı + 30 gün kala yenileme döngüsü
+│   │   ├── acme_dns.go           # DNS-01 sağlayıcıları: Cloudflare API + manual
+│   │   ├── firstboot.go          # İlk açılış br0 köprüsü (serve.go içinde devrede)
 │   │   ├── backup.go             # Config export/import + scrypt AES-GCM pipeline
 │   │   ├── backup_local.go       # Local hedef (/var/lib/lankeeper/backups/ whitelist)
 │   │   ├── backup_s3.go          # S3-uyumlu hedef, native SigV4 (aws-sdk-go YOK)
@@ -830,10 +838,12 @@ lankeeper/
 │   │       ├── chart.js          # Canvas-based grafik helper
 │   │       ├── qos-chart.js      # Per-client bandwidth SSE tablosu + sparkline
 │   │       ├── vpn-s2s.js        # S2S sihirbazı adım geçişleri
+│   │       ├── qrcode.js         # ISO/IEC 18004 encoder (byte mode, v1-40, EC L/M)
+│   │       ├── qr-modal.js       # QR modal'ı: fetch + canvas, delegasyonlu dinleyici
 │   │       └── app.js            # Tema toggle, chart init
 │   ├── locales/
-│   │   ├── tr.json               # Türkçe çeviriler (616 anahtar)
-│   │   └── en.json               # İngilizce çeviriler (616 anahtar)
+│   │   ├── tr.json               # Türkçe çeviriler (679 anahtar)
+│   │   └── en.json               # İngilizce çeviriler (679 anahtar)
 │   └── embed.go                  # go:embed ile static + template + locale'leri binary'ye göm
 ├── configs/
 │   ├── sysconf/                  # 17 sistem config şablonu, hepsi servislere bağlı
@@ -887,7 +897,8 @@ lankeeper/
 │   ├── workflow_pins_test.go     # CI action SHA pinleri
 │   ├── iso_mounts_test.go        # ISO builder bind mount şekli
 │   ├── gomod_markers_test.go     # go.mod direct/indirect require blokları
-│   └── formatting_test.go        # gofmt + .golangci.yml formatter girdisi
+│   ├── formatting_test.go        # gofmt + .golangci.yml formatter girdisi
+│   └── qr_assets_test.go         # QR encoder lisans başlığı, ağ/HTML sink yokluğu, şablon bağları
 ├── .github/
 │   └── workflows/
 │       └── ci.yml                # 7 gate: build, test, vet, lint, govulncheck, gosec, cross-all
@@ -965,12 +976,16 @@ system:
       enabled: false
       email: ""                          # ACME hesap e-posta
       domain: ""                         # Public domain (ör: router.example.com)
-      provider: "letsencrypt"            # letsencrypt | letsencrypt-staging
+      provider: "letsencrypt"            # bilgilendirme; CA seçimi directoryUrl ile
+      directoryUrl: ""                   # boş = Let's Encrypt STAGING (production haftada 5 ile sınırlı)
       dnsChallenge:                      # DNS-01 challenge (LAN-only router için HTTP-01 çalışmaz)
-        provider: ""                     # cloudflare | route53 | manual
-        apiToken: ""                     # .credentials.enc'den
+        provider: ""                     # cloudflare | manual (route53 kapsam dışı)
+        apiToken: "enc:v1:..."           # AES-256-GCM, forma geri yazılmaz
     mkcert:
       caInstalled: false                 # mkcert CA'sı cihazlara yüklenmiş mi (bilgilendirme)
+      sans:                              # Son mkcert sertifikasının adları
+        - "lankeeper.lan"
+        - "10.10.10.1"
 
 interfaces:
   - id: "wan"                            # Sistem içi tanımlayıcı (değiştirilemez)
@@ -1346,6 +1361,8 @@ backup:                                    # Zamanlanmış şifreli yedekleme
 | Method | Path                                | Açıklama                            |
 |--------|-------------------------------------|-------------------------------------|
 | GET    | /network                            | Interface + VLAN + PPPoE + USB + health tek sayfa |
+| POST   | /network/interface                  | Arayüz ekle/güncelle (rol + tip doğrulaması) |
+| DELETE | /network/interface/{id}             | Arayüz sil (son LAN arayüzü reddedilir) |
 | POST   | /network/vlan                       | VLAN ekle                           |
 | DELETE | /network/vlan/{id}                  | VLAN sil                            |
 | POST   | /network/pppoe/connect              | PPPoE bağlan                        |
@@ -1353,6 +1370,13 @@ backup:                                    # Zamanlanmış şifreli yedekleme
 | POST   | /network/pppoe/sniff/start          | Credential yakalama başlat          |
 | POST   | /network/pppoe/sniff/stop           | Credential yakalama durdur          |
 | POST   | /network/healthcheck/{name}/reset   | Failure counter sıfırla             |
+| GET    | /network/healthcheck/status         | Health kartı partial (10s'de bir tazelenir) |
+| POST   | /network/usb/enable                 | USB tethering'i etkinleştir         |
+| POST   | /network/usb/disable                | USB tethering'i devre dışı bırak    |
+| POST   | /network/usb/activate               | USB rotasına geç (telefon yoksa 400) |
+| POST   | /network/usb/deactivate             | USB rotasından çık                  |
+| POST   | /network/usb/auto-failover          | Otomatik yedeklemeyi aç/kapat       |
+| POST   | /network/first-boot/complete        | İlk açılış kurulumunu bitir (bayrağı sil) |
 
 ### Firewall
 
@@ -1367,6 +1391,7 @@ backup:                                    # Zamanlanmış şifreli yedekleme
 | POST   | /firewall/open-ports/{index}/toggle   | Açık portu etkinleştir/devre dışı |
 | POST   | /firewall/port-forwards               | Port yönlendirme ekle             |
 | DELETE | /firewall/port-forwards/{index}       | Port yönlendirme sil              |
+| POST   | /firewall/ttl-fix                     | TTL fix aç/kapat + değer (1-255)  |
 | POST   | /firewall/apply                       | Ruleset uygula (30s watchdog arm) |
 | POST   | /firewall/confirm                     | Watchdog onayı                    |
 | POST   | /firewall/rollback                    | Manuel geri alma                  |
@@ -1423,6 +1448,7 @@ backup:                                    # Zamanlanmış şifreli yedekleme
 | POST   | /vpn/server/start                | WG server başlat                      |
 | POST   | /vpn/server/stop                 | WG server durdur                      |
 | POST   | /vpn/server/peer                 | Peer ekle (keypair otomatik üretilir) |
+| GET    | /vpn/server/peer/{name}/config   | Peer config'i yeniden indir (no-store) |
 | DELETE | /vpn/server/peer/{name}          | Peer sil                              |
 
 ### WireGuard Site-to-Site
@@ -1510,6 +1536,10 @@ backup:                                    # Zamanlanmış şifreli yedekleme
 | POST   | /settings/timezone         | Timezone değiştir (tz-database doğrulama)   |
 | POST   | /settings/web-password     | Web UI şifresi değiştir                     |
 | POST   | /settings/root-password    | Sistem root şifresi değiştir                |
+| POST   | /settings/tls/regenerate   | Self-signed sertifikayı yeniden üret        |
+| POST   | /settings/tls/mode         | TLS modunu değiştir (self-signed / mkcert)  |
+| GET    | /settings/tls/ca           | mkcert CA sertifikasını indir (no-store)    |
+| POST   | /settings/tls/acme         | ACME yapılandır + ilk sertifikayı al        |
 | GET    | /system/backup/export      | Config dışa aktar (Cache-Control: no-store) |
 | POST   | /system/backup/import      | Config içe aktar (MaxBytesReader'lı upload) |
 | POST   | /system/factory-reset      | Gömülü defaults'tan fabrika ayarları        |
@@ -1532,7 +1562,7 @@ require (
     github.com/fsnotify/fsnotify v1.10.1   // ipv6.go — DHCPv6 lease dosyası izleme
     github.com/gorilla/sessions v1.4.0     // Cookie-based session
     github.com/pkg/sftp v1.13.10           // backup_sftp.go — PosixRename ile atomic overwrite
-    golang.org/x/crypto v0.54.0            // bcrypt, scrypt, ssh (SFTP taşıyıcısı)
+    golang.org/x/crypto v0.54.0            // bcrypt, scrypt, ssh (SFTP taşıyıcısı), acme (RFC 8555)
     golang.org/x/net v0.56.0               // dns/dnsmessage — DoT/DoH probe
     gopkg.in/yaml.v3 v3.0.1                // Config YAML parse
 )
@@ -1593,8 +1623,8 @@ apt-get install -y -qq \
 
 **Plan ile fark:**
 
-- `mkcert` kuruluma DAHİL DEĞİL. `internal/config/tls.go` `mkcert` ve `acme` modlarını destekler ama ikisi de config dosyasından elle seçilir ve gerekli araç kurulmaz. Varsayılan `self-signed` ECDSA P-256 otomatik üretilir.
-- `qrencode` kuruluyor ama HİÇBİR Go kodu onu çağırmıyor. QR kodu üretimi (WireGuard peer, OpenVPN client) planlandı, uygulanMAdı.
+- `mkcert` artık her iki listede de var ve mod `/settings` sayfasından seçilir. Varsayılan yine `self-signed` ECDSA P-256, otomatik üretilir. ACME ek paket gerektirmez (`golang.org/x/crypto/acme` zaten direct bağımlılık).
+- `qrencode` hâlâ kuruluyor ama artık gereksiz: QR üretimi tarayıcıda, `web/static/js/qrcode.js` içinde yapılıyor ve hiçbir Go kodu bu binary'yi çağırmıyor. İki listeden de çıkarılabilir.
 - `dnscrypt-proxy`, `curl`, `jq`, `hdparm` plan yazıldıktan sonra eklendi.
 
 ISO kurulum yolu ayrı bir paket listesi kullanır (`LANKEEPER_PACKAGES`, `deploy/iso/build-iso.sh`). İki liste birebir aynı DEĞİLDİR: ISO ayrıca Debian Standard task'ı, `dbus`, `openssh-server` ve `htop` taşır. Yeni bir sistem paketi eklerken İKİ listeyi birden güncelleyin.
@@ -2282,10 +2312,10 @@ Adımlar:
        ```
      - İki mod: full tunnel (tüm trafik router üzerinden) veya split tunnel (sadece LAN'a erişim)
      - İndirme: `GET /vpn/server/peer/{name}/config` → `.conf` dosyası
-   - **QR kodu (mobil cihazlar için):**
-     - Go'da QR üretimi: `go-qrcode` kütüphanesi veya `exec.Command("qrencode")`
-     - Client config string → QR PNG → base64 → `<img>` tag ile web UI'da göster
-     - WireGuard mobil app: QR kodu okut → tek tıkla bağlan
+   - **QR kodu (mobil cihazlar için):** UYGULANDI, ama tarayıcı tarafında
+     - Go'da üretim REDDEDİLDİ: `go-qrcode` yedinci bir modül olurdu, `exec.Command("qrencode")` ise private key'i root agent'a argüman olarak verir ve `ps` çıktısında görünür kılardı
+     - `web/static/js/qrcode.js` elle yazılmış ISO/IEC 18004 encoder; config aynı indirme endpoint'inden `fetch` ile alınır ve `<canvas>` üzerine çizilir (`<img>`/base64 DEĞİL, HTML sink'inden kaçınmak için)
+     - WireGuard mobil app: QR kodu okut → tek tıkla bağlan. OpenVPN profilleri gömülü sertifikalarla QR kapasitesini aştığı için modal "çok büyük" der ve indirmeye yönlendirir
    - **Endpoint adresi:**
      - Router'ın WAN IP'si: ppp0 interface'den oku
      - DDNS desteği: configurable hostname (ör: `ev.example.com`)
@@ -2735,16 +2765,9 @@ Aşağıdakiler ya hiç başlamadı ya da yarım kaldı. Sıralama öncelik beli
 
 **Planlanmış ama uygulanMAmış işler:**
 
-- **QR kodu üretimi.** `qrencode` `install.sh` ile kuruluyor ama hiçbir Go kodu onu çağırmıyor. WireGuard peer ve OpenVPN client config'lerini mobil uygulamalara aktarmak için planlanmıştı; `/vpn/server/peer/{name}/qr` ve `/openvpn/server/client/{name}/qr` route'ları yok.
-- **WireGuard peer config indirme.** OpenVPN'de `GET /openvpn/server/client/{name}/config` var, WireGuard'da karşılığı yok. Peer eklendikten sonra config'i UI'dan almanın yolu bulunmuyor.
-- **TLS yönetim arayüzü.** `internal/config/tls.go` `self-signed`, `mkcert` ve `acme` modlarını destekliyor ama `/settings` sayfası yalnızca mevcut modu OKUYOR. Mod değiştirme, sertifika yeniden üretme ve mkcert CA indirme route'ları yok; üç mod da yalnızca config dosyası düzenlenerek seçilebiliyor. `mkcert` paketi ayrıca kurulmuyor.
-- **USB tethering kontrolü.** `internal/services/usbtethering.go` ve `network.html` içindeki durum göstergesi mevcut, fakat enable/disable/activate/deactivate route'ları yok. Failover yalnızca health check zinciri üzerinden otomatik tetikleniyor, operatör elle devreye alamıyor.
-- **TTL Fix arayüzü.** Config alanı (`firewall.ttlFix`), servis desteği ve nftables şablonu hazır; firewall sayfası değerleri gösteriyor ama değiştirecek route yok.
-- **Health check durum endpoint'i.** `handlers.HealthCheckHandler.HandleStatus` yazılmış ama hiçbir route'a bağlanMAmış (ölü kod). Yalnızca `POST /network/healthcheck/{name}/reset` canlı.
-- **Kaynak düzenleme (PUT) route'ları.** Plan çoğu liste için ekle/düzenle/sil öngörüyordu; uygulama ekle + sil ile yetindi. Firewall kuralları ve açık portlar dışında toggle da yok. PBR politikaları düzenlenemiyor, yalnızca silinip yeniden eklenebiliyor.
+- **Kaynak düzenleme (PUT) route'ları.** Plan çoğu liste için ekle/düzenle/sil öngörüyordu; uygulama ekle + sil ile yetindi. Arayüzler istisna: `POST /network/interface` aynı id ile gönderildiğinde günceller. Firewall kuralları ve açık portlar dışında toggle yok, PBR politikaları düzenlenemiyor, yalnızca silinip yeniden eklenebiliyor.
 - **WireGuard client tüneli CRUD.** `/vpn/client/{name}/connect` ve `/disconnect` var; tünel ekleme ve silme yok. Outbound tüneller yalnızca config dosyasından tanımlanıyor.
 - **`/events/healthcheck` ve `/events/routing` SSE kanalları.** Yalnızca `/events/stats` ve `/events/qos` uygulandı.
-- **First-boot köprüsü.** `internal/web/firstboot.go` tam API'yi (`IsFirstBoot`, `SetupFirstBootNetworking`, `TeardownFirstBootBridge`, `RemoveFirstBootBridge`) export ediyor ve `deploy/iso/post-install.sh` `/var/lib/lankeeper/.first-boot` bayrağını oluşturuyor, fakat üretimde hiçbir kod yolu bunları ÇAĞIRMIYOR. Yalnızca `firstboot_test.go` referans veriyor. Bayrağın tüketildiğini varsaymayın; davranış gerekiyorsa `serve.go` içinde bağlayın.
 
 **Yeni fikirler:**
 
@@ -2756,8 +2779,20 @@ Aşağıdakiler ya hiç başlamadı ya da yarım kaldı. Sıralama öncelik beli
 - `.claude/skills/version-update/` hâlâ `CHANGELOG.md` üzerinden çalışıyor (Step 4 dosyayı günceller, Step 5 stage'ler, Step 9 release notlarını awk ile çıkarır) ama `CHANGELOG.md` depodan silindi. Skill şu anda çalışmaz; ya onarılmalı ya changelog geri getirilmeli.
 - `ci.yml` ve `buildsys/workflow_pins_test.go` içindeki `actions/*` tag muafiyetinin gerekçesi Dependabot'a dayanıyor, fakat `.github/dependabot.yml` kaldırıldı. Tag'ler artık elle bump ediliyor; gerekçe metni bunu yansıtmıyor.
 - `dns.go` ve `monitor.go` içindeki iki `bufio.Scanner` döngüsü `scanner.Err()` kontrol etmiyor. golangci-lint yakalamıyor, yalnızca gopls işaretliyor.
+- **Satır içi event handler'lar CSP ile çelişiyor.** Sunucu `script-src 'self'` gönderiyor, `'unsafe-inline'` YOK. 11 şablonda 35 `onclick`/`onchange` özniteliği ve birkaç `hx-on` var; hiçbiri tarayıcıda çalışmaz. "Peer ekle", "İstemci ekle" gibi form açma butonları bu yüzden ölü. Ya hepsi delegasyonlu dinleyiciye taşınmalı ya da politika gevşetilmeli; ikincisi XSS yüzeyini geri açar. QR tetikleyicileri bilinçli olarak `data-qr-url` ile yazıldı ve `buildsys/qr_assets_test.go` bunu koruyor.
+- **`qrencode` paketi artık kullanılmıyor.** Hem `deploy/install.sh` hem `deploy/iso/build-iso.sh` listelerinde duruyor, fakat QR üretimi tarayıcı tarafında yapılıyor ve hiçbir Go kodu bu binary'yi çağırmıyor. İki listeden de çıkarılabilir.
+- **ACME canlı yolu doğrulanMAdı.** Cloudflare istek şekli, zone arama, manual challenge sözleşmesi ve yenileme kararı testlerle kapsanıyor; gerçek bir CA'ya karşı uçtan uca akış (Let's Encrypt staging + public domain) bu ortamda çalıştırılamadı.
 
 ### Tamamlananlar
+
+**Boşluk kapatma turu — arayüzden erişilemeyen özellikler**
+
+- Health check durum partial'ı route'a bağlandı (`GET /network/healthcheck/status`, 10 saniyede bir tazelenir) ve `network.html` içindeki ikinci, reset butonsuz kopya kaldırıldı. Aynı turda `partials/healthcheck.html` `.HealthChecks` yerine `.Data.HealthChecks` okuyacak şekilde düzeltildi: sayfa yolunda `.Data` bir map olduğu için eksik anahtar sessizce boş dönüyordu, `RenderPartial` yolunda ise aynı arama `*PageData` üzerinde eksik alan, yani execute hatası oluyordu.
+- TTL fix, USB tethering (enable/disable/activate/deactivate/auto-failover) ve arayüz düzenleme route'ları eklendi. Arayüz silme son LAN arayüzünü reddeder; USB activate telefon bağlı değilken 400 döner.
+- First-boot köprüsü `serve.go` içinde devreye alındı. Hata ölümcül değil: köprü bir erişilebilirlik kolaylığı, onun yüzünden açılışı reddetmek DNS, DHCP ve firewall'ı da düşürürdü. `Complete` bayrağı siler ama köprüyü ayakta bırakır, çünkü operatörün bağlı olduğu adresi o taşır; kaldırma ayrı ve açık bir kontrol.
+- WireGuard peer private key'leri `enc:v1:` AES-256-GCM ile saklanmaya başladı ve config yeniden indirilebilir oldu (`GET /vpn/server/peer/{name}/config`). Şifreleme sırasında peer slice'ı derin kopyalanır; yüzeysel kopya çalışan process'e ciphertext bırakırdı. Key'i olmayan (alan eklenmeden önce yazılmış) peer'lar çalışmaya devam eder, yalnızca yeniden indirme kaybolur ve UI bunu rozetle söyler.
+- QR kodu üretimi tarayıcıda: `web/static/js/qrcode.js` elle yazılmış bir ISO/IEC 18004 encoder (byte mode, sürüm 1-40, EC L/M). Go tarafında yapmak ya yedinci bir modül eklerdi ya da private key'i root agent'a komut argümanı olarak verirdi, orada `ps` çıktısında görünürdü. Config mevcut indirme endpoint'inden `fetch` ile alınır, `<canvas>` üzerine çizilir, `innerHTML` kullanılmaz. Kodword akışı bağımsız bir referans uygulamayla 372 yük üzerinde, fonksiyon desenleri ve version bilgisi 40 sürümün tamamında karşılaştırıldı; çözme testi 372 sentetik yükte ve gerçek WireGuard config'lerinde (UTF-8 dahil) geçti.
+- TLS üç modu da UI'dan yönetilebilir: self-signed yeniden üretme, mkcert (CA indirme dahil) ve ACME DNS-01 (Cloudflare + manual, varsayılan staging, 30 gün kala otomatik yenileme). Her mod geçişi aynı sırayı izler: üret, doğrula, modu yaz, yeniden başlat.
 
 **v0.2.0 — IPv6 Operator Visibility**
 
