@@ -460,8 +460,15 @@ type WGServerConfig struct {
 }
 
 type WGServerPeer struct {
-	Name          string   `yaml:"name"`
-	PublicKey     string   `yaml:"publicKey"`
+	Name      string `yaml:"name"`
+	PublicKey string `yaml:"publicKey"`
+	// PrivateKey belongs to the peer, not to this router, and is kept
+	// only so the peer's config and QR can be produced again after the
+	// one-shot download at creation. Encrypted at rest behind the
+	// enc:v1: prefix, see secrets.go. An empty value means the peer
+	// predates this field: it keeps working, because the server only
+	// needs PublicKey, but its config cannot be regenerated.
+	PrivateKey    string   `yaml:"privateKey,omitempty"`
 	PresharedKey  string   `yaml:"presharedKey"`
 	AllowedIPs    string   `yaml:"allowedIPs"`
 	Keepalive     int      `yaml:"keepalive"`

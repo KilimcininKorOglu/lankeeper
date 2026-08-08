@@ -65,8 +65,14 @@ func newAllocTestVPN(t *testing.T) (*services.VPNService, *config.Config) {
 	netutil.SetAgentClient(&wgKeyAgent{})
 	t.Cleanup(func() { netutil.SetAgentClient(nil) })
 
+	dir := t.TempDir()
+	// AddPeer stores the peer's private key, so persisting now needs
+	// the credential encryption key, and its default location is under
+	// /var/lib where a test cannot write.
+	t.Setenv("LANKEEPER_CONFIG_KEY", filepath.Join(dir, "config.key"))
+
 	cfg := &config.Config{}
-	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
+	cfg.SetFilePath(filepath.Join(dir, "router.yaml"))
 	cfg.VPN.Server.Enabled = true
 	cfg.VPN.Server.ListenPort = 51820
 	cfg.VPN.Server.Address = "10.10.11.1/24"

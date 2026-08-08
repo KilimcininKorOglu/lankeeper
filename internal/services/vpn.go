@@ -304,8 +304,12 @@ func (s *VPNService) AddPeer(ctx context.Context, name string, siteToSite bool, 
 	}
 
 	peer := config.WGServerPeer{
-		Name:          name,
-		PublicKey:     pubKey,
+		Name:      name,
+		PublicKey: pubKey,
+		// Kept so the config can be handed over again later. The
+		// caller still receives it directly for the one-shot download,
+		// so this changes what survives, not what happens now.
+		PrivateKey:    privKey,
 		PresharedKey:  psk,
 		AllowedIPs:    allowedIPs,
 		Keepalive:     25,

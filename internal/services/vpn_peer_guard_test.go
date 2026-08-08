@@ -65,8 +65,13 @@ func newPeerGuardService(t *testing.T) (*VPNService, *wgKeyAgent) {
 	netutil.SetAgentClient(agent)
 	t.Cleanup(func() { netutil.SetAgentClient(nil) })
 
+	dir := t.TempDir()
+	// See newAllocTestVPN: AddPeer now persists a secret, which needs
+	// the credential key, and its default path is not writable here.
+	t.Setenv("LANKEEPER_CONFIG_KEY", filepath.Join(dir, "config.key"))
+
 	cfg := config.DefaultConfig()
-	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
+	cfg.SetFilePath(filepath.Join(dir, "router.yaml"))
 	cfg.Interfaces = []config.InterfaceConfig{
 		{ID: "lan0", Device: "eth1", Role: "lan", Address: "10.10.10.1/24"},
 	}

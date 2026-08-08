@@ -131,6 +131,14 @@ func (c *Config) hasSecrets() bool {
 			return true
 		}
 	}
+	if c.VPN.Server.PrivateKey != "" {
+		return true
+	}
+	for _, p := range c.VPN.Server.Peers {
+		if p.PrivateKey != "" {
+			return true
+		}
+	}
 	return false
 }
 
@@ -168,6 +176,24 @@ func withEncryptedSecrets(cfg *Config) (*Config, error) {
 		}
 	}
 
+	out.VPN.Server.PrivateKey, err = encryptSecret(cfg.VPN.Server.PrivateKey, key)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt wireguard server private key: %w", err)
+	}
+
+	// Peers sit two levels down, but the copy is just as shallow: the
+	// slice inside out.VPN.Server still points at the caller's backing
+	// array, so rewriting a peer in place would leave the running
+	// process holding ciphertext where it expects a usable key.
+	out.VPN.Server.Peers = make([]WGServerPeer, len(cfg.VPN.Server.Peers))
+	copy(out.VPN.Server.Peers, cfg.VPN.Server.Peers)
+	for i := range out.VPN.Server.Peers {
+		p := &out.VPN.Server.Peers[i]
+		if p.PrivateKey, err = encryptSecret(p.PrivateKey, key); err != nil {
+			return nil, fmt.Errorf("encrypt private key for peer %q: %w", p.Name, err)
+		}
+	}
+
 	return &out, nil
 }
 
@@ -181,9 +207,14 @@ func withEncryptedSecrets(cfg *Config) (*Config, error) {
 // scheduled run fail with a message naming the target, so the loss is
 // visible without being fatal.
 func (c *Config) decryptSecretsInPlace() {
-	needsKey := isEncrypted(c.Backup.Passphrase)
+	needsKey := isEncrypted(c.Backup.Passphrase) || isEncrypted(c.VPN.Server.PrivateKey)
 	for _, t := range c.Backup.Targets {
 		if isEncrypted(t.SecretAccessKey) || isEncrypted(t.Password) {
+			needsKey = true
+		}
+	}
+	for _, p := range c.VPN.Server.Peers {
+		if isEncrypted(p.PrivateKey) {
 			needsKey = true
 		}
 	}
@@ -221,6 +252,30 @@ func (c *Config) decryptSecretsInPlace() {
 			t.Password = v
 		}
 	}
+
+	// A lost server key is worse than a lost peer key: without it
+	// wg-quick cannot bring the interface up at all, so it is named
+	// separately rather than folded into the peer loop.
+	if v, err := decryptSecret(c.VPN.Server.PrivateKey, key); err != nil {
+		log.Printf("config: cannot decrypt the wireguard server private key: %v; the VPN server cannot start until it is regenerated", err)
+		c.VPN.Server.PrivateKey = ""
+	} else {
+		c.VPN.Server.PrivateKey = v
+	}
+
+	for i := range c.VPN.Server.Peers {
+		p := &c.VPN.Server.Peers[i]
+		if v, err := decryptSecret(p.PrivateKey, key); err != nil {
+			// The peer keeps working: the server only needs its public
+			// key. What is lost is the ability to hand the operator the
+			// peer's config again, which the page reports rather than
+			// hiding.
+			log.Printf("config: cannot decrypt the private key for peer %q: %v; its config can no longer be re-issued", p.Name, err)
+			p.PrivateKey = ""
+		} else {
+			p.PrivateKey = v
+		}
+	}
 }
 
 // clearEncryptedSecrets blanks every value that is ciphertext we cannot
@@ -237,6 +292,14 @@ func (c *Config) clearEncryptedSecrets() {
 		}
 		if isEncrypted(t.Password) {
 			t.Password = ""
+		}
+	}
+	if isEncrypted(c.VPN.Server.PrivateKey) {
+		c.VPN.Server.PrivateKey = ""
+	}
+	for i := range c.VPN.Server.Peers {
+		if isEncrypted(c.VPN.Server.Peers[i].PrivateKey) {
+			c.VPN.Server.Peers[i].PrivateKey = ""
 		}
 	}
 }
