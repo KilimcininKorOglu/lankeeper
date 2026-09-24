@@ -47,38 +47,16 @@ func (h *QoSHandler) HandleApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if profile := r.FormValue("profile"); profile != "" {
-		if profile != "default" && profile != "gaming" && profile != "streaming" && profile != "voip" {
-			clientError(w, r, http.StatusBadRequest, "error.invalidQoSProfile")
-			return
-		}
-		h.cfg.QoS.Profile = profile
+	// The whole form is validated before the config is touched. The live
+	// config is shared, so a field assigned before a later one failed
+	// would stay in memory and reach disk on the next successful save.
+	next, key := parseQoSForm(r, h.cfg.QoS)
+	if key != "" {
+		clientError(w, r, http.StatusBadRequest, key)
+		return
 	}
-	if upload := r.FormValue("uploadKbps"); upload != "" {
-		val, err := strconv.Atoi(upload)
-		if err != nil || val < 0 || val > 10000000 {
-			clientError(w, r, http.StatusBadRequest, "error.invalidUploadBandwidth")
-			return
-		}
-		h.cfg.QoS.UploadKbps = val
-	}
-	if download := r.FormValue("downloadKbps"); download != "" {
-		val, err := strconv.Atoi(download)
-		if err != nil || val < 0 || val > 10000000 {
-			clientError(w, r, http.StatusBadRequest, "error.invalidDownloadBandwidth")
-			return
-		}
-		h.cfg.QoS.DownloadKbps = val
-	}
-	if cc := r.FormValue("congestionControl"); cc != "" {
-		if cc != "bbr" && cc != "cubic" && cc != "cake" {
-			clientError(w, r, http.StatusBadRequest, "error.invalidCongestionControl")
-			return
-		}
-		h.cfg.QoS.CongestionControl = cc
-	}
+	h.cfg.QoS = next
 
-	h.cfg.QoS.Enabled = r.FormValue("enabled") == "true" || r.FormValue("enabled") == "on"
 	if err := h.cfg.SaveToFile(); err != nil {
 		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
@@ -90,6 +68,53 @@ func (h *QoSHandler) HandleApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondRefresh(w, r, "/qos")
+}
+
+// maxQoSKbps is the largest bandwidth the form accepts, 10 Gbit/s.
+const maxQoSKbps = 10000000
+
+// parseQoSForm returns current updated with the submitted fields. An
+// empty field keeps its stored value. The second result is the locale
+// key of the first invalid field, or "", in which case current is
+// returned unchanged.
+func parseQoSForm(r *http.Request, current config.QoSConfig) (config.QoSConfig, string) {
+	profile := r.FormValue("profile")
+	cc := r.FormValue("congestionControl")
+	upload, uploadOK := optionalKbps(r.FormValue("uploadKbps"), current.UploadKbps)
+	download, downloadOK := optionalKbps(r.FormValue("downloadKbps"), current.DownloadKbps)
+	if key := firstFailed(
+		check{!oneOf(profile, "", "default", "gaming", "streaming", "voip"), "error.invalidQoSProfile"},
+		check{!uploadOK, "error.invalidUploadBandwidth"},
+		check{!downloadOK, "error.invalidDownloadBandwidth"},
+		check{!oneOf(cc, "", "bbr", "cubic", "cake"), "error.invalidCongestionControl"},
+	); key != "" {
+		return current, key
+	}
+
+	next := current
+	if profile != "" {
+		next.Profile = profile
+	}
+	if cc != "" {
+		next.CongestionControl = cc
+	}
+	next.UploadKbps = upload
+	next.DownloadKbps = download
+	next.Enabled = oneOf(r.FormValue("enabled"), "true", "on")
+	return next, ""
+}
+
+// optionalKbps parses a bandwidth field, keeping current when it is
+// empty.
+func optionalKbps(raw string, current int) (int, bool) {
+	if raw == "" {
+		return current, true
+	}
+	val, err := strconv.Atoi(raw)
+	if err != nil || val < 0 || val > maxQoSKbps {
+		return 0, false
+	}
+	return val, true
 }
 
 func (h *QoSHandler) HandleClear(w http.ResponseWriter, r *http.Request) {
