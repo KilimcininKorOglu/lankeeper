@@ -50,43 +50,10 @@ func (h *NASHandler) HandleAddShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := r.FormValue("name")
-	if name == "" {
-		clientError(w, r, http.StatusBadRequest, "error.nameRequired")
+	share, key := parseShareForm(r)
+	if key != "" {
+		clientError(w, r, http.StatusBadRequest, key)
 		return
-	}
-	if len(name) > 64 || !nasNamePattern.MatchString(name) {
-		clientError(w, r, http.StatusBadRequest, "error.invalidNameCharacters")
-		return
-	}
-
-	rawPath := r.FormValue("path")
-	if rawPath == "" {
-		clientError(w, r, http.StatusBadRequest, "error.pathRequired")
-		return
-	}
-	// One helper rather than a rule per call site. The order inside it
-	// matters (character set on the raw value, prefix on the cleaned
-	// one), and the M3U sync path proved that a reimplementation loses
-	// a step.
-	path, err := services.ValidateMediaPath(rawPath)
-	switch {
-	case errors.Is(err, services.ErrMediaPathCharacters):
-		clientError(w, r, http.StatusBadRequest, "error.pathCharacters")
-		return
-	case errors.Is(err, services.ErrMediaPathPrefix):
-		clientError(w, r, http.StatusBadRequest, "error.pathPrefix")
-		return
-	case err != nil:
-		clientError(w, r, http.StatusBadRequest, "error.pathCharacters")
-		return
-	}
-
-	share := config.ShareConfig{
-		Name:     name,
-		Path:     path,
-		GuestOK:  r.FormValue("guestOk") == "true" || r.FormValue("guestOk") == "on",
-		ReadOnly: r.FormValue("readOnly") == "true" || r.FormValue("readOnly") == "on",
 	}
 
 	if err := h.nas.AddShare(share); err != nil {
@@ -98,6 +65,45 @@ func (h *NASHandler) HandleAddShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondRefresh(w, r, "/nas")
+}
+
+// parseShareForm reads a share from the form. The second result is the
+// locale key of the first invalid field, or "".
+func parseShareForm(r *http.Request) (config.ShareConfig, string) {
+	name := r.FormValue("name")
+	rawPath := r.FormValue("path")
+	if key := firstFailed(
+		check{name == "", "error.nameRequired"},
+		check{len(name) > 64 || !nasNamePattern.MatchString(name), "error.invalidNameCharacters"},
+		check{rawPath == "", "error.pathRequired"},
+	); key != "" {
+		return config.ShareConfig{}, key
+	}
+
+	// One helper rather than a rule per call site. The order inside it
+	// matters (character set on the raw value, prefix on the cleaned
+	// one), and the M3U sync path proved that a reimplementation loses
+	// a step.
+	path, err := services.ValidateMediaPath(rawPath)
+	if err != nil {
+		return config.ShareConfig{}, mediaPathErrorKey(err)
+	}
+
+	return config.ShareConfig{
+		Name:     name,
+		Path:     path,
+		GuestOK:  oneOf(r.FormValue("guestOk"), "true", "on"),
+		ReadOnly: oneOf(r.FormValue("readOnly"), "true", "on"),
+	}, ""
+}
+
+// mediaPathErrorKey maps a ValidateMediaPath error to its locale key. An
+// error of any other kind is reported as a character problem.
+func mediaPathErrorKey(err error) string {
+	if errors.Is(err, services.ErrMediaPathPrefix) {
+		return "error.pathPrefix"
+	}
+	return "error.pathCharacters"
 }
 
 func (h *NASHandler) HandleDeleteShare(w http.ResponseWriter, r *http.Request) {
