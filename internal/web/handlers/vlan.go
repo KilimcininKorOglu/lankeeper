@@ -53,15 +53,38 @@ func (h *VLANHandler) HandleAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	vlan, key := parseVLANForm(r)
+	if key != "" {
+		clientError(w, r, http.StatusBadRequest, key)
+		return
+	}
+
+	h.cfg.VLANs = append(h.cfg.VLANs, vlan)
+	if err := h.cfg.SaveToFile(); err != nil {
+		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+		return
+	}
+
+	if parentDev := h.parentDevice(vlan.Parent); parentDev != "" {
+		if err := h.network.CreateVLAN(r.Context(), parentDev, vlan.VID, vlan.Address, vlan.MTU); err != nil {
+			log.Printf("create VLAN %d: %v", vlan.VID, err)
+		}
+	}
+
+	respondRefresh(w, r, "/network")
+}
+
+// parseVLANForm reads a VLAN from the form. The second result is the
+// locale key of the first invalid field, or "". An empty or zero MTU
+// becomes 1500.
+func parseVLANForm(r *http.Request) (config.VLANConfig, string) {
 	vid, err := strconv.Atoi(r.FormValue("vid"))
 	if err != nil || netutil.ValidateVLANID(vid) != nil {
-		clientError(w, r, http.StatusBadRequest, "error.invalidVLANID")
-		return
+		return config.VLANConfig{}, "error.invalidVLANID"
 	}
 	mtu, err := strconv.Atoi(r.FormValue("mtu"))
 	if err != nil && r.FormValue("mtu") != "" {
-		clientError(w, r, http.StatusBadRequest, "error.invalidMTU")
-		return
+		return config.VLANConfig{}, "error.invalidMTU"
 	}
 	if mtu == 0 {
 		mtu = 1500
@@ -76,10 +99,9 @@ func (h *VLANHandler) HandleAdd(w http.ResponseWriter, r *http.Request) {
 		Type:     r.FormValue("type"),
 		Address:  r.FormValue("address"),
 		MTU:      mtu,
-		Isolated: r.FormValue("isolated") == "true" || r.FormValue("isolated") == "on",
+		Isolated: oneOf(r.FormValue("isolated"), "true", "on"),
 	}
-
-	if dhcpEnabled := r.FormValue("dhcpEnabled"); dhcpEnabled == "true" || dhcpEnabled == "on" {
+	if oneOf(r.FormValue("dhcpEnabled"), "true", "on") {
 		vlan.DHCP = config.VLANDHCPConfig{
 			Enabled:    true,
 			RangeStart: r.FormValue("dhcpRangeStart"),
@@ -87,28 +109,18 @@ func (h *VLANHandler) HandleAdd(w http.ResponseWriter, r *http.Request) {
 			LeaseTime:  r.FormValue("dhcpLeaseTime"),
 		}
 	}
+	return vlan, ""
+}
 
-	h.cfg.VLANs = append(h.cfg.VLANs, vlan)
-	if err := h.cfg.SaveToFile(); err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
-		return
-	}
-
-	var parentDev string
+// parentDevice returns the device of the interface with the given ID,
+// or "" when no interface has it.
+func (h *VLANHandler) parentDevice(parentID string) string {
 	for _, iface := range h.cfg.Interfaces {
-		if iface.ID == vlan.Parent {
-			parentDev = iface.Device
-			break
+		if iface.ID == parentID {
+			return iface.Device
 		}
 	}
-
-	if parentDev != "" {
-		if err := h.network.CreateVLAN(r.Context(), parentDev, vlan.VID, vlan.Address, vlan.MTU); err != nil {
-			log.Printf("create VLAN %d: %v", vlan.VID, err)
-		}
-	}
-
-	respondRefresh(w, r, "/network")
+	return ""
 }
 
 func (h *VLANHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
@@ -116,14 +128,7 @@ func (h *VLANHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 
 	for i, v := range h.cfg.VLANs {
 		if v.ID == id {
-			var parentDev string
-			for _, iface := range h.cfg.Interfaces {
-				if iface.ID == v.Parent {
-					parentDev = iface.Device
-					break
-				}
-			}
-			if parentDev != "" {
+			if parentDev := h.parentDevice(v.Parent); parentDev != "" {
 				if err := h.network.DeleteVLAN(r.Context(), parentDev, v.VID); err != nil {
 					log.Printf("vlan: delete %s.%d: %v", parentDev, v.VID, err)
 				}
