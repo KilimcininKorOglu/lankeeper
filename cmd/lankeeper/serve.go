@@ -32,31 +32,13 @@ func runServe() error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	if cfg.System.SessionSecret == "" {
-		// Checked even though crypto/rand.Read on this toolchain never
-		// returns an error and crashes the program if its source fails.
-		// This value signs every session cookie, so refusing to start is
-		// the only acceptable answer to a failure here: a secret built
-		// from an unfilled buffer would let anyone mint a valid session.
-		b := make([]byte, 32)
-		if _, err := crypto_rand.Read(b); err != nil {
-			return fmt.Errorf("generate session secret: %w", err)
-		}
-		cfg.System.SessionSecret = fmt.Sprintf("%x", b)
-		if err := cfg.SaveToFile(); err != nil {
-			log.Printf("failed to persist session secret: %v", err)
-		} else {
-			log.Println("generated and persisted random session secret")
-		}
+	if err := ensureSessionSecret(cfg); err != nil {
+		return err
 	}
 
-	loc, err := i18n.New(cfg.System.Language)
+	loc, err := loadLocalizer(cfg.System.Language)
 	if err != nil {
-		return fmt.Errorf("failed to init i18n: %w", err)
-	}
-
-	if err := loc.LoadFromFS(webFS.EmbeddedFS, "locales"); err != nil {
-		return fmt.Errorf("failed to load locales: %w", err)
+		return err
 	}
 
 	agentClient := agent.NewClient(*socketPath)
@@ -65,24 +47,7 @@ func runServe() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// The shipped config names the build machine's network cards, so on
-	// unfamiliar hardware there is no port the UI answers on until the
-	// operator corrects it. Bridging every physical NIC and holding
-	// 10.10.10.1 makes the UI reachable from any port so they can.
-	//
-	// Not fatal. This exists to make the first login easier; failing the
-	// whole start over it would take DNS, DHCP and the firewall down to
-	// protect a convenience. An operator who can already reach the UI
-	// loses nothing when it does not run.
-	firstBoot := services.NewFirstBootService(cfg)
-	if firstBoot.IsActive() {
-		nics, err := firstBoot.Setup(ctx)
-		if err != nil {
-			log.Printf("first-boot: bridge setup failed, continuing without it: %v", err)
-		} else {
-			log.Printf("first-boot: %d NIC(s) bridged, UI reachable on any port at 10.10.10.1", len(nics))
-		}
-	}
+	runFirstBoot(ctx, cfg)
 
 	backupSvc := services.NewBackupService("/etc/lankeeper")
 	updateSvc := services.NewUpdateService(version, commit, date, backupSvc)
@@ -96,4 +61,66 @@ func runServe() error {
 		cfg.System.WebBind, cfg.System.WebPort, loc.Fallback())
 
 	return srv.Serve(ctx)
+}
+
+// ensureSessionSecret generates and persists a session secret when the
+// config has none.
+//
+// The read error is checked even though crypto/rand.Read on this
+// toolchain never returns one and crashes the program if its source
+// fails. This value signs every session cookie, so refusing to start is
+// the only acceptable answer to a failure here: a secret built from an
+// unfilled buffer would let anyone mint a valid session.
+func ensureSessionSecret(cfg *config.Config) error {
+	if cfg.System.SessionSecret != "" {
+		return nil
+	}
+	b := make([]byte, 32)
+	if _, err := crypto_rand.Read(b); err != nil {
+		return fmt.Errorf("generate session secret: %w", err)
+	}
+	cfg.System.SessionSecret = fmt.Sprintf("%x", b)
+	if err := cfg.SaveToFile(); err != nil {
+		log.Printf("failed to persist session secret: %v", err)
+	} else {
+		log.Println("generated and persisted random session secret")
+	}
+	return nil
+}
+
+// loadLocalizer builds the localizer and loads the embedded locales.
+func loadLocalizer(lang string) (*i18n.I18n, error) {
+	loc, err := i18n.New(lang)
+	if err != nil {
+		return nil, fmt.Errorf("failed to init i18n: %w", err)
+	}
+	if err := loc.LoadFromFS(webFS.EmbeddedFS, "locales"); err != nil {
+		return nil, fmt.Errorf("failed to load locales: %w", err)
+	}
+	return loc, nil
+}
+
+// runFirstBoot bridges every physical NIC when the first-boot flag is
+// set.
+//
+// The shipped config names the build machine's network cards, so on
+// unfamiliar hardware there is no port the UI answers on until the
+// operator corrects it. Bridging every physical NIC and holding
+// 10.10.10.1 makes the UI reachable from any port so they can.
+//
+// Not fatal. This exists to make the first login easier; failing the
+// whole start over it would take DNS, DHCP and the firewall down to
+// protect a convenience. An operator who can already reach the UI loses
+// nothing when it does not run.
+func runFirstBoot(ctx context.Context, cfg *config.Config) {
+	firstBoot := services.NewFirstBootService(cfg)
+	if !firstBoot.IsActive() {
+		return
+	}
+	nics, err := firstBoot.Setup(ctx)
+	if err != nil {
+		log.Printf("first-boot: bridge setup failed, continuing without it: %v", err)
+		return
+	}
+	log.Printf("first-boot: %d NIC(s) bridged, UI reachable on any port at 10.10.10.1", len(nics))
 }
