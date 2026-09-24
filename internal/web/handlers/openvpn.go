@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
@@ -76,17 +75,12 @@ func (h *OpenVPNHandler) HandleAddClient(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	name := r.FormValue("name")
-	if name == "" {
-		clientError(w, r, http.StatusBadRequest, "error.nameRequired")
-		return
-	}
-	if len(name) > 64 || !ovpnNamePattern.MatchString(name) {
-		clientError(w, r, http.StatusBadRequest, "error.invalidNameCharacters")
+	if key := ovpnNameKey(name); key != "" {
+		clientError(w, r, http.StatusBadRequest, key)
 		return
 	}
 
-	peerType := r.FormValue("peerType")
-	siteToSite := peerType == "site-to-site"
+	siteToSite := r.FormValue("peerType") == "site-to-site"
 	fixedIP := r.FormValue("fixedIP")
 	if fixedIP != "" {
 		if err := netutil.ValidateIP(fixedIP); err != nil {
@@ -96,16 +90,13 @@ func (h *OpenVPNHandler) HandleAddClient(w http.ResponseWriter, r *http.Request)
 	}
 
 	var remoteSubnets []string
-	if raw := strings.TrimSpace(r.FormValue("remoteSubnets")); raw != "" && siteToSite {
-		for s := range strings.SplitSeq(raw, ",") {
-			if trimmed := strings.TrimSpace(s); trimmed != "" {
-				if err := netutil.ValidateCIDR(trimmed); err != nil {
-					clientErrorf(w, r, http.StatusBadRequest, "error.invalidRemoteSubnet", trimmed)
-					return
-				}
-				remoteSubnets = append(remoteSubnets, trimmed)
-			}
+	if siteToSite {
+		subnets, bad := parseRemoteSubnets(r.FormValue("remoteSubnets"))
+		if bad != "" {
+			clientErrorf(w, r, http.StatusBadRequest, "error.invalidRemoteSubnet", bad)
+			return
 		}
+		remoteSubnets = subnets
 	}
 
 	if err := h.ovpn.AddClient(r.Context(), name, siteToSite, remoteSubnets, fixedIP); err != nil {
@@ -114,6 +105,32 @@ func (h *OpenVPNHandler) HandleAddClient(w http.ResponseWriter, r *http.Request)
 	}
 
 	respondRefresh(w, r, "/openvpn")
+}
+
+// ovpnNameKey returns the locale key for a missing or malformed client
+// name, or "".
+func ovpnNameKey(name string) string {
+	return firstFailed(
+		check{name == "", "error.nameRequired"},
+		check{len(name) > 64 || !ovpnNamePattern.MatchString(name), "error.invalidNameCharacters"},
+	)
+}
+
+// parseRemoteSubnets reads the comma-separated site-to-site subnets,
+// skipping blank entries. On failure it returns the first invalid
+// entry, trimmed.
+func parseRemoteSubnets(raw string) (subnets []string, bad string) {
+	for s := range strings.SplitSeq(strings.TrimSpace(raw), ",") {
+		trimmed := strings.TrimSpace(s)
+		if trimmed == "" {
+			continue
+		}
+		if netutil.ValidateCIDR(trimmed) != nil {
+			return nil, trimmed
+		}
+		subnets = append(subnets, trimmed)
+	}
+	return subnets, ""
 }
 
 func (h *OpenVPNHandler) HandleDownloadOVPN(w http.ResponseWriter, r *http.Request) {
@@ -173,58 +190,10 @@ func (h *OpenVPNHandler) HandleAddOutboundClient(w http.ResponseWriter, r *http.
 		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
-	name := r.FormValue("name")
-	if name == "" {
-		clientError(w, r, http.StatusBadRequest, "error.nameRequired")
+	client, key := parseOutboundForm(r)
+	if key != "" {
+		clientError(w, r, http.StatusBadRequest, key)
 		return
-	}
-	if len(name) > 64 || !ovpnNamePattern.MatchString(name) {
-		clientError(w, r, http.StatusBadRequest, "error.invalidNameCharacters")
-		return
-	}
-
-	remoteHost := r.FormValue("remoteHost")
-	if remoteHost == "" {
-		clientError(w, r, http.StatusBadRequest, "error.remoteHostRequired")
-		return
-	}
-
-	protocol := r.FormValue("protocol")
-	if protocol != "udp" && protocol != "tcp" {
-		clientError(w, r, http.StatusBadRequest, "error.protocolUDPOrTCP")
-		return
-	}
-
-	cipher := r.FormValue("cipher")
-	if cipher != "" && !validCiphers[cipher] {
-		clientError(w, r, http.StatusBadRequest, "error.invalidCipher")
-		return
-	}
-
-	auth := r.FormValue("auth")
-	if auth != "" && !validAuths[auth] {
-		clientError(w, r, http.StatusBadRequest, "error.invalidAuth")
-		return
-	}
-
-	rawConfig := r.FormValue("configFile")
-	port, err := strconv.Atoi(r.FormValue("remotePort"))
-	if err != nil || netutil.ValidatePort(port) != nil {
-		clientError(w, r, http.StatusBadRequest, "error.invalidPort")
-		return
-	}
-
-	client := config.OVPNClientConfig{
-		Name:       name,
-		ConfigFile: rawConfig,
-		RemoteHost: remoteHost,
-		RemotePort: port,
-		Protocol:   protocol,
-		Cipher:     cipher,
-		Auth:       auth,
-		TLSAuth:    r.FormValue("tlsAuth") == "true",
-		Username:   r.FormValue("username"),
-		Password:   r.FormValue("password"),
 	}
 
 	if err := h.ovpn.AddOutboundClient(client); err != nil {
@@ -233,6 +202,34 @@ func (h *OpenVPNHandler) HandleAddOutboundClient(w http.ResponseWriter, r *http.
 	}
 
 	respondRefresh(w, r, "/openvpn")
+}
+
+// parseOutboundForm reads an outbound client from the form. The second
+// result is the locale key of the first invalid field, or "".
+func parseOutboundForm(r *http.Request) (config.OVPNClientConfig, string) {
+	port, portOK := formPort(r, "remotePort")
+	client := config.OVPNClientConfig{
+		Name:       r.FormValue("name"),
+		ConfigFile: r.FormValue("configFile"),
+		RemoteHost: r.FormValue("remoteHost"),
+		RemotePort: port,
+		Protocol:   r.FormValue("protocol"),
+		Cipher:     r.FormValue("cipher"),
+		Auth:       r.FormValue("auth"),
+		TLSAuth:    r.FormValue("tlsAuth") == "true",
+		Username:   r.FormValue("username"),
+		Password:   r.FormValue("password"),
+	}
+	if key := ovpnNameKey(client.Name); key != "" {
+		return client, key
+	}
+	return client, firstFailed(
+		check{client.RemoteHost == "", "error.remoteHostRequired"},
+		check{!oneOf(client.Protocol, "udp", "tcp"), "error.protocolUDPOrTCP"},
+		check{client.Cipher != "" && !validCiphers[client.Cipher], "error.invalidCipher"},
+		check{client.Auth != "" && !validAuths[client.Auth], "error.invalidAuth"},
+		check{!portOK, "error.invalidPort"},
+	)
 }
 
 func (h *OpenVPNHandler) HandleConnectOutbound(w http.ResponseWriter, r *http.Request) {
