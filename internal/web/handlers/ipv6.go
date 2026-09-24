@@ -113,49 +113,8 @@ func (h *IPv6Handler) HandleSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	requestPrefix := r.FormValue("requestPrefix") == "on"
-	rapidCommit := r.FormValue("rapidCommit") == "on"
-	hint := strings.TrimSpace(r.FormValue("prefixHint"))
-	enabled := r.FormValue("enabled")
-	mode := strings.TrimSpace(r.FormValue("mode"))
-
-	switch enabled {
-	case "auto", "on", "off":
-	default:
-		enabled = "auto"
-	}
-	switch mode {
-	case "dhcpv6-pd", "6in4":
-	default:
-		mode = "dhcpv6-pd"
-	}
-
-	if hint != "" && !strings.HasPrefix(hint, "/") {
-		hint = "/" + hint
-	}
-
 	previousMode := h.cfg.IPv6.Mode
-	h.cfg.IPv6.Enabled = enabled
-	h.cfg.IPv6.Mode = mode
-	h.cfg.IPv6.WAN.RequestPrefix = requestPrefix
-	h.cfg.IPv6.WAN.RapidCommit = rapidCommit
-	h.cfg.IPv6.WAN.PrefixHint = hint
-
-	// 6in4 fields — only consumed when Mode == "6in4" but stored
-	// regardless so the operator's draft survives a mode toggle.
-	h.cfg.IPv6.Tunnel.ServerIPv4 = strings.TrimSpace(r.FormValue("tunnelServerIPv4"))
-	h.cfg.IPv6.Tunnel.ClientIPv6 = strings.TrimSpace(r.FormValue("tunnelClientIPv6"))
-	h.cfg.IPv6.Tunnel.RoutedPrefix = strings.TrimSpace(r.FormValue("tunnelRoutedPrefix"))
-	h.cfg.IPv6.Tunnel.TunnelID = strings.TrimSpace(r.FormValue("tunnelID"))
-	h.cfg.IPv6.Tunnel.Username = strings.TrimSpace(r.FormValue("tunnelUsername"))
-	if v := r.FormValue("tunnelUpdateKey"); v != "" {
-		// Empty submit = preserve existing key (form shows placeholder).
-		h.cfg.IPv6.Tunnel.UpdateKey = v
-	}
-	h.cfg.IPv6.Tunnel.AutoUpdate = r.FormValue("tunnelAutoUpdate") == "on"
-	if dev := strings.TrimSpace(r.FormValue("tunnelDevice")); dev != "" {
-		h.cfg.IPv6.Tunnel.Device = dev
-	}
+	applyIPv6Form(r, &h.cfg.IPv6)
 
 	if err := h.cfg.SaveToFile(); err != nil {
 		log.Printf("ipv6 save config: %v", err)
@@ -163,15 +122,7 @@ func (h *IPv6Handler) HandleSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Tear the tunnel down BEFORE the other plane is applied whenever it
-	// is no longer wanted, whether that is a mode swap or IPv6 being
-	// switched off outright.
-	tunnelWanted := enabled != "off" && mode == "6in4"
-	if h.sixinfour != nil && !tunnelWanted && previousMode == "6in4" {
-		if err := h.sixinfour.Stop(r.Context()); err != nil {
-			log.Printf("ipv6: tunnel stop: %v", err)
-		}
-	}
+	h.stopUnwantedTunnel(r, previousMode)
 
 	if err := h.ipv6.ApplyConfig(r.Context()); err != nil {
 		fail(w, r, http.StatusInternalServerError, err)
@@ -180,16 +131,70 @@ func (h *IPv6Handler) HandleSave(w http.ResponseWriter, r *http.Request) {
 
 	// Converge the tunnel plane. ApplyConfig consults both the mode and
 	// the enabled flag, so a disabled tunnel is stopped rather than
-	// rebuilt.
+	// rebuilt. A failure is not a 500: the YAML is saved and the operator
+	// can inspect the failure on the status card.
 	if h.sixinfour != nil {
 		if err := h.sixinfour.ApplyConfig(r.Context()); err != nil {
 			log.Printf("6in4 apply on save: %v", err)
-			// Don't 500 — the YAML is saved and the operator can
-			// inspect the failure on the status card.
 		}
 	}
 
 	respondRefresh(w, r, "/ipv6")
+}
+
+// applyIPv6Form writes the submitted settings into v6. An unknown
+// enabled value or mode falls back to its default rather than being
+// rejected.
+func applyIPv6Form(r *http.Request, v6 *config.IPv6Config) {
+	v6.Enabled = r.FormValue("enabled")
+	if !oneOf(v6.Enabled, "auto", "on", "off") {
+		v6.Enabled = "auto"
+	}
+	v6.Mode = strings.TrimSpace(r.FormValue("mode"))
+	if !oneOf(v6.Mode, "dhcpv6-pd", "6in4") {
+		v6.Mode = "dhcpv6-pd"
+	}
+
+	v6.WAN.RequestPrefix = r.FormValue("requestPrefix") == "on"
+	v6.WAN.RapidCommit = r.FormValue("rapidCommit") == "on"
+	v6.WAN.PrefixHint = strings.TrimSpace(r.FormValue("prefixHint"))
+	if v6.WAN.PrefixHint != "" && !strings.HasPrefix(v6.WAN.PrefixHint, "/") {
+		v6.WAN.PrefixHint = "/" + v6.WAN.PrefixHint
+	}
+
+	applyTunnelForm(r, &v6.Tunnel)
+}
+
+// applyTunnelForm writes the 6in4 fields. They are only consumed when
+// the mode is 6in4 but stored regardless, so the operator's draft
+// survives a mode toggle. An empty update key or device keeps the stored
+// value; the form shows a placeholder for the key.
+func applyTunnelForm(r *http.Request, t *config.IPv6TunnelConfig) {
+	t.ServerIPv4 = strings.TrimSpace(r.FormValue("tunnelServerIPv4"))
+	t.ClientIPv6 = strings.TrimSpace(r.FormValue("tunnelClientIPv6"))
+	t.RoutedPrefix = strings.TrimSpace(r.FormValue("tunnelRoutedPrefix"))
+	t.TunnelID = strings.TrimSpace(r.FormValue("tunnelID"))
+	t.Username = strings.TrimSpace(r.FormValue("tunnelUsername"))
+	if v := r.FormValue("tunnelUpdateKey"); v != "" {
+		t.UpdateKey = v
+	}
+	t.AutoUpdate = r.FormValue("tunnelAutoUpdate") == "on"
+	if dev := strings.TrimSpace(r.FormValue("tunnelDevice")); dev != "" {
+		t.Device = dev
+	}
+}
+
+// stopUnwantedTunnel tears the tunnel down BEFORE the other plane is
+// applied whenever it is no longer wanted, whether that is a mode swap
+// or IPv6 being switched off outright.
+func (h *IPv6Handler) stopUnwantedTunnel(r *http.Request, previousMode string) {
+	tunnelWanted := h.cfg.IPv6.Enabled != "off" && h.cfg.IPv6.Mode == "6in4"
+	if h.sixinfour == nil || tunnelWanted || previousMode != "6in4" {
+		return
+	}
+	if err := h.sixinfour.Stop(r.Context()); err != nil {
+		log.Printf("ipv6: tunnel stop: %v", err)
+	}
 }
 
 // HandleTunnelUpdateNow asks HE.net to re-register our current IPv4
