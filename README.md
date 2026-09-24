@@ -182,8 +182,8 @@ The socket is the privilege boundary itself. It is owned `root:lankeeper` at mod
 | Module                          | Version  | Purpose                                                   |
 |---------------------------------|----------|-----------------------------------------------------------|
 | `gopkg.in/yaml.v3`              | v3.0.1   | YAML config parsing and serialization (`router.yaml`)     |
-| `golang.org/x/crypto`           | v0.54.0  | bcrypt password hashing, scrypt key derivation for backup |
-| `golang.org/x/net`              | v0.56.0  | DNS wire format (dnsmessage) for the DoT/DoH probe        |
+| `golang.org/x/crypto`           | v0.57.0  | bcrypt password hashing, scrypt key derivation for backup |
+| `golang.org/x/net`              | v0.58.0  | DNS wire format (dnsmessage) for the DoT/DoH probe        |
 | `github.com/gorilla/sessions`   | v1.4.0   | Secure cookie-based HTTP session management               |
 | `github.com/pkg/sftp`           | v1.13.10 | SFTP backup target uploads                                |
 | `github.com/fsnotify/fsnotify`  | v1.10.1  | DHCPv6 lease file watcher                                 |
