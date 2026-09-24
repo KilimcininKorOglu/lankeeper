@@ -162,18 +162,8 @@ func withEncryptedSecrets(cfg *Config) (*Config, error) {
 		return nil, fmt.Errorf("encrypt backup passphrase: %w", err)
 	}
 
-	// The slice header is shared by the shallow copy, so the elements
-	// have to be copied before any field is rewritten.
-	out.Backup.Targets = make([]BackupTarget, len(cfg.Backup.Targets))
-	copy(out.Backup.Targets, cfg.Backup.Targets)
-	for i := range out.Backup.Targets {
-		t := &out.Backup.Targets[i]
-		if t.SecretAccessKey, err = encryptSecret(t.SecretAccessKey, key); err != nil {
-			return nil, fmt.Errorf("encrypt secret access key for target %q: %w", t.Name, err)
-		}
-		if t.Password, err = encryptSecret(t.Password, key); err != nil {
-			return nil, fmt.Errorf("encrypt password for target %q: %w", t.Name, err)
-		}
+	if out.Backup.Targets, err = encryptedTargets(cfg.Backup.Targets, key); err != nil {
+		return nil, err
 	}
 
 	out.VPN.Server.PrivateKey, err = encryptSecret(cfg.VPN.Server.PrivateKey, key)
@@ -181,17 +171,8 @@ func withEncryptedSecrets(cfg *Config) (*Config, error) {
 		return nil, fmt.Errorf("encrypt wireguard server private key: %w", err)
 	}
 
-	// Peers sit two levels down, but the copy is just as shallow: the
-	// slice inside out.VPN.Server still points at the caller's backing
-	// array, so rewriting a peer in place would leave the running
-	// process holding ciphertext where it expects a usable key.
-	out.VPN.Server.Peers = make([]WGServerPeer, len(cfg.VPN.Server.Peers))
-	copy(out.VPN.Server.Peers, cfg.VPN.Server.Peers)
-	for i := range out.VPN.Server.Peers {
-		p := &out.VPN.Server.Peers[i]
-		if p.PrivateKey, err = encryptSecret(p.PrivateKey, key); err != nil {
-			return nil, fmt.Errorf("encrypt private key for peer %q: %w", p.Name, err)
-		}
+	if out.VPN.Server.Peers, err = encryptedPeers(cfg.VPN.Server.Peers, key); err != nil {
+		return nil, err
 	}
 
 	// The DNS provider token is a live credential for the operator's
@@ -205,6 +186,76 @@ func withEncryptedSecrets(cfg *Config) (*Config, error) {
 	return &out, nil
 }
 
+// encryptedTargets returns a copy of targets with their secrets
+// encrypted. The slice header is shared by the shallow config copy, so
+// the elements have to be copied before any field is rewritten.
+func encryptedTargets(src []BackupTarget, key []byte) ([]BackupTarget, error) {
+	out := make([]BackupTarget, len(src))
+	copy(out, src)
+	var err error
+	for i := range out {
+		t := &out[i]
+		if t.SecretAccessKey, err = encryptSecret(t.SecretAccessKey, key); err != nil {
+			return nil, fmt.Errorf("encrypt secret access key for target %q: %w", t.Name, err)
+		}
+		if t.Password, err = encryptSecret(t.Password, key); err != nil {
+			return nil, fmt.Errorf("encrypt password for target %q: %w", t.Name, err)
+		}
+	}
+	return out, nil
+}
+
+// encryptedPeers returns a copy of peers with their private keys
+// encrypted. Peers sit two levels down, but the config copy is just as
+// shallow: the slice still points at the caller's backing array, so
+// rewriting a peer in place would leave the running process holding
+// ciphertext where it expects a usable key.
+func encryptedPeers(src []WGServerPeer, key []byte) ([]WGServerPeer, error) {
+	out := make([]WGServerPeer, len(src))
+	copy(out, src)
+	var err error
+	for i := range out {
+		p := &out[i]
+		if p.PrivateKey, err = encryptSecret(p.PrivateKey, key); err != nil {
+			return nil, fmt.Errorf("encrypt private key for peer %q: %w", p.Name, err)
+		}
+	}
+	return out, nil
+}
+
+// hasEncryptedSecrets reports whether any secret field holds ciphertext,
+// which is the only case that needs the key on load.
+func (c *Config) hasEncryptedSecrets() bool {
+	if isEncrypted(c.Backup.Passphrase) ||
+		isEncrypted(c.VPN.Server.PrivateKey) ||
+		isEncrypted(c.System.TLS.ACME.DNSChallenge.APIToken) {
+		return true
+	}
+	for _, t := range c.Backup.Targets {
+		if isEncrypted(t.SecretAccessKey) || isEncrypted(t.Password) {
+			return true
+		}
+	}
+	for _, p := range c.VPN.Server.Peers {
+		if isEncrypted(p.PrivateKey) {
+			return true
+		}
+	}
+	return false
+}
+
+// decryptInPlace replaces *field with its plaintext. On failure it clears
+// the field and logs what was lost and what the operator has to do.
+func decryptInPlace(field *string, key []byte, what, consequence string) {
+	v, err := decryptSecret(*field, key)
+	if err != nil {
+		log.Printf("config: cannot decrypt %s: %v; %s", what, err, consequence)
+		*field = ""
+		return
+	}
+	*field = v
+}
+
 // decryptSecretsInPlace turns the ciphertext read from disk back into
 // usable credentials.
 //
@@ -215,20 +266,7 @@ func withEncryptedSecrets(cfg *Config) (*Config, error) {
 // scheduled run fail with a message naming the target, so the loss is
 // visible without being fatal.
 func (c *Config) decryptSecretsInPlace() {
-	needsKey := isEncrypted(c.Backup.Passphrase) ||
-		isEncrypted(c.VPN.Server.PrivateKey) ||
-		isEncrypted(c.System.TLS.ACME.DNSChallenge.APIToken)
-	for _, t := range c.Backup.Targets {
-		if isEncrypted(t.SecretAccessKey) || isEncrypted(t.Password) {
-			needsKey = true
-		}
-	}
-	for _, p := range c.VPN.Server.Peers {
-		if isEncrypted(p.PrivateKey) {
-			needsKey = true
-		}
-	}
-	if !needsKey {
+	if !c.hasEncryptedSecrets() {
 		return
 	}
 
@@ -240,63 +278,38 @@ func (c *Config) decryptSecretsInPlace() {
 		return
 	}
 
-	if v, err := decryptSecret(c.Backup.Passphrase, key); err != nil {
-		log.Printf("config: cannot decrypt the backup passphrase: %v; re-enter it on the backup page", err)
-		c.Backup.Passphrase = ""
-	} else {
-		c.Backup.Passphrase = v
-	}
+	const reenterBackup = "re-enter it on the backup page"
+	decryptInPlace(&c.Backup.Passphrase, key, "the backup passphrase", reenterBackup)
 
 	for i := range c.Backup.Targets {
 		t := &c.Backup.Targets[i]
-		if v, err := decryptSecret(t.SecretAccessKey, key); err != nil {
-			log.Printf("config: cannot decrypt the secret access key for target %q: %v; re-enter it on the backup page", t.Name, err)
-			t.SecretAccessKey = ""
-		} else {
-			t.SecretAccessKey = v
-		}
-		if v, err := decryptSecret(t.Password, key); err != nil {
-			log.Printf("config: cannot decrypt the password for target %q: %v; re-enter it on the backup page", t.Name, err)
-			t.Password = ""
-		} else {
-			t.Password = v
-		}
+		decryptInPlace(&t.SecretAccessKey, key,
+			fmt.Sprintf("the secret access key for target %q", t.Name), reenterBackup)
+		decryptInPlace(&t.Password, key,
+			fmt.Sprintf("the password for target %q", t.Name), reenterBackup)
 	}
 
 	// A lost server key is worse than a lost peer key: without it
 	// wg-quick cannot bring the interface up at all, so it is named
 	// separately rather than folded into the peer loop.
-	if v, err := decryptSecret(c.VPN.Server.PrivateKey, key); err != nil {
-		log.Printf("config: cannot decrypt the wireguard server private key: %v; the VPN server cannot start until it is regenerated", err)
-		c.VPN.Server.PrivateKey = ""
-	} else {
-		c.VPN.Server.PrivateKey = v
-	}
+	decryptInPlace(&c.VPN.Server.PrivateKey, key, "the wireguard server private key",
+		"the VPN server cannot start until it is regenerated")
 
 	for i := range c.VPN.Server.Peers {
 		p := &c.VPN.Server.Peers[i]
-		if v, err := decryptSecret(p.PrivateKey, key); err != nil {
-			// The peer keeps working: the server only needs its public
-			// key. What is lost is the ability to hand the operator the
-			// peer's config again, which the page reports rather than
-			// hiding.
-			log.Printf("config: cannot decrypt the private key for peer %q: %v; its config can no longer be re-issued", p.Name, err)
-			p.PrivateKey = ""
-		} else {
-			p.PrivateKey = v
-		}
+		// The peer keeps working: the server only needs its public key.
+		// What is lost is the ability to hand the operator the peer's
+		// config again, which the page reports rather than hiding.
+		decryptInPlace(&p.PrivateKey, key, fmt.Sprintf("the private key for peer %q", p.Name),
+			"its config can no longer be re-issued")
 	}
 
-	if v, err := decryptSecret(c.System.TLS.ACME.DNSChallenge.APIToken, key); err != nil {
-		// Renewal is what breaks: the token is only read when a
-		// challenge record has to be published. The certificate on disk
-		// keeps serving until it expires, so this is reported and the
-		// field cleared rather than treated as fatal.
-		log.Printf("config: cannot decrypt the DNS challenge API token: %v; re-enter it on the settings page or renewal will fail", err)
-		c.System.TLS.ACME.DNSChallenge.APIToken = ""
-	} else {
-		c.System.TLS.ACME.DNSChallenge.APIToken = v
-	}
+	// Renewal is what breaks: the token is only read when a challenge
+	// record has to be published. The certificate on disk keeps serving
+	// until it expires, so this is reported and the field cleared rather
+	// than treated as fatal.
+	decryptInPlace(&c.System.TLS.ACME.DNSChallenge.APIToken, key, "the DNS challenge API token",
+		"re-enter it on the settings page or renewal will fail")
 }
 
 // clearEncryptedSecrets blanks every value that is ciphertext we cannot

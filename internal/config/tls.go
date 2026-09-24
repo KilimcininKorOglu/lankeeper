@@ -149,6 +149,25 @@ func generateSelfSigned(cfg *TLSConfig, certPath, keyPath string) (*TLSCertInfo,
 		return nil, fmt.Errorf("generate key: %w", err)
 	}
 
+	template, err := selfSignedTemplate(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		return nil, fmt.Errorf("create certificate: %w", err)
+	}
+
+	if err := writeKeyPair(certPath, keyPath, certDER, key); err != nil {
+		return nil, err
+	}
+	return readCertInfo(certPath, keyPath)
+}
+
+// selfSignedTemplate builds the certificate template from the self-signed
+// settings, filling in the default name, lifetime and SANs.
+func selfSignedTemplate(cfg *TLSConfig) (*x509.Certificate, error) {
 	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
 		return nil, fmt.Errorf("generate serial: %w", err)
@@ -165,8 +184,6 @@ func generateSelfSigned(cfg *TLSConfig, certPath, keyPath string) (*TLSCertInfo,
 	}
 
 	notBefore := time.Now()
-	notAfter := notBefore.AddDate(0, 0, validDays)
-
 	template := &x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
@@ -174,7 +191,7 @@ func generateSelfSigned(cfg *TLSConfig, certPath, keyPath string) (*TLSCertInfo,
 			Organization: []string{"LANKeeper"},
 		},
 		NotBefore:             notBefore,
-		NotAfter:              notAfter,
+		NotAfter:              notBefore.AddDate(0, 0, validDays),
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
@@ -190,39 +207,48 @@ func generateSelfSigned(cfg *TLSConfig, certPath, keyPath string) (*TLSCertInfo,
 
 	if len(template.DNSNames) == 0 && len(template.IPAddresses) == 0 {
 		template.DNSNames = []string{cn, "localhost"}
-		template.IPAddresses = []net.IP{net.ParseIP("127.0.0.1")}
-		if localIPs, err := net.InterfaceAddrs(); err == nil {
-			for _, addr := range localIPs {
-				if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() && ipNet.IP.To4() != nil {
-					template.IPAddresses = append(template.IPAddresses, ipNet.IP)
-				}
-			}
+		template.IPAddresses = append([]net.IP{net.ParseIP("127.0.0.1")}, localIPv4Addrs()...)
+	}
+	return template, nil
+}
+
+// localIPv4Addrs lists the non-loopback IPv4 addresses of this host. A
+// failure to enumerate interfaces yields none, since the SANs are a
+// convenience on top of the name.
+func localIPv4Addrs() []net.IP {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	var ips []net.IP
+	for _, addr := range addrs {
+		if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() && ipNet.IP.To4() != nil {
+			ips = append(ips, ipNet.IP)
 		}
 	}
+	return ips
+}
 
-	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
-	if err != nil {
-		return nil, fmt.Errorf("create certificate: %w", err)
-	}
-
+// writeKeyPair writes the PEM certificate and key, restricting the key
+// to its owner.
+func writeKeyPair(certPath, keyPath string, certDER []byte, key *ecdsa.PrivateKey) error {
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	keyDER, err := x509.MarshalECPrivateKey(key)
 	if err != nil {
-		return nil, fmt.Errorf("marshal key: %w", err)
+		return fmt.Errorf("marshal key: %w", err)
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
 	if err := atomicWrite(certPath, certPEM); err != nil {
-		return nil, fmt.Errorf("write cert: %w", err)
+		return fmt.Errorf("write cert: %w", err)
 	}
 	if err := atomicWrite(keyPath, keyPEM); err != nil {
-		return nil, fmt.Errorf("write key: %w", err)
+		return fmt.Errorf("write key: %w", err)
 	}
 	if err := os.Chmod(keyPath, 0o600); err != nil {
-		return nil, fmt.Errorf("chmod key: %w", err)
+		return fmt.Errorf("chmod key: %w", err)
 	}
-
-	return readCertInfo(certPath, keyPath)
+	return nil
 }
 
 func readCertInfo(certPath, keyPath string) (*TLSCertInfo, error) {

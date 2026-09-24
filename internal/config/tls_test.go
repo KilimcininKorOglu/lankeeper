@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
@@ -42,21 +43,10 @@ func TestGenerateSelfSignedCert(t *testing.T) {
 	if len(info.SANs) == 0 {
 		t.Error("SANs should not be empty")
 	}
-
-	foundDNS := false
-	foundIP := false
-	for _, san := range info.SANs {
-		if san == "test-router.lan" {
-			foundDNS = true
-		}
-		if san == "10.10.10.1" {
-			foundIP = true
-		}
-	}
-	if !foundDNS {
+	if !slices.Contains(info.SANs, "test-router.lan") {
 		t.Error("SANs should contain DNS name")
 	}
-	if !foundIP {
+	if !slices.Contains(info.SANs, "10.10.10.1") {
 		t.Error("SANs should contain IP address")
 	}
 }
