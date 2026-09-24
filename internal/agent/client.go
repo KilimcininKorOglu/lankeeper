@@ -58,79 +58,22 @@ func (c *Client) Call(ctx context.Context, method string, params any) (json.RawM
 		return nil, err
 	}
 
-	id := c.nextID.Add(1)
-
-	var rawParams json.RawMessage
-	if params != nil {
-		b, err := json.Marshal(params)
-		if err != nil {
-			return nil, fmt.Errorf("marshal params: %w", err)
-		}
-		rawParams = b
+	req, err := c.newRequest(method, params)
+	if err != nil {
+		return nil, err
 	}
-
-	req := &Request{
-		JSONRPC: "2.0",
-		Method:  method,
-		Params:  rawParams,
-		ID:      id,
-	}
-
-	deadline, ok := ctx.Deadline()
-	if ok {
-		// Tell the agent how long the caller allowed. Without this the
-		// agent sees no deadline and falls back to its own 30 s, which
-		// silently overrules a caller that granted more.
-		//
-		// callTimeout is deliberately not sent when the caller set no
-		// deadline: it is this client's liveness guard, not a budget
-		// anyone asked for, and forwarding it would stretch every
-		// command to it.
-		if remaining := time.Until(deadline); remaining > 0 {
-			req.TimeoutMS = remaining.Milliseconds()
-		}
-	} else {
-		deadline = time.Now().Add(c.callTimeout)
-	}
-	_ = c.conn.SetDeadline(deadline)
+	_ = c.conn.SetDeadline(c.applyDeadline(ctx, req))
 
 	// Encode and Decode block with no cancellation of their own, so
 	// wire the context to the socket: pulling the deadline into the
 	// past unblocks whichever one is in flight.
-	//
-	// conn is a local copy because the error paths below call c.close,
-	// which nils the field. SetDeadline on a closed connection just
-	// returns an error, which is not interesting here.
-	conn := c.conn
 	stop := make(chan struct{})
 	defer close(stop)
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = conn.SetDeadline(time.Now())
-		case <-stop:
-		}
-	}()
+	go cancelOnDone(ctx, c.conn, stop)
 
-	// A cancelled call must drop the connection, not just return. The
-	// stream is a sequential request/response pipe and Decode does not
-	// match on response ID, so leaving an unread reply behind would
-	// hand it to the next caller. Both error paths already close.
-	if err := c.enc.Encode(req); err != nil {
-		_ = c.close()
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
-		}
-		return nil, fmt.Errorf("send request: %w", err)
-	}
-
-	var resp Response
-	if err := c.dec.Decode(&resp); err != nil {
-		_ = c.close()
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
-		}
-		return nil, fmt.Errorf("read response: %w", err)
+	resp, err := c.roundTrip(ctx, req)
+	if err != nil {
+		return nil, err
 	}
 
 	if resp.Error != nil {
@@ -143,6 +86,84 @@ func (c *Client) Call(ctx context.Context, method string, params any) (json.RawM
 	}
 
 	return raw, nil
+}
+
+// newRequest builds the next JSON-RPC request with a fresh ID.
+func (c *Client) newRequest(method string, params any) (*Request, error) {
+	var rawParams json.RawMessage
+	if params != nil {
+		b, err := json.Marshal(params)
+		if err != nil {
+			return nil, fmt.Errorf("marshal params: %w", err)
+		}
+		rawParams = b
+	}
+	return &Request{
+		JSONRPC: "2.0",
+		Method:  method,
+		Params:  rawParams,
+		ID:      c.nextID.Add(1),
+	}, nil
+}
+
+// applyDeadline returns the socket deadline for the call and records the
+// caller's remaining budget on req.
+func (c *Client) applyDeadline(ctx context.Context, req *Request) time.Time {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		// callTimeout is deliberately not sent when the caller set no
+		// deadline: it is this client's liveness guard, not a budget
+		// anyone asked for, and forwarding it would stretch every
+		// command to it.
+		return time.Now().Add(c.callTimeout)
+	}
+	// Tell the agent how long the caller allowed. Without this the
+	// agent sees no deadline and falls back to its own 30 s, which
+	// silently overrules a caller that granted more.
+	if remaining := time.Until(deadline); remaining > 0 {
+		req.TimeoutMS = remaining.Milliseconds()
+	}
+	return deadline
+}
+
+// cancelOnDone pulls the socket deadline into the past when ctx ends,
+// which unblocks an in-flight Encode or Decode. conn is passed by value
+// because the error paths in roundTrip call c.close, which nils the
+// field. SetDeadline on a closed connection just returns an error, which
+// is not interesting here.
+func cancelOnDone(ctx context.Context, conn net.Conn, stop <-chan struct{}) {
+	select {
+	case <-ctx.Done():
+		_ = conn.SetDeadline(time.Now())
+	case <-stop:
+	}
+}
+
+// roundTrip sends req and reads one response.
+//
+// A failed or cancelled call must drop the connection, not just return.
+// The stream is a sequential request/response pipe and Decode does not
+// match on response ID, so leaving an unread reply behind would hand it
+// to the next caller.
+func (c *Client) roundTrip(ctx context.Context, req *Request) (*Response, error) {
+	if err := c.enc.Encode(req); err != nil {
+		return nil, c.failCall(ctx, "send request", err)
+	}
+	var resp Response
+	if err := c.dec.Decode(&resp); err != nil {
+		return nil, c.failCall(ctx, "read response", err)
+	}
+	return &resp, nil
+}
+
+// failCall closes the connection and reports the context error in
+// preference to the I/O error it caused.
+func (c *Client) failCall(ctx context.Context, op string, err error) error {
+	_ = c.close()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	return fmt.Errorf("%s: %w", op, err)
 }
 
 func (c *Client) Close() error {
