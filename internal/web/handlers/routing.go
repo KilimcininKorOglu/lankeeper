@@ -45,48 +45,10 @@ func (h *RoutingHandler) HandleAddPolicy(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	policy := config.RoutingPolicy{
-		Name:    r.FormValue("name"),
-		Enabled: true,
-		Tunnel:  r.FormValue("tunnel"),
-	}
-
-	if srcMACs := r.FormValue("srcMacs"); srcMACs != "" {
-		policy.SrcMACs = strings.Split(srcMACs, ",")
-		for _, mac := range policy.SrcMACs {
-			if netutil.ValidateMAC(strings.TrimSpace(mac)) != nil {
-				clientErrorf(w, r, http.StatusBadRequest, "error.invalidMAC", mac)
-				return
-			}
-		}
-	}
-	if srcIPs := r.FormValue("srcIps"); srcIPs != "" {
-		policy.SrcIPs = strings.Split(srcIPs, ",")
-		for _, cidr := range policy.SrcIPs {
-			if netutil.ValidateCIDR(strings.TrimSpace(cidr)) != nil {
-				clientErrorf(w, r, http.StatusBadRequest, "error.invalidCIDR", cidr)
-				return
-			}
-		}
-	}
-	if dstIPs := r.FormValue("dstIps"); dstIPs != "" {
-		policy.DstIPs = strings.Split(dstIPs, ",")
-		for _, cidr := range policy.DstIPs {
-			if netutil.ValidateCIDR(strings.TrimSpace(cidr)) != nil {
-				clientErrorf(w, r, http.StatusBadRequest, "error.invalidCIDR", cidr)
-				return
-			}
-		}
-	}
-	if domains := r.FormValue("domains"); domains != "" {
-		var cleaned []string
-		for d := range strings.SplitSeq(domains, "\n") {
-			d = strings.TrimSpace(d)
-			if d != "" {
-				cleaned = append(cleaned, d)
-			}
-		}
-		policy.Domains = cleaned
+	policy, key, bad := parsePolicyForm(r)
+	if key != "" {
+		clientErrorf(w, r, http.StatusBadRequest, key, bad)
+		return
 	}
 
 	if err := h.routing.AddPolicy(policy); err != nil {
@@ -95,6 +57,61 @@ func (h *RoutingHandler) HandleAddPolicy(w http.ResponseWriter, r *http.Request)
 	}
 
 	respondRefresh(w, r, "/routing")
+}
+
+// parsePolicyForm reads a routing policy from the form. On an invalid
+// entry it returns the locale key and the offending entry as submitted.
+func parsePolicyForm(r *http.Request) (policy config.RoutingPolicy, key, bad string) {
+	macs, bad, ok := splitChecked(r.FormValue("srcMacs"), netutil.ValidateMAC)
+	if !ok {
+		return policy, "error.invalidMAC", bad
+	}
+	srcIPs, bad, ok := splitChecked(r.FormValue("srcIps"), netutil.ValidateCIDR)
+	if !ok {
+		return policy, "error.invalidCIDR", bad
+	}
+	dstIPs, bad, ok := splitChecked(r.FormValue("dstIps"), netutil.ValidateCIDR)
+	if !ok {
+		return policy, "error.invalidCIDR", bad
+	}
+	return config.RoutingPolicy{
+		Name:    r.FormValue("name"),
+		Enabled: true,
+		Tunnel:  r.FormValue("tunnel"),
+		SrcMACs: macs,
+		SrcIPs:  srcIPs,
+		DstIPs:  dstIPs,
+		Domains: nonEmptyLines(r.FormValue("domains")),
+	}, "", ""
+}
+
+// splitChecked splits a comma-separated field and validates each entry
+// after trimming it. The entries are returned as split, untrimmed. On
+// failure it returns the first invalid entry and false. An empty field
+// yields nil.
+func splitChecked(raw string, validate func(string) error) (items []string, bad string, ok bool) {
+	if raw == "" {
+		return nil, "", true
+	}
+	items = strings.Split(raw, ",")
+	for _, item := range items {
+		if validate(strings.TrimSpace(item)) != nil {
+			return nil, item, false
+		}
+	}
+	return items, "", true
+}
+
+// nonEmptyLines returns the trimmed, non-blank lines of raw, or nil when
+// there are none.
+func nonEmptyLines(raw string) []string {
+	var lines []string
+	for line := range strings.SplitSeq(raw, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
 }
 
 func (h *RoutingHandler) HandleDeletePolicy(w http.ResponseWriter, r *http.Request) {
