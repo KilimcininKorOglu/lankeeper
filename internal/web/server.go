@@ -431,11 +431,9 @@ func (s *Server) Serve(ctx context.Context) error {
 	// construction outlives every attempt to stop the server. It checks
 	// the mode on each tick, so it is harmless when ACME is off and it
 	// picks the mode up without a restart when the operator turns it on.
-	bg.Add(1)
-	go func() {
-		defer bg.Done()
+	bg.Go(func() {
 		s.acmeSvc.StartRenewal(ctx)
-	}()
+	})
 
 	// Watches the dhcp6c lease state file and re-applies the firewall
 	// when the delegated prefix changes. Best-effort: a failure to

@@ -2,6 +2,7 @@ package buildsys_test
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -33,7 +34,7 @@ func TestISOListsCoverEveryRuntimePackage(t *testing.T) {
 	lankeeperList := betweenMarkers(t, builder, "LANKEEPER_PACKAGES=(", ")")
 
 	for _, pkg := range installed {
-		if !contains(iso, pkg) {
+		if !slices.Contains(iso, pkg) {
 			t.Errorf("%q is installed by deploy/install.sh but missing from deploy/iso/post-install.sh, so an ISO install runs without it", pkg)
 		}
 		if !strings.Contains(lankeeperList, pkg) {
@@ -62,7 +63,7 @@ func TestCheckInstallationVerifiesInstalledCommands(t *testing.T) {
 	for _, p := range installed {
 		pkgNames[p] = true
 	}
-	for _, cmd := range strings.Fields(loop[1]) {
+	for cmd := range strings.FieldsSeq(loop[1]) {
 		if looksLikePackageName(cmd) && !pkgNames[cmd] {
 			t.Errorf("check_installation looks for %q but no package by that name is installed; a correct install reports it missing", cmd)
 		}
@@ -86,7 +87,7 @@ func packagesFromAptInstall(t *testing.T, path string) []string {
 		trimmed := strings.TrimSpace(line)
 		continues := strings.HasSuffix(trimmed, "\\")
 		trimmed = strings.TrimSuffix(trimmed, "\\")
-		for _, f := range strings.Fields(trimmed) {
+		for f := range strings.FieldsSeq(trimmed) {
 			if strings.HasPrefix(f, "-") || f == "apt-get" || f == "install" {
 				continue
 			}
@@ -111,15 +112,6 @@ func betweenMarkers(t *testing.T, src, start, end string) string {
 		t.Fatalf("closing marker %q not found after %q", end, start)
 	}
 	return rest[:j]
-}
-
-func contains(list []string, want string) bool {
-	for _, s := range list {
-		if s == want {
-			return true
-		}
-	}
-	return false
 }
 
 // looksLikePackageName filters out the command names that deliberately

@@ -84,7 +84,7 @@ func (b *SSEBroker) Publish(event string, data any) {
 		return
 	}
 
-	msg := []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", event, jsonData))
+	msg := fmt.Appendf(nil, "event: %s\ndata: %s\n\n", event, jsonData)
 
 	b.mu.RLock()
 	defer b.mu.RUnlock()

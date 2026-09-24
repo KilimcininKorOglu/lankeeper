@@ -457,8 +457,7 @@ func (h *SystemHandler) HandleConfigureACME(w http.ResponseWriter, r *http.Reque
 		// rejected.
 		h.cfg.System.TLS.ACME = previous
 
-		var manual *services.ManualChallengeError
-		if errors.As(err, &manual) {
+		if manual, ok := errors.AsType[*services.ManualChallengeError](err); ok {
 			// Not a failure: the operator has to publish a record. The
 			// settings are kept so the retry does not need retyping.
 			h.cfg.System.TLS.ACME = next

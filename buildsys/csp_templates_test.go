@@ -93,15 +93,12 @@ func TestCSPStaysStrict(t *testing.T) {
 // semicolon. Reading the whole policy instead would match
 // 'unsafe-inline' on style-src, which is allowed on purpose.
 func sourceList(policy, directive string) string {
-	i := strings.Index(policy, directive)
-	if i < 0 {
+	_, after, found := strings.Cut(policy, directive)
+	if !found {
 		return ""
 	}
-	rest := policy[i+len(directive):]
-	if j := strings.Index(rest, ";"); j >= 0 {
-		rest = rest[:j]
-	}
-	return rest
+	value, _, _ := strings.Cut(after, ";")
+	return value
 }
 
 type numberedLine struct {
