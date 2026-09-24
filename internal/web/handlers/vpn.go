@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/i18n"
-	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 	"github.com/KilimcininKorOglu/lankeeper/internal/services"
 	"github.com/KilimcininKorOglu/lankeeper/internal/tmpl"
 )
@@ -52,46 +51,30 @@ func (h *VPNHandler) HandleAddPeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := r.FormValue("name")
-	if name == "" {
-		clientError(w, r, http.StatusBadRequest, "error.nameRequired")
-		return
-	}
-	if len(name) > 64 || !vpnNamePattern.MatchString(name) {
-		clientError(w, r, http.StatusBadRequest, "error.invalidNameCharacters")
-		return
-	}
-
-	peerType := r.FormValue("peerType")
-	siteToSite := peerType == "site-to-site"
 	endpoint := r.FormValue("endpoint")
-	if endpoint != "" && !strings.Contains(endpoint, ":") {
-		clientError(w, r, http.StatusBadRequest, "error.endpointFormat")
+	if key := firstFailed(
+		check{name == "", "error.nameRequired"},
+		check{len(name) > 64 || !vpnNamePattern.MatchString(name), "error.invalidNameCharacters"},
+		check{endpoint != "" && !strings.Contains(endpoint, ":"), "error.endpointFormat"},
+	); key != "" {
+		clientError(w, r, http.StatusBadRequest, key)
 		return
 	}
 
+	siteToSite := r.FormValue("peerType") == "site-to-site"
 	var remoteSubnets []string
-	if raw := strings.TrimSpace(r.FormValue("remoteSubnets")); raw != "" && siteToSite {
-		for s := range strings.SplitSeq(raw, ",") {
-			if trimmed := strings.TrimSpace(s); trimmed != "" {
-				if err := netutil.ValidateCIDR(trimmed); err != nil {
-					clientErrorf(w, r, http.StatusBadRequest, "error.invalidRemoteSubnet", trimmed)
-					return
-				}
-				remoteSubnets = append(remoteSubnets, trimmed)
-			}
+	if siteToSite {
+		subnets, bad := parseRemoteSubnets(r.FormValue("remoteSubnets"))
+		if bad != "" {
+			clientErrorf(w, r, http.StatusBadRequest, "error.invalidRemoteSubnet", bad)
+			return
 		}
+		remoteSubnets = subnets
 	}
 
 	peer, privKey, err := h.vpn.AddPeer(r.Context(), name, siteToSite, remoteSubnets, endpoint)
-	switch {
-	case errors.Is(err, services.ErrPeerSubnetConflict):
-		clientError(w, r, http.StatusBadRequest, "error.peerSubnetConflict")
-		return
-	case errors.Is(err, services.ErrPeerNameInUse):
-		clientError(w, r, http.StatusBadRequest, "error.duplicateName")
-		return
-	case err != nil:
-		fail(w, r, http.StatusInternalServerError, err)
+	if err != nil {
+		addPeerFailed(w, r, err)
 		return
 	}
 
@@ -102,6 +85,19 @@ func (h *VPNHandler) HandleAddPeer(w http.ResponseWriter, r *http.Request) {
 	// and a global nosniff header.
 	// #nosec G705
 	_, _ = w.Write([]byte(confStr))
+}
+
+// addPeerFailed answers an AddPeer error: a subnet conflict or a taken
+// name is the operator's to fix, anything else is a server fault.
+func addPeerFailed(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, services.ErrPeerSubnetConflict):
+		clientError(w, r, http.StatusBadRequest, "error.peerSubnetConflict")
+	case errors.Is(err, services.ErrPeerNameInUse):
+		clientError(w, r, http.StatusBadRequest, "error.duplicateName")
+	default:
+		fail(w, r, http.StatusInternalServerError, err)
+	}
 }
 
 // HandleDownloadPeerConfig re-issues a peer's client configuration.
@@ -214,36 +210,25 @@ func (h *VPNHandler) HandleS2SInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := r.FormValue("name")
-	siteName := r.FormValue("siteName")
 	endpoint := r.FormValue("endpoint")
-	remoteRaw := strings.TrimSpace(r.FormValue("remoteSubnets"))
-
-	if name == "" || !vpnNamePattern.MatchString(name) {
-		clientError(w, r, http.StatusBadRequest, "error.invalidName")
+	if key := firstFailed(
+		check{name == "" || !vpnNamePattern.MatchString(name), "error.invalidName"},
+		check{endpoint == "" || !strings.Contains(endpoint, ":"), "error.endpointFormat"},
+	); key != "" {
+		clientError(w, r, http.StatusBadRequest, key)
 		return
 	}
-	if endpoint == "" || !strings.Contains(endpoint, ":") {
-		clientError(w, r, http.StatusBadRequest, "error.endpointFormat")
+	remote, bad := parseRemoteSubnets(r.FormValue("remoteSubnets"))
+	if bad != "" {
+		clientErrorf(w, r, http.StatusBadRequest, "error.invalidCIDR", bad)
 		return
-	}
-	var remote []string
-	for s := range strings.SplitSeq(remoteRaw, ",") {
-		s = strings.TrimSpace(s)
-		if s == "" {
-			continue
-		}
-		if err := netutil.ValidateCIDR(s); err != nil {
-			clientErrorf(w, r, http.StatusBadRequest, "error.invalidCIDR", s)
-			return
-		}
-		remote = append(remote, s)
 	}
 	if len(remote) == 0 {
 		clientError(w, r, http.StatusBadRequest, "error.remoteSubnetRequired")
 		return
 	}
 
-	token, peer, err := h.vpn.CreateS2SInvite(r.Context(), name, siteName, endpoint, remote)
+	token, peer, err := h.vpn.CreateS2SInvite(r.Context(), name, r.FormValue("siteName"), endpoint, remote)
 	if err != nil {
 		fail(w, r, http.StatusBadRequest, err)
 		return
