@@ -86,35 +86,10 @@ func (h *FirewallHandler) HandleAddPortForward(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	extPort, err := strconv.Atoi(r.FormValue("extPort"))
-	if err != nil || netutil.ValidatePort(extPort) != nil {
-		clientError(w, r, http.StatusBadRequest, "error.invalidPort")
+	pf, key := parsePortForwardForm(r)
+	if key != "" {
+		clientError(w, r, http.StatusBadRequest, key)
 		return
-	}
-	intPort, err := strconv.Atoi(r.FormValue("intPort"))
-	if err != nil || netutil.ValidatePort(intPort) != nil {
-		clientError(w, r, http.StatusBadRequest, "error.invalidPort")
-		return
-	}
-
-	protocol := r.FormValue("protocol")
-	if protocol != "tcp" && protocol != "udp" && protocol != "both" {
-		clientError(w, r, http.StatusBadRequest, "error.invalidProtocol")
-		return
-	}
-	intIP := r.FormValue("intIP")
-	if netutil.ValidateIP(intIP) != nil {
-		clientError(w, r, http.StatusBadRequest, "error.invalidInternalIP")
-		return
-	}
-
-	pf := config.PortForward{
-		Name:     r.FormValue("name"),
-		Protocol: protocol,
-		ExtPort:  extPort,
-		IntIP:    intIP,
-		IntPort:  intPort,
-		Enabled:  true,
 	}
 
 	if err := h.firewall.AddPortForward(pf); err != nil {
@@ -123,6 +98,27 @@ func (h *FirewallHandler) HandleAddPortForward(w http.ResponseWriter, r *http.Re
 	}
 
 	respondTrigger(w, r, "portForwardAdded", "/firewall")
+}
+
+// parsePortForwardForm reads a port forward from the form. The second
+// result is the locale key of the first invalid field, or "".
+func parsePortForwardForm(r *http.Request) (config.PortForward, string) {
+	extPort, extOK := formPort(r, "extPort")
+	intPort, intOK := formPort(r, "intPort")
+	pf := config.PortForward{
+		Name:     r.FormValue("name"),
+		Protocol: r.FormValue("protocol"),
+		ExtPort:  extPort,
+		IntIP:    r.FormValue("intIP"),
+		IntPort:  intPort,
+		Enabled:  true,
+	}
+	return pf, firstFailed(
+		check{!extOK, "error.invalidPort"},
+		check{!intOK, "error.invalidPort"},
+		check{!oneOf(pf.Protocol, "tcp", "udp", "both"), "error.invalidProtocol"},
+		check{netutil.ValidateIP(pf.IntIP) != nil, "error.invalidInternalIP"},
+	)
 }
 
 func (h *FirewallHandler) HandleDeletePortForward(w http.ResponseWriter, r *http.Request) {
@@ -146,68 +142,10 @@ func (h *FirewallHandler) HandleAddRule(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	port, err := strconv.Atoi(r.FormValue("port"))
-	if err != nil || netutil.ValidatePort(port) != nil {
-		clientError(w, r, http.StatusBadRequest, "error.invalidPort")
+	rule, key := parseRuleForm(r)
+	if key != "" {
+		clientError(w, r, http.StatusBadRequest, key)
 		return
-	}
-
-	chain := r.FormValue("chain")
-	if chain != "input" && chain != "forward" && chain != "output" {
-		clientError(w, r, http.StatusBadRequest, "error.invalidChain")
-		return
-	}
-	action := r.FormValue("action")
-	if action != "accept" && action != "drop" && action != "reject" {
-		clientError(w, r, http.StatusBadRequest, "error.invalidAction")
-		return
-	}
-	protocol := r.FormValue("protocol")
-	if protocol != "" && protocol != "tcp" && protocol != "udp" && protocol != "icmp" {
-		clientError(w, r, http.StatusBadRequest, "error.invalidProtocol")
-		return
-	}
-	direction := r.FormValue("direction")
-	if direction != "" && direction != "in" && direction != "out" {
-		clientError(w, r, http.StatusBadRequest, "error.invalidDirection")
-		return
-	}
-	srcIP := r.FormValue("srcIP")
-	if srcIP != "" && netutil.ValidateCIDR(srcIP) != nil && netutil.ValidateIP(srcIP) != nil {
-		clientError(w, r, http.StatusBadRequest, "error.invalidSourceAddress")
-		return
-	}
-	dstIP := r.FormValue("dstIP")
-	if dstIP != "" && netutil.ValidateCIDR(dstIP) != nil && netutil.ValidateIP(dstIP) != nil {
-		clientError(w, r, http.StatusBadRequest, "error.invalidDestinationAddress")
-		return
-	}
-
-	// Both values are written verbatim into the nftables file: the
-	// interface into a quoted match, the name into a trailing comment.
-	// Neither may carry a quote or a newline.
-	name := r.FormValue("name")
-	if err := netutil.ValidateRuleName(name); err != nil {
-		clientError(w, r, http.StatusBadRequest, "error.invalidRuleName")
-		return
-	}
-	iface := r.FormValue("interface")
-	if iface != "" && netutil.ValidateInterfaceName(iface) != nil {
-		clientError(w, r, http.StatusBadRequest, "error.invalidInterface")
-		return
-	}
-
-	rule := config.FirewallRule{
-		Name:      name,
-		Chain:     chain,
-		Action:    action,
-		SrcIP:     srcIP,
-		DstIP:     dstIP,
-		Protocol:  protocol,
-		Port:      port,
-		Interface: iface,
-		Direction: direction,
-		Enabled:   true,
 	}
 
 	if err := h.firewall.AddRule(rule); err != nil {
@@ -216,6 +154,39 @@ func (h *FirewallHandler) HandleAddRule(w http.ResponseWriter, r *http.Request) 
 	}
 
 	respondRefresh(w, r, "/firewall")
+}
+
+// parseRuleForm reads a custom rule from the form. The second result is
+// the locale key of the first invalid field, or "".
+//
+// The name and the interface are written verbatim into the nftables
+// file: the interface into a quoted match, the name into a trailing
+// comment. Neither may carry a quote or a newline.
+func parseRuleForm(r *http.Request) (config.FirewallRule, string) {
+	port, portOK := formPort(r, "port")
+	rule := config.FirewallRule{
+		Name:      r.FormValue("name"),
+		Chain:     r.FormValue("chain"),
+		Action:    r.FormValue("action"),
+		SrcIP:     r.FormValue("srcIP"),
+		DstIP:     r.FormValue("dstIP"),
+		Protocol:  r.FormValue("protocol"),
+		Port:      port,
+		Interface: r.FormValue("interface"),
+		Direction: r.FormValue("direction"),
+		Enabled:   true,
+	}
+	return rule, firstFailed(
+		check{!portOK, "error.invalidPort"},
+		check{!oneOf(rule.Chain, "input", "forward", "output"), "error.invalidChain"},
+		check{!oneOf(rule.Action, "accept", "drop", "reject"), "error.invalidAction"},
+		check{!oneOf(rule.Protocol, "", "tcp", "udp", "icmp"), "error.invalidProtocol"},
+		check{!oneOf(rule.Direction, "", "in", "out"), "error.invalidDirection"},
+		check{!optionalAddress(rule.SrcIP), "error.invalidSourceAddress"},
+		check{!optionalAddress(rule.DstIP), "error.invalidDestinationAddress"},
+		check{netutil.ValidateRuleName(rule.Name) != nil, "error.invalidRuleName"},
+		check{rule.Interface != "" && netutil.ValidateInterfaceName(rule.Interface) != nil, "error.invalidInterface"},
+	)
 }
 
 func (h *FirewallHandler) HandleDeleteRule(w http.ResponseWriter, r *http.Request) {
@@ -254,36 +225,23 @@ func (h *FirewallHandler) HandleAddOpenPort(w http.ResponseWriter, r *http.Reque
 		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
-	port, err := strconv.Atoi(r.FormValue("port"))
-	if err != nil || netutil.ValidatePort(port) != nil {
-		clientError(w, r, http.StatusBadRequest, "error.invalidPort")
-		return
-	}
-
-	protocol := r.FormValue("protocol")
-	if protocol != "tcp" && protocol != "udp" && protocol != "both" {
-		clientError(w, r, http.StatusBadRequest, "error.invalidProtocol")
-		return
-	}
-	source := r.FormValue("source")
-	if source != "" && netutil.ValidateCIDR(source) != nil && netutil.ValidateIP(source) != nil {
-		clientError(w, r, http.StatusBadRequest, "error.invalidSourceAddress")
-		return
-	}
-
-	rateLimit := strings.TrimSpace(r.FormValue("rateLimit"))
-	if err := services.ValidateOpenPortRateLimit(rateLimit); err != nil {
-		clientError(w, r, http.StatusBadRequest, "error.invalidRateLimit")
-		return
-	}
-
+	port, portOK := formPort(r, "port")
 	op := config.OpenPort{
 		Name:      r.FormValue("name"),
-		Protocol:  protocol,
+		Protocol:  r.FormValue("protocol"),
 		Port:      port,
-		Source:    source,
+		Source:    r.FormValue("source"),
 		Enabled:   true,
-		RateLimit: rateLimit,
+		RateLimit: strings.TrimSpace(r.FormValue("rateLimit")),
+	}
+	if key := firstFailed(
+		check{!portOK, "error.invalidPort"},
+		check{!oneOf(op.Protocol, "tcp", "udp", "both"), "error.invalidProtocol"},
+		check{!optionalAddress(op.Source), "error.invalidSourceAddress"},
+		check{services.ValidateOpenPortRateLimit(op.RateLimit) != nil, "error.invalidRateLimit"},
+	); key != "" {
+		clientError(w, r, http.StatusBadRequest, key)
+		return
 	}
 
 	if err := h.firewall.AddOpenPort(op); err != nil {
