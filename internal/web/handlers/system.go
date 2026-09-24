@@ -181,19 +181,16 @@ func (h *SystemHandler) HandleUpdateHostname(w http.ResponseWriter, r *http.Requ
 	hostname := r.FormValue("hostname")
 	domain := r.FormValue("domain")
 
-	if err := services.ValidateHostname(hostname); err != nil {
-		clientError(w, r, http.StatusBadRequest, "error.invalidHostname")
+	// Validate before anything is assigned. The domain is rendered into
+	// dnsmasq.conf and the RA drop-in by text/template, which escapes
+	// nothing, so an unchecked value here reaches a file the root agent
+	// writes.
+	if key := firstFailed(
+		check{services.ValidateHostname(hostname) != nil, "error.invalidHostname"},
+		check{domain != "" && services.ValidateDomain(domain) != nil, "error.invalidDomain"},
+	); key != "" {
+		clientError(w, r, http.StatusBadRequest, key)
 		return
-	}
-	// Validate before anything is assigned. The domain is rendered
-	// into dnsmasq.conf and the RA drop-in by text/template, which
-	// escapes nothing, so an unchecked value here reaches a file the
-	// root agent writes.
-	if domain != "" {
-		if err := services.ValidateDomain(domain); err != nil {
-			clientError(w, r, http.StatusBadRequest, "error.invalidDomain")
-			return
-		}
 	}
 
 	oldDomain := h.cfg.System.Domain
@@ -205,13 +202,8 @@ func (h *SystemHandler) HandleUpdateHostname(w http.ResponseWriter, r *http.Requ
 	if err := h.system.SetHostname(r.Context(), hostname); err != nil {
 		log.Printf("system: set hostname: %v", err)
 	}
-
 	if domain != "" && domain != oldDomain {
-		if h.dhcp != nil {
-			if err := h.dhcp.RebuildDNSRecords(context.Background(), h.cfg.System.Domain); err != nil {
-				log.Printf("system: rebuild dns records: %v", err)
-			}
-		}
+		h.rebuildDNSRecords()
 	}
 
 	if err := h.cfg.SaveToFile(); err != nil {
@@ -225,6 +217,17 @@ func (h *SystemHandler) HandleUpdateHostname(w http.ResponseWriter, r *http.Requ
 	log.Printf("hostname changed to %s.%s", hostname, h.cfg.System.Domain)
 
 	respondTrigger(w, r, "settingsUpdated", "/settings")
+}
+
+// rebuildDNSRecords re-mirrors the static DHCP leases under the current
+// domain. A failure is logged; the domain change itself stands.
+func (h *SystemHandler) rebuildDNSRecords() {
+	if h.dhcp == nil {
+		return
+	}
+	if err := h.dhcp.RebuildDNSRecords(context.Background(), h.cfg.System.Domain); err != nil {
+		log.Printf("system: rebuild dns records: %v", err)
+	}
 }
 
 func (h *SystemHandler) HandleUpdateTimezone(w http.ResponseWriter, r *http.Request) {
