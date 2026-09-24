@@ -162,7 +162,7 @@ The socket is the privilege boundary itself. It is owned `root:lankeeper` at mod
 
 | Layer        | Technology                                                                        |
 |--------------|-----------------------------------------------------------------------------------|
-| Language     | Go 1.26.5 (standard library + 6 dependencies)                                     |
+| Language     | Go 1.26.8 (standard library + 6 dependencies)                                     |
 | Frontend     | HTMX + SSE + minimal vanilla JS                                                   |
 | Templating   | Go `html/template` with layout inheritance                                        |
 | Config       | YAML with AES-256-GCM encrypted credentials                                       |
