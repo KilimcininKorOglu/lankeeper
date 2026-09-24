@@ -606,13 +606,13 @@ func renderCustomRule(r config.FirewallRule) (string, error) {
 		if err := validateAddressOrCIDR(r.SrcIP); err != nil {
 			return "", fmt.Errorf("source: %w", err)
 		}
-		conditions = append(conditions, fmt.Sprintf("ip saddr %s", r.SrcIP))
+		conditions = append(conditions, fmt.Sprintf("%s saddr %s", addressFamilyMatcher(r.SrcIP), r.SrcIP))
 	}
 	if r.DstIP != "" {
 		if err := validateAddressOrCIDR(r.DstIP); err != nil {
 			return "", fmt.Errorf("destination: %w", err)
 		}
-		conditions = append(conditions, fmt.Sprintf("ip daddr %s", r.DstIP))
+		conditions = append(conditions, fmt.Sprintf("%s daddr %s", addressFamilyMatcher(r.DstIP), r.DstIP))
 	}
 	if r.Protocol != "" {
 		if r.Protocol != "tcp" && r.Protocol != "udp" && r.Protocol != "icmp" {

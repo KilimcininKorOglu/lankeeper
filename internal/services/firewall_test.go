@@ -345,6 +345,64 @@ func TestFirewallRendersCustomRules(t *testing.T) {
 	}
 }
 
+// TestFirewallCustomRulesMatchTheAddressFamily covers an IPv6 source or
+// destination. The rule form accepts one, and the generator wrote it
+// after `ip saddr`/`ip daddr`, which nft rejects with "Address family
+// for hostname not supported". nft parses the file as a unit, so that
+// one rule failed every later firewall apply.
+func TestFirewallCustomRulesMatchTheAddressFamily(t *testing.T) {
+	cfg := testFirewallConfig(t)
+	cfg.Firewall.Rules = []config.FirewallRule{
+		{
+			Name:    "block v6 host",
+			Chain:   "input",
+			Action:  "drop",
+			SrcIP:   "2001:db8::1",
+			Enabled: true,
+		},
+		{
+			Name:     "allow v6 subnet",
+			Chain:    "forward",
+			Action:   "accept",
+			DstIP:    "2001:db8:1::/64",
+			Protocol: "tcp",
+			Port:     443,
+			Enabled:  true,
+		},
+		{
+			Name:    "block v4 host",
+			Chain:   "input",
+			Action:  "drop",
+			DstIP:   "10.10.10.9",
+			Enabled: true,
+		},
+	}
+
+	svc, err := services.NewFirewallServiceFromFS(cfg, testNftTemplate)
+	if err != nil {
+		t.Fatalf("new firewall service: %v", err)
+	}
+	out, err := svc.RenderConfig()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	for _, want := range []string{
+		"ip6 saddr 2001:db8::1 drop # block v6 host",
+		"ip6 daddr 2001:db8:1::/64 tcp dport 443 accept # allow v6 subnet",
+		"ip daddr 10.10.10.9 drop # block v4 host",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered ruleset missing %q\n---\n%s", want, out)
+		}
+	}
+	for _, bad := range []string{"ip saddr 2001:", "ip daddr 2001:"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("rendered ruleset matches an IPv6 address with the IPv4 matcher (%q)\n---\n%s", bad, out)
+		}
+	}
+}
+
 // TestFirewallCustomRulesLandInTheRightChain proves the Chain field is
 // honoured. The original generator ignored it entirely.
 func TestFirewallCustomRulesLandInTheRightChain(t *testing.T) {
