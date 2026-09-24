@@ -124,11 +124,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	pppoeHandler := handlers.NewPPPoEHandler(renderer, pppoeSvc)
 	healthHandler := handlers.NewHealthCheckHandler(renderer, healthSvc)
 
-	nftTmpl, _ := fs.ReadFile(webFS, "../configs/sysconf/nftables.conf.tmpl")
-	if nftTmpl == nil {
-		nftTmpl = []byte("flush ruleset\n")
-	}
-	firewallSvc, err := services.NewFirewallServiceFromFS(cfg, string(nftTmpl))
+	firewallSvc, err := services.NewFirewallServiceFromFS(cfg, nftablesTemplate(webFS))
 	if err != nil {
 		return nil, fmt.Errorf("init firewall service: %w", err)
 	}
@@ -137,23 +133,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	dnsSvc := services.NewDNSService(cfg)
 	dohSvc := services.NewDoHService(cfg)
 	dnsHandler := handlers.NewDNSHandler(renderer, dnsSvc, dohSvc)
-
-	// On startup, if DoH is configured we apply the dnscrypt-proxy
-	// state up-front so the daemon is running BEFORE Unbound's
-	// first forward query lands. ApplyConfig is idempotent (writes
-	// + restart) so calling it on every boot is safe even when the
-	// state already matches.
-	if cfg.DNS.EnableDoH {
-		if err := dohSvc.ApplyConfig(context.Background()); err != nil {
-			log.Printf("doh: initial apply: %v", err)
-		}
-	} else {
-		// Render an idle stub so subsequent toggle-on doesn't need
-		// the proxy to find an empty config file.
-		if err := dohSvc.RenderToDisk(context.Background()); err != nil {
-			log.Printf("doh: initial render: %v", err)
-		}
-	}
+	initDoH(cfg, dohSvc)
 
 	dhcpSvc := services.NewDHCPService(cfg)
 	dhcpSvc.SetDNSService(dnsSvc)
@@ -185,49 +165,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 
 	ipv6Svc := services.NewIPv6Service(cfg)
 	sixInFourSvc := services.NewSixInFourService(cfg)
-	// Wire PPPoE -> IPv6 cross-service callbacks. The behaviour is
-	// mode-aware: PD restarts dhcp6c, 6in4 pushes the new IPv4 to
-	// HE.net (when AutoUpdate is on) and rebuilds the sit interface.
-	// Both hooks branch on the mode, but the tunnel calls go through
-	// SixInFourService.ApplyConfig, which also consults the enabled
-	// flag. Without that, turning IPv6 off while the mode stayed at
-	// 6in4 left every reconnect rebuilding a tunnel the operator had
-	// switched off.
-	pppoeSvc.SetOnConnect(func(ctx context.Context) error {
-		if cfg.IPv6.Mode == "6in4" {
-			st, _ := pppoeSvc.Status(ctx)
-			if st != nil && st.LocalIP != "" && cfg.IPv6.Tunnel.AutoUpdate {
-				if _, err := sixInFourSvc.UpdateRemoteIPv4(ctx, st.LocalIP); err != nil {
-					log.Printf("6in4: nic/update on connect: %v", err)
-				}
-			}
-			if err := sixInFourSvc.ApplyConfig(ctx); err != nil {
-				return fmt.Errorf("6in4 apply on connect: %w", err)
-			}
-			// Refresh the dnsmasq RA drop-in so RoutedPrefix-derived
-			// /64 sub-prefixes follow the rebuilt tunnel.
-			return ipv6Svc.ApplyConfig(ctx)
-		}
-		return ipv6Svc.Restart(ctx)
-	})
-	pppoeSvc.SetOnDisconnect(func(ctx context.Context) error {
-		if cfg.IPv6.Mode == "6in4" {
-			return sixInFourSvc.Stop(ctx)
-		}
-		return ipv6Svc.Stop(ctx)
-	})
-	// Whenever the dhcp6c lease changes (new prefix, RELEASE, EXIT) we
-	// re-apply the firewall ruleset so any ip6-derived rules are
-	// rebuilt from the freshly delegated prefix. The 30s watchdog is
-	// auto-confirmed because the lease event itself is proof we kept
-	// connectivity end-to-end.
-	ipv6Svc.SetOnLeaseChange(func(ctx context.Context, _ services.PrefixState) error {
-		if err := firewallSvc.Apply(ctx); err != nil {
-			return fmt.Errorf("ipv6 lease -> firewall apply: %w", err)
-		}
-		firewallSvc.Confirm()
-		return nil
-	})
+	wireIPv6Hooks(cfg, pppoeSvc, sixInFourSvc, ipv6Svc, firewallSvc)
 	// The watcher itself is started in Serve, where the shutdown context
 	// and the background drain group live.
 	ipv6Handler := handlers.NewIPv6Handler(renderer, cfg, ipv6Svc, sixInFourSvc, pppoeSvc)
@@ -309,17 +247,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	s.routes(mux, webFS)
 
 	var handler http.Handler = mux
-
-	_, lanNet, _ := net.ParseCIDR("10.10.10.0/24")
-	allowedNets := []*net.IPNet{lanNet}
-	for _, iface := range cfg.Interfaces {
-		if iface.Role == "lan" && iface.Address != "" {
-			_, n, err := net.ParseCIDR(iface.Address)
-			if err == nil {
-				allowedNets = append(allowedNets, n)
-			}
-		}
-	}
+	allowedNets := lanAllowedNets(cfg)
 
 	// Wrapping is bottom-up, so the last line runs first. RequestLogger
 	// is applied last on purpose: every gate above it short-circuits
@@ -359,6 +287,106 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	}
 
 	return s, nil
+}
+
+// nftablesTemplate returns the embedded nftables template, or a ruleset
+// that only flushes when the file is absent from the embedded tree.
+func nftablesTemplate(webFS fs.FS) string {
+	nftTmpl, _ := fs.ReadFile(webFS, "../configs/sysconf/nftables.conf.tmpl")
+	if nftTmpl == nil {
+		return "flush ruleset\n"
+	}
+	return string(nftTmpl)
+}
+
+// initDoH brings the dnscrypt-proxy state in line with the config at
+// startup.
+//
+// If DoH is configured the stub is applied up-front so the daemon is
+// running BEFORE Unbound's first forward query lands. ApplyConfig is
+// idempotent (writes + restart), so calling it on every boot is safe
+// even when the state already matches. Otherwise an idle stub is
+// rendered so a later toggle-on does not find an empty config file.
+func initDoH(cfg *config.Config, dohSvc *services.DoHService) {
+	if cfg.DNS.EnableDoH {
+		if err := dohSvc.ApplyConfig(context.Background()); err != nil {
+			log.Printf("doh: initial apply: %v", err)
+		}
+		return
+	}
+	if err := dohSvc.RenderToDisk(context.Background()); err != nil {
+		log.Printf("doh: initial render: %v", err)
+	}
+}
+
+// wireIPv6Hooks connects the PPPoE link events and the dhcp6c lease
+// watcher to the IPv6 and firewall services.
+//
+// The PPPoE hooks are mode-aware: PD restarts dhcp6c, 6in4 pushes the new
+// IPv4 to HE.net (when AutoUpdate is on) and rebuilds the sit interface.
+// The tunnel calls go through SixInFourService.ApplyConfig, which also
+// consults the enabled flag. Without that, turning IPv6 off while the
+// mode stayed at 6in4 left every reconnect rebuilding a tunnel the
+// operator had switched off.
+func wireIPv6Hooks(cfg *config.Config, pppoeSvc *services.PPPoEService, sixInFourSvc *services.SixInFourService, ipv6Svc *services.IPv6Service, firewallSvc *services.FirewallService) {
+	pppoeSvc.SetOnConnect(func(ctx context.Context) error {
+		if cfg.IPv6.Mode == "6in4" {
+			return reconnectSixInFour(ctx, cfg, pppoeSvc, sixInFourSvc, ipv6Svc)
+		}
+		return ipv6Svc.Restart(ctx)
+	})
+	pppoeSvc.SetOnDisconnect(func(ctx context.Context) error {
+		if cfg.IPv6.Mode == "6in4" {
+			return sixInFourSvc.Stop(ctx)
+		}
+		return ipv6Svc.Stop(ctx)
+	})
+	// Whenever the dhcp6c lease changes (new prefix, RELEASE, EXIT) we
+	// re-apply the firewall ruleset so any ip6-derived rules are
+	// rebuilt from the freshly delegated prefix. The 30s watchdog is
+	// auto-confirmed because the lease event itself is proof we kept
+	// connectivity end-to-end.
+	ipv6Svc.SetOnLeaseChange(func(ctx context.Context, _ services.PrefixState) error {
+		if err := firewallSvc.Apply(ctx); err != nil {
+			return fmt.Errorf("ipv6 lease -> firewall apply: %w", err)
+		}
+		firewallSvc.Confirm()
+		return nil
+	})
+}
+
+// reconnectSixInFour rebuilds the 6in4 tunnel after a PPPoE reconnect.
+// The HE.net endpoint update is logged, not propagated, because the
+// tunnel rebuild that follows is what the connection depends on.
+func reconnectSixInFour(ctx context.Context, cfg *config.Config, pppoeSvc *services.PPPoEService, sixInFourSvc *services.SixInFourService, ipv6Svc *services.IPv6Service) error {
+	st, _ := pppoeSvc.Status(ctx)
+	if st != nil && st.LocalIP != "" && cfg.IPv6.Tunnel.AutoUpdate {
+		if _, err := sixInFourSvc.UpdateRemoteIPv4(ctx, st.LocalIP); err != nil {
+			log.Printf("6in4: nic/update on connect: %v", err)
+		}
+	}
+	if err := sixInFourSvc.ApplyConfig(ctx); err != nil {
+		return fmt.Errorf("6in4 apply on connect: %w", err)
+	}
+	// Refresh the dnsmasq RA drop-in so RoutedPrefix-derived /64
+	// sub-prefixes follow the rebuilt tunnel.
+	return ipv6Svc.ApplyConfig(ctx)
+}
+
+// lanAllowedNets lists the networks LANOnly admits: the default LAN plus
+// every LAN interface with a parseable address.
+func lanAllowedNets(cfg *config.Config) []*net.IPNet {
+	_, lanNet, _ := net.ParseCIDR("10.10.10.0/24")
+	allowedNets := []*net.IPNet{lanNet}
+	for _, iface := range cfg.Interfaces {
+		if iface.Role != "lan" || iface.Address == "" {
+			continue
+		}
+		if _, n, err := net.ParseCIDR(iface.Address); err == nil {
+			allowedNets = append(allowedNets, n)
+		}
+	}
+	return allowedNets
 }
 
 // Handler exposes the fully wrapped middleware chain so the ordering

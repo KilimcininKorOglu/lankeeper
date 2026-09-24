@@ -58,50 +58,8 @@ func TestPasswordChangeTakesEffectImmediately(t *testing.T) {
 	cfg.System.AdminPasswordHash = hashOf(t, "old-password")
 	t.Setenv("LANKEEPER_FIREWALL_STATE", filepath.Join(t.TempDir(), "firewall-pending.json"))
 
-	loc, err := i18n.New("en")
-	if err != nil {
-		t.Fatalf("init i18n: %v", err)
-	}
-	if err := loc.LoadFromFS(webfs.EmbeddedFS, "locales"); err != nil {
-		t.Fatalf("load locales: %v", err)
-	}
-
-	srv, err := web.NewServer(cfg, loc, webfs.EmbeddedFS,
-		services.NewUpdateService("v0.0.0-test", "", "", nil))
-	if err != nil {
-		t.Fatalf("new server: %v", err)
-	}
-	handler := srv.Handler()
-
-	// A GET seeds the CSRF cookie and echoes the token, which every
-	// subsequent POST has to present.
-	getRec := httptest.NewRecorder()
-	getReq := httptest.NewRequest(http.MethodGet, "/login", nil)
-	getReq.RemoteAddr = "10.10.10.20:5000"
-	handler.ServeHTTP(getRec, getReq)
-
-	csrf := getRec.Header().Get("X-CSRF-Token")
-	if csrf == "" {
-		t.Fatalf("no CSRF token issued (status %d)", getRec.Code)
-	}
-	jar := getRec.Result().Cookies()
-
-	post := func(path string, form url.Values, extra []*http.Cookie) *httptest.ResponseRecorder {
-		t.Helper()
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.Header.Set("X-CSRF-Token", csrf)
-		req.RemoteAddr = "10.10.10.20:5000"
-		for _, c := range jar {
-			req.AddCookie(c)
-		}
-		for _, c := range extra {
-			req.AddCookie(c)
-		}
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-		return rec
-	}
+	srv := newServerWithConfig(t, cfg)
+	post := newFormClient(t, srv.Handler()).post
 
 	// Log in with the original password to obtain a session, which the
 	// password-change route requires.
@@ -135,4 +93,62 @@ func TestPasswordChangeTakesEffectImmediately(t *testing.T) {
 	if !srv.Auth().VerifyPassword("brand-new-password") {
 		t.Error("the new password does not work until a restart")
 	}
+}
+
+// newServerWithConfig builds the real server over the embedded assets with an
+// English localizer.
+func newServerWithConfig(t *testing.T, cfg *config.Config) *web.Server {
+	t.Helper()
+	loc, err := i18n.New("en")
+	if err != nil {
+		t.Fatalf("init i18n: %v", err)
+	}
+	if err := loc.LoadFromFS(webfs.EmbeddedFS, "locales"); err != nil {
+		t.Fatalf("load locales: %v", err)
+	}
+	srv, err := web.NewServer(cfg, loc, webfs.EmbeddedFS,
+		services.NewUpdateService("v0.0.0-test", "", "", nil))
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+	return srv
+}
+
+// formClient posts forms from a LAN address with the CSRF token and
+// cookie a GET issued.
+type formClient struct {
+	t       *testing.T
+	handler http.Handler
+	csrf    string
+	jar     []*http.Cookie
+}
+
+// newFormClient performs the GET that seeds the CSRF cookie and echoes
+// the token, which every subsequent POST has to present.
+func newFormClient(t *testing.T, handler http.Handler) *formClient {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	req.RemoteAddr = "10.10.10.20:5000"
+	handler.ServeHTTP(rec, req)
+
+	csrf := rec.Header().Get("X-CSRF-Token")
+	if csrf == "" {
+		t.Fatalf("no CSRF token issued (status %d)", rec.Code)
+	}
+	return &formClient{t: t, handler: handler, csrf: csrf, jar: rec.Result().Cookies()}
+}
+
+func (c *formClient) post(path string, form url.Values, extra []*http.Cookie) *httptest.ResponseRecorder {
+	c.t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-CSRF-Token", c.csrf)
+	req.RemoteAddr = "10.10.10.20:5000"
+	for _, ck := range append(c.jar, extra...) {
+		req.AddCookie(ck)
+	}
+	rec := httptest.NewRecorder()
+	c.handler.ServeHTTP(rec, req)
+	return rec
 }
