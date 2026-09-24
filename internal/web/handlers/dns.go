@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"html"
 	"log"
@@ -116,34 +117,16 @@ func (h *DNSHandler) HandleSaveDoT(w http.ResponseWriter, r *http.Request) {
 		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
-	mode := r.FormValue("encryption_mode")
 	dotUpstream := strings.TrimSpace(r.FormValue("dot_upstream"))
 	dohUpstream := strings.TrimSpace(r.FormValue("doh_upstream"))
 
-	var enableDoT, enableDoH bool
-	switch mode {
-	case "dot":
-		if dotUpstream == "" {
-			clientError(w, r, http.StatusBadRequest, "error.dotUpstreamRequired")
-			return
-		}
-		enableDoT = true
-	case "doh":
-		if dohUpstream == "" {
-			clientError(w, r, http.StatusBadRequest, "error.dohUpstreamRequired")
-			return
-		}
-		if h.doh != nil {
-			if err := h.doh.ValidateUpstream(dohUpstream); err != nil {
-				fail(w, r, http.StatusBadRequest, err)
-				return
-			}
-		}
-		enableDoH = true
-	case "plain", "":
-		// both stay false
-	default:
-		clientError(w, r, http.StatusBadRequest, "error.unknownEncryptionMode")
+	enableDoT, enableDoH, key, err := h.encryptionMode(r.FormValue("encryption_mode"), dotUpstream, dohUpstream)
+	if key != "" {
+		clientError(w, r, http.StatusBadRequest, key)
+		return
+	}
+	if err != nil {
+		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 
@@ -163,22 +146,55 @@ func (h *DNSHandler) HandleSaveDoT(w http.ResponseWriter, r *http.Request) {
 	// reproduces exactly the same failure on the way down, and the
 	// settings are already persisted by this point, so the disabled
 	// branch of the DoH service stops the daemon straight away.
-	applyDNS := func() {
-		if err := h.dns.ApplyConfig(r.Context()); err != nil {
-			log.Printf("dns apply after mode change: %v", err)
-		}
-	}
-	applyDoH := func() {
-		if h.doh == nil {
-			return
-		}
-		if err := h.doh.ApplyConfig(r.Context()); err != nil {
-			log.Printf("doh apply after mode change: %v", err)
-		}
-	}
-
-	applyDNSPlane(enableDoH, applyDoH, applyDNS)
+	ctx := r.Context()
+	applyDNSPlane(enableDoH, func() { h.applyDoH(ctx) }, func() { h.applyDNS(ctx) })
 	respondRefresh(w, r, "/dns")
+}
+
+// encryptionMode turns the radio value into the DoT and DoH flags. key is
+// the locale key for a missing upstream or an unknown mode; err is the
+// DoH service's rejection of the upstream.
+func (h *DNSHandler) encryptionMode(mode, dotUpstream, dohUpstream string) (enableDoT, enableDoH bool, key string, err error) {
+	switch mode {
+	case "dot":
+		if dotUpstream == "" {
+			return false, false, "error.dotUpstreamRequired", nil
+		}
+		return true, false, "", nil
+	case "doh":
+		if dohUpstream == "" {
+			return false, false, "error.dohUpstreamRequired", nil
+		}
+		if h.doh != nil {
+			if err := h.doh.ValidateUpstream(dohUpstream); err != nil {
+				return false, false, "", err
+			}
+		}
+		return false, true, "", nil
+	case "plain", "":
+		return false, false, "", nil
+	default:
+		return false, false, "error.unknownEncryptionMode", nil
+	}
+}
+
+// applyDNS reloads Unbound after a mode change. A failure is logged: the
+// settings are already persisted.
+func (h *DNSHandler) applyDNS(ctx context.Context) {
+	if err := h.dns.ApplyConfig(ctx); err != nil {
+		log.Printf("dns apply after mode change: %v", err)
+	}
+}
+
+// applyDoH converges dnscrypt-proxy after a mode change. A failure is
+// logged: the settings are already persisted.
+func (h *DNSHandler) applyDoH(ctx context.Context) {
+	if h.doh == nil {
+		return
+	}
+	if err := h.doh.ApplyConfig(ctx); err != nil {
+		log.Printf("doh apply after mode change: %v", err)
+	}
 }
 
 // HandleProbeDoH is the DoH counterpart to HandleProbeDoT. Catalogue
