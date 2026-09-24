@@ -120,24 +120,31 @@ func TestTheBlockIsNotWrittenOutByHand(t *testing.T) {
 
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") ||
-			strings.HasSuffix(name, "_test.go") || name == "respond.go" {
+		if e.IsDir() || !isHandlerSource(name) {
 			continue
 		}
-
 		raw, err := os.ReadFile(filepath.Join(".", name))
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
 		}
-		body := string(raw)
+		checkNoHandWrittenHtmx(t, name, string(raw))
+	}
+}
 
-		for _, header := range []string{`w.Header().Set("HX-Refresh"`, `w.Header().Set("HX-Trigger"`} {
-			if strings.Contains(body, header) {
-				t.Errorf("%s sets the htmx response header itself; use respondRefresh or respondTrigger", name)
-			}
+// isHandlerSource reports whether name is a non-test Go file other than
+// respond.go, which is where the contract is allowed to live.
+func isHandlerSource(name string) bool {
+	return strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go") && name != "respond.go"
+}
+
+func checkNoHandWrittenHtmx(t *testing.T, name, body string) {
+	t.Helper()
+	for _, header := range []string{`w.Header().Set("HX-Refresh"`, `w.Header().Set("HX-Trigger"`} {
+		if strings.Contains(body, header) {
+			t.Errorf("%s sets the htmx response header itself; use respondRefresh or respondTrigger", name)
 		}
-		if name != "vlan.go" && strings.Contains(body, `r.Header.Get("HX-Request")`) {
-			t.Errorf("%s writes the htmx branch out by hand", name)
-		}
+	}
+	if name != "vlan.go" && strings.Contains(body, `r.Header.Get("HX-Request")`) {
+		t.Errorf("%s writes the htmx branch out by hand", name)
 	}
 }
