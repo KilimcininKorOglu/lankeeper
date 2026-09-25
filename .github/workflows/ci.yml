@@ -1,10 +1,11 @@
 name: CI
 
 # Push/PR to main runs the same gates a developer would: compile, race
-# tests, golangci-lint, go vet, govulncheck against vuln.go.dev, gosec,
-# and the cross-compile that produces the shipped artifacts.
+# tests, golangci-lint, the gocyclo complexity limit, go vet, govulncheck
+# against vuln.go.dev, gosec, and the cross-compile that produces the
+# shipped artifacts.
 # Keep these aligned with the Makefile so contributors can reproduce
-# every failure locally with `make test lint cross-all`, plus
+# every failure locally with `make test lint cyclo cross-all`, plus
 # `govulncheck ./...` and `gosec ./...` for the two security gates the
 # Makefile does not wrap.
 
@@ -144,6 +145,24 @@ jobs:
           # less. It also keeps CI on the same release `make lint` runs
           # locally, so a contributor reproduces what CI saw.
           version: v2.12.2
+
+  gocyclo:
+    name: gocyclo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          # See build-test for why this is a range, not go.mod.
+          go-version: '1.26.x'
+          check-latest: true
+          cache: true
+      - name: Cyclomatic complexity (limit 10)
+        # The Makefile pins the gocyclo version, so this job and a local
+        # `make cyclo` run the same binary. golangci-lint's default set
+        # has no complexity linter, so without this job a function over
+        # the limit passed every other gate.
+        run: make cyclo
 
   govulncheck:
     name: govulncheck

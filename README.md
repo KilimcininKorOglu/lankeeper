@@ -268,6 +268,7 @@ make dev                  # Quick dev build (no version ldflags)
 make build                # Production build with version/commit/date
 make test                 # go test ./... -race -count=1
 make lint                 # golangci-lint run
+make cyclo                # Cyclomatic complexity gate (limit 10, pinned gocyclo)
 make cross                # Cross-compile linux/amd64
 make cross-all            # Cross-compile both architectures
 make install              # Build for this host's architecture, then install
@@ -288,13 +289,14 @@ go test ./internal/web/handlers/ -race -count=1               # single package
 
 ### Continuous Integration
 
-`.github/workflows/ci.yml` runs seven gates across five jobs on push and
+`.github/workflows/ci.yml` runs eight gates across six jobs on push and
 pull request to `main`: `go build ./...`,
 `go test ./... -race -count=1` and `go vet ./...` (all three in the
-`build-test` job), then `golangci-lint`, `govulncheck ./...`,
-`gosec ./...`, and `make cross-all`, which also runs the amd64 artifact
-and checks that its stamped version is not the un-stamped fallback.
-`make lint test cross-all` covers most of it locally.
+`build-test` job), then `golangci-lint`, `make cyclo`,
+`govulncheck ./...`, `gosec ./...`, and `make cross-all`, which also
+runs the amd64 artifact and checks that its stamped version is not the
+un-stamped fallback. `make lint cyclo test cross-all` covers most of it
+locally.
 
 A non-zero `gosec` exit means something genuinely new. Every standing
 finding carries a line-scoped `// #nosec` with its justification, so the

@@ -31,7 +31,7 @@ DOCKER ?= docker
 ISO_BUILDER_AMD64 ?= lankeeper-iso-builder-amd64
 ISO_BUILDER_ARM64 ?= lankeeper-iso-builder-arm64
 
-.PHONY: build test lint clean dev cross cross-amd64 cross-arm64 cross-all install iso iso-amd64 iso-arm64 iso-all docker-builder-amd64 docker-builder-arm64 docker-builders release release-archives release-amd64 release-arm64 release-all checksums check
+.PHONY: build test lint cyclo clean dev cross cross-amd64 cross-arm64 cross-all install iso iso-amd64 iso-arm64 iso-all docker-builder-amd64 docker-builder-arm64 docker-builders release release-archives release-amd64 release-arm64 release-all checksums check
 
 build:
 	mkdir -p $(DIST_DIR)
@@ -46,6 +46,14 @@ test:
 
 lint:
 	golangci-lint run
+
+# Every function stays at cyclomatic complexity 10 or below. gocyclo
+# exits 1 when any function exceeds the threshold. CI runs this target,
+# so the version is pinned here once for both.
+GOCYCLO_VERSION := v0.6.0
+
+cyclo:
+	go run github.com/fzipp/gocyclo/cmd/gocyclo@$(GOCYCLO_VERSION) -over 10 .
 
 clean:
 	find $(DIST_DIR) -mindepth 1 -maxdepth 1 ! -name packages -exec rm -rf {} + 2>/dev/null || true
