@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -19,6 +20,7 @@ import (
 // report the failure instead of a timeout.
 func endlessAssetServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	publicLoopbackClient(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.CopyN(w, zeroReader{}, maxUpdateArchiveBytes+(8<<20))
@@ -32,6 +34,7 @@ func endlessAssetServer(t *testing.T) *httptest.Server {
 // against anything, so an oversized release was fetched in full before
 // anyone noticed.
 func TestDownloadRefusesAnOversizedDeclaredAsset(t *testing.T) {
+	publicLoopbackClient(t)
 	var hits int
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		hits++
@@ -89,6 +92,7 @@ func TestDownloadCapsAnUndeclaredStream(t *testing.T) {
 // TestDownloadRejectsASizeMismatch catches an asset whose body and
 // published size describe different artifacts.
 func TestDownloadRejectsASizeMismatch(t *testing.T) {
+	publicLoopbackClient(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("short"))
 	}))
@@ -97,14 +101,19 @@ func TestDownloadRejectsASizeMismatch(t *testing.T) {
 	svc := &UpdateService{currentVersion: "v1.0.0"}
 	dest := filepath.Join(t.TempDir(), "asset.tar.gz")
 
-	if err := svc.downloadFile(context.Background(), srv.URL, dest, 4096); err == nil {
+	err := svc.downloadFile(context.Background(), srv.URL, dest, 4096)
+	if err == nil {
 		t.Fatal("a body that disagreed with the declared size was accepted")
+	}
+	if !strings.Contains(err.Error(), "asset declares") {
+		t.Errorf("refused for another reason: %v", err)
 	}
 }
 
 // TestDownloadAcceptsARealSizedAsset keeps the cap from rejecting the
 // releases it exists to let through.
 func TestDownloadAcceptsARealSizedAsset(t *testing.T) {
+	publicLoopbackClient(t)
 	payload := make([]byte, 3<<20)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(payload)

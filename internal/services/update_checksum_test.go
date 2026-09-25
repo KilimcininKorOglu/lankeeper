@@ -42,6 +42,7 @@ func TestVerifyChecksumRefusesReleaseWithoutChecksumAsset(t *testing.T) {
 // blanket denial, and pins the SHA256SUMS line format the release
 // target emits: "<hash>  <filename>".
 func TestVerifyChecksumAcceptsMatchingDigest(t *testing.T) {
+	publicLoopbackClient(t)
 	const name = "lankeeper-v1.2.3-linux-amd64.tar.gz"
 	// sha256 of "payload"
 	const digest = "239f59ed55e737c77147cf55ad0c1b030b6d7ee748a7426952f9b852d5a935e5"
@@ -62,6 +63,7 @@ func TestVerifyChecksumAcceptsMatchingDigest(t *testing.T) {
 // TestVerifyChecksumRejectsAlteredArchive is the case the check exists
 // for: the asset served does not match what the release recorded.
 func TestVerifyChecksumRejectsAlteredArchive(t *testing.T) {
+	publicLoopbackClient(t)
 	const name = "lankeeper-v1.2.3-linux-amd64.tar.gz"
 	const digest = "239f59ed55e737c77147cf55ad0c1b030b6d7ee748a7426952f9b852d5a935e5"
 
@@ -77,11 +79,15 @@ func TestVerifyChecksumRejectsAlteredArchive(t *testing.T) {
 	if err == nil {
 		t.Fatal("archive whose digest does not match the release was accepted")
 	}
+	if !strings.Contains(err.Error(), "SHA-256 mismatch") {
+		t.Errorf("refused for another reason: %v", err)
+	}
 }
 
 // TestVerifyChecksumRejectsMissingEntry covers a checksum file that
 // exists but does not list this architecture's archive.
 func TestVerifyChecksumRejectsMissingEntry(t *testing.T) {
+	publicLoopbackClient(t)
 	archive := writeTempArchive(t, "lankeeper-v1.2.3-linux-arm64.tar.gz", "payload")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
