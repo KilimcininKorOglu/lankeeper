@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -37,6 +38,33 @@ func (a *fileWriteAgent) Call(_ context.Context, method string, params any) (jso
 	a.files[p.Path] = p.Content
 	a.mu.Unlock()
 	return []byte(`{"status":"ok"}`), nil
+}
+
+// TestOpenVPNAddClientRefusesAnAddressItCannotPush is the regression
+// test. The handler checked only that the value parsed as an address, so
+// an IPv6 address or one outside the server subnet was stored and then
+// never pushed, and the client silently received a pool address.
+func TestOpenVPNAddClientRefusesAnAddressItCannotPush(t *testing.T) {
+	agent := &fileWriteAgent{files: map[string]string{}}
+	netutil.SetAgentClient(agent)
+	t.Cleanup(func() { netutil.SetAgentClient(nil) })
+
+	cfg := config.DefaultConfig()
+	cfg.OpenVPN.Server.Subnet = "10.8.0.0/24"
+	svc := NewOpenVPNService(cfg)
+
+	for _, ip := range []string{"192.168.1.20", "fd00::20", "10.8.0.0", "10.8.0.1", "10.8.0.255"} {
+		err := svc.AddClient(context.Background(), "laptop", false, nil, ip)
+		if !errors.Is(err, ErrInvalidFixedIP) {
+			t.Errorf("fixed address %s: err = %v, want ErrInvalidFixedIP", ip, err)
+		}
+	}
+	if len(cfg.OpenVPN.Server.Clients) != 0 {
+		t.Errorf("a refused client was stored: %+v", cfg.OpenVPN.Server.Clients)
+	}
+	if err := svc.validateFixedIP("10.8.0.20"); err != nil {
+		t.Errorf("a host address inside the subnet was refused: %v", err)
+	}
 }
 
 // TestOpenVPNFixedAddressMatchesTheServerTopology is the regression

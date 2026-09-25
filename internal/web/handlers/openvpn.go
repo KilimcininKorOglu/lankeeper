@@ -100,6 +100,10 @@ func (h *OpenVPNHandler) HandleAddClient(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := h.ovpn.AddClient(r.Context(), name, siteToSite, remoteSubnets, fixedIP); err != nil {
+		if errors.Is(err, services.ErrInvalidFixedIP) {
+			clientErrorf(w, r, http.StatusBadRequest, "error.invalidFixedIP", fixedIP)
+			return
+		}
 		fail(w, r, http.StatusInternalServerError, err)
 		return
 	}

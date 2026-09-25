@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log"
@@ -145,6 +146,9 @@ func (s *OpenVPNService) AddClient(ctx context.Context, name string, siteToSite 
 	if err := ValidateOpenVPNClientName(name); err != nil {
 		return err
 	}
+	if err := s.validateFixedIP(fixedIP); err != nil {
+		return err
+	}
 
 	easyrsa := "/usr/share/easy-rsa/easyrsa"
 
@@ -177,6 +181,32 @@ func (s *OpenVPNService) AddClient(ctx context.Context, name string, siteToSite 
 		return fmt.Errorf("persist: %w", err)
 	}
 	log.Printf("OpenVPN client %q added (s2s=%v)", name, siteToSite)
+	return nil
+}
+
+// ErrInvalidFixedIP reports a fixed client address the server cannot
+// push.
+var ErrInvalidFixedIP = errors.New("fixed address must be a host address inside the OpenVPN subnet")
+
+// validateFixedIP accepts "" or an IPv4 host address inside the server
+// subnet other than its network, broadcast and server addresses. The
+// client config skips any other value, so without this check the client
+// was stored with an address it never received.
+func (s *OpenVPNService) validateFixedIP(fixedIP string) error {
+	if fixedIP == "" {
+		return nil
+	}
+	ip := net.ParseIP(fixedIP).To4()
+	_, subnet, err := net.ParseCIDR(s.cfg.OpenVPN.Server.Subnet)
+	if ip == nil || err != nil || !subnet.Contains(ip) {
+		return fmt.Errorf("%w: %s", ErrInvalidFixedIP, fixedIP)
+	}
+	host := binary.BigEndian.Uint32(ip) &^ binary.BigEndian.Uint32(subnet.Mask)
+	hostMask := ^binary.BigEndian.Uint32(subnet.Mask)
+	// host 1 is the server's own address under `server`.
+	if host == 0 || host == 1 || host == hostMask {
+		return fmt.Errorf("%w: %s", ErrInvalidFixedIP, fixedIP)
+	}
 	return nil
 }
 
