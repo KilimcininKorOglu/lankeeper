@@ -80,7 +80,7 @@ func TestTheWebUnitCanWriteWhereTheServiceWrites(t *testing.T) {
 		t.Skipf("the web unit no longer uses ProtectSystem=strict (%q); re-derive this check", unit["ProtectSystem"])
 	}
 	var writable []string
-	for _, w := range strings.Fields(unit["ReadWritePaths"]) {
+	for w := range strings.FieldsSeq(unit["ReadWritePaths"]) {
 		// A leading '-' only tells systemd to skip a missing path.
 		writable = append(writable, strings.TrimPrefix(w, "-"))
 	}
