@@ -279,3 +279,29 @@ func TestNASRenderDropsOnlyTheBadShare(t *testing.T) {
 		t.Errorf("invalid share rendered\n---\n%s", out)
 	}
 }
+
+// TestParseM3UDataDefaultsAndResets pins the fallback group and title
+// for a bare URL, and that one #EXTINF line applies to the next URL
+// only.
+func TestParseM3UDataDefaultsAndResets(t *testing.T) {
+	data := "#EXTM3U\r\n" +
+		"http://example.com/bare.mp4\r\n" +
+		"#EXTINF:-1 group-title=\"News\",Evening, Late\r\n" +
+		"# a comment\r\n" +
+		"http://example.com/news.mp4\r\n" +
+		"http://example.com/after.mp4\r\n"
+	items := services.ParseM3UData(data)
+	want := []services.M3UItem{
+		{Group: "Ungrouped", Title: "Unknown", URL: "http://example.com/bare.mp4"},
+		{Group: "News", Title: "Late", URL: "http://example.com/news.mp4"},
+		{Group: "Ungrouped", Title: "Unknown", URL: "http://example.com/after.mp4"},
+	}
+	if len(items) != len(want) {
+		t.Fatalf("got %+v, want %+v", items, want)
+	}
+	for i := range want {
+		if items[i] != want[i] {
+			t.Errorf("item %d = %+v, want %+v", i, items[i], want[i])
+		}
+	}
+}
