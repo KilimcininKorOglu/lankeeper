@@ -302,8 +302,8 @@ A non-zero `gosec` exit means something genuinely new. Every standing
 finding carries a line-scoped `// #nosec` with its justification, so the
 baseline is exit 0.
 
-Third-party actions are pinned to a full commit SHA and tool versions are
-explicit, so two runs of the same tree execute the same code. Tests in
+Every action, GitHub's own `actions/*` included, is pinned to a full
+commit SHA and tool versions are explicit, so two runs of the same tree execute the same code. Tests in
 `buildsys/` enforce that rather than leaving it to convention. There is
 no Dependabot configuration, so every module bump, action SHA and tool
 version is raised by hand.

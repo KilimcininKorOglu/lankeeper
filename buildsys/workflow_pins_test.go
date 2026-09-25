@@ -44,13 +44,13 @@ func workflowFiles(t *testing.T) []string {
 }
 
 // TestThirdPartyActionsArePinnedToACommit is the regression test. Every
-// uses: reference was a moveable version tag, and one of them is
-// third-party, so the code running in this pipeline could change with
-// no commit appearing in this repository.
+// uses: reference was a moveable version tag, so the code running in
+// this pipeline could change with no commit appearing in this
+// repository.
 //
-// GitHub's own actions/* stay on tags deliberately: Dependabot bumps
-// them into a readable diff, and the trust placed in that publisher is
-// already unavoidable because the runner itself comes from there.
+// GitHub's own actions/* were exempt while Dependabot bumped them. That
+// bot no longer runs here, the tags were bumped by hand anyway, and a
+// moved major tag ran new code in every job. They follow the same rule.
 func TestThirdPartyActionsArePinnedToACommit(t *testing.T) {
 	for _, path := range workflowFiles(t) {
 		raw, err := os.ReadFile(path)
@@ -78,11 +78,11 @@ func actionPinProblem(ref, comment string) string {
 	if !ok {
 		return fmt.Sprintf("%q carries no version at all", ref)
 	}
-	if strings.HasPrefix(owner, "./") || strings.HasPrefix(owner, "docker://") || strings.HasPrefix(owner, "actions/") {
+	if strings.HasPrefix(owner, "./") || strings.HasPrefix(owner, "docker://") {
 		return ""
 	}
 	if !commitSHA.MatchString(version) {
-		return fmt.Sprintf("third-party action %q is pinned to %q, want a full commit SHA", owner, version)
+		return fmt.Sprintf("action %q is pinned to %q, want a full commit SHA", owner, version)
 	}
 	if strings.TrimSpace(comment) == "" {
 		return fmt.Sprintf("%q is pinned to a bare SHA with no version comment, "+
@@ -105,7 +105,8 @@ func TestActionPinProblemFlagsEveryUnpinnedShape(t *testing.T) {
 		{"golangci/golangci-lint-action@" + sha[:12], "v9", true},
 		{"golangci/golangci-lint-action@" + sha, "", true},
 		{"golangci/golangci-lint-action@" + sha, "v9.0.0", false},
-		{"actions/checkout@v5", "", false},
+		{"actions/checkout@v5", "", true},
+		{"actions/checkout@" + sha, "v6.1.0", false},
 		{"./local-action@main", "", false},
 		{"docker://alpine@3", "", false},
 	}
