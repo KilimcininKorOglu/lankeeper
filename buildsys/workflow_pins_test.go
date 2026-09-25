@@ -1,6 +1,7 @@
 package buildsys
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -63,28 +64,54 @@ func TestThirdPartyActionsArePinnedToACommit(t *testing.T) {
 				continue
 			}
 
-			ref := m[1]
-			owner, version, ok := strings.Cut(ref, "@")
-			if !ok {
-				t.Errorf("%s:%d: %q carries no version at all", path, i+1, ref)
-				continue
+			if problem := actionPinProblem(m[1], m[2]); problem != "" {
+				t.Errorf("%s:%d: %s", path, i+1, problem)
 			}
-			if strings.HasPrefix(owner, "./") || strings.HasPrefix(owner, "docker://") {
-				continue
-			}
-			if strings.HasPrefix(owner, "actions/") {
-				continue
-			}
+		}
+	}
+}
 
-			if !commitSHA.MatchString(version) {
-				t.Errorf("%s:%d: third-party action %q is pinned to %q, want a full commit SHA",
-					path, i+1, owner, version)
-				continue
-			}
-			if strings.TrimSpace(m[2]) == "" {
-				t.Errorf("%s:%d: %q is pinned to a bare SHA with no version comment, "+
-					"so nobody can tell what it is without a network round trip", path, i+1, owner)
-			}
+// actionPinProblem describes what is wrong with one uses: reference and
+// its trailing comment, or returns "" when the reference is acceptable.
+func actionPinProblem(ref, comment string) string {
+	owner, version, ok := strings.Cut(ref, "@")
+	if !ok {
+		return fmt.Sprintf("%q carries no version at all", ref)
+	}
+	if strings.HasPrefix(owner, "./") || strings.HasPrefix(owner, "docker://") || strings.HasPrefix(owner, "actions/") {
+		return ""
+	}
+	if !commitSHA.MatchString(version) {
+		return fmt.Sprintf("third-party action %q is pinned to %q, want a full commit SHA", owner, version)
+	}
+	if strings.TrimSpace(comment) == "" {
+		return fmt.Sprintf("%q is pinned to a bare SHA with no version comment, "+
+			"so nobody can tell what it is without a network round trip", owner)
+	}
+	return ""
+}
+
+// TestActionPinProblemFlagsEveryUnpinnedShape checks the checker itself.
+// The tree is clean, so the regression test above passes whether or not
+// the checker can still see a bad reference.
+func TestActionPinProblemFlagsEveryUnpinnedShape(t *testing.T) {
+	sha := strings.Repeat("a", 40)
+	cases := []struct {
+		ref, comment string
+		bad          bool
+	}{
+		{"golangci/golangci-lint-action", "", true},
+		{"golangci/golangci-lint-action@v9", "", true},
+		{"golangci/golangci-lint-action@" + sha[:12], "v9", true},
+		{"golangci/golangci-lint-action@" + sha, "", true},
+		{"golangci/golangci-lint-action@" + sha, "v9.0.0", false},
+		{"actions/checkout@v5", "", false},
+		{"./local-action@main", "", false},
+		{"docker://alpine@3", "", false},
+	}
+	for _, c := range cases {
+		if got := actionPinProblem(c.ref, c.comment) != ""; got != c.bad {
+			t.Errorf("actionPinProblem(%q, %q) flagged=%v, want %v", c.ref, c.comment, got, c.bad)
 		}
 	}
 }
