@@ -73,14 +73,14 @@ type SixInFourService struct {
 	localIPv4Override string
 }
 
-// NewSixInFourService builds the service with sane defaults: 10s
-// HTTP timeout for /nic/update, no proxy.
+// NewSixInFourService builds the service on the guarded DDNS client, so
+// neither a poisoned answer for the HE.net host nor a redirect can point
+// the request, which carries the tunnel credentials, at an internal
+// address.
 func NewSixInFourService(cfg *config.Config) *SixInFourService {
 	return &SixInFourService{
-		cfg: cfg,
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		cfg:        cfg,
+		httpClient: outboundDDNSClient,
 	}
 }
 

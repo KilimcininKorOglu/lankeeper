@@ -34,6 +34,10 @@ var (
 	// outboundUpdateClient is for OTA release archives, which can take
 	// minutes over a slow uplink.
 	outboundUpdateClient = newGuardedClient(10 * time.Minute)
+
+	// outboundDDNSClient is for the HE.net /nic/update call, one short
+	// request that runs on every PPPoE reconnect.
+	outboundDDNSClient = newGuardedClient(10 * time.Second)
 )
 
 // newGuardedClient builds an HTTP client that refuses internal
