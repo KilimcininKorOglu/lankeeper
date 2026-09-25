@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
@@ -91,7 +92,46 @@ func TestSMARTInfoParsesAttributes(t *testing.T) {
 	}
 }
 
-const mdadmDetail = `/dev/md0:
+// lsblkTree is `lsblk --json` for a root disk with an LVM root, a disk
+// whose model has spaces and whose partition is mounted, and an unused
+// disk that reports no model.
+const lsblkTree = `{"blockdevices": [
+  {"name": "sda", "size": "238.5G", "model": "Samsung SSD 860 EVO", "type": "disk", "mountpoint": null,
+   "children": [
+     {"name": "sda1", "size": "512M", "model": null, "type": "part", "mountpoint": "/boot/efi"},
+     {"name": "sda2", "size": "238G", "model": null, "type": "part", "mountpoint": null,
+      "children": [{"name": "vg-root", "size": "238G", "model": null, "type": "lvm", "mountpoint": "/"}]}
+   ]},
+  {"name": "sdb", "size": "1.8T", "model": "WDC WD20EFRX-68E", "type": "disk", "mountpoint": null,
+   "children": [{"name": "sdb1", "size": "1.8T", "model": null, "type": "part", "mountpoint": "/srv"}]},
+  {"name": "sdc", "size": "14.9G", "model": null, "type": "disk", "mountpoint": null},
+  {"name": "sr0", "size": "1024M", "model": "DVD-ROM", "type": "rom", "mountpoint": null}
+]}`
+
+// TestDiscoverDisksReadsEveryDisk is the regression test. The disks were
+// read from lsblk's column output split on spaces, so a model name with a
+// space moved the type column and an absent model removed it, and both
+// disks were dropped. A disk whose partition held a mount was also listed
+// as free.
+func TestDiscoverDisksReadsEveryDisk(t *testing.T) {
+	useStdoutAgent(t, map[string]string{"lsblk": lsblkTree})
+	svc := services.NewStorageService(&config.Config{})
+
+	disks, err := svc.DiscoverDisks(context.Background())
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	want := []services.AvailableDisk{
+		{Device: "/dev/sda", Model: "Samsung SSD 860 EVO", Size: "238.5G", Type: "disk", InUse: true},
+		{Device: "/dev/sdb", Model: "WDC WD20EFRX-68E", Size: "1.8T", Type: "disk", InUse: true},
+		{Device: "/dev/sdc", Size: "14.9G", Type: "disk"},
+	}
+	if !slices.Equal(disks, want) {
+		t.Errorf("disks = %+v\nwant    %+v", disks, want)
+	}
+}
+
+const mdadmDetail =`/dev/md0:
            Version : 1.2
         Raid Level : raid1
         Array Size : 976630464 (931.39 GiB 1000.07 GB)

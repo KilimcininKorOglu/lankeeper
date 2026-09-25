@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"regexp"
@@ -189,52 +190,54 @@ type AvailableDisk struct {
 	InUse  bool
 }
 
-func (s *StorageService) DiscoverDisks(ctx context.Context) ([]AvailableDisk, error) {
-	out, err := netutil.RunSimple(ctx, "lsblk", "-d", "-n", "-o", "NAME,SIZE,MODEL,TYPE,MOUNTPOINT", "--json")
-	if err != nil {
-		return s.discoverDisksFallback(ctx)
-	}
-
-	_ = out
-	return s.discoverDisksFallback(ctx)
+// blockDevice is one node of `lsblk --json` output. Model and mountpoint
+// are null for a device that has none.
+type blockDevice struct {
+	Name       string        `json:"name"`
+	Size       string        `json:"size"`
+	Model      *string       `json:"model"`
+	Type       string        `json:"type"`
+	Mountpoint *string       `json:"mountpoint"`
+	Children   []blockDevice `json:"children"`
 }
 
-func (s *StorageService) discoverDisksFallback(ctx context.Context) ([]AvailableDisk, error) {
-	out, err := netutil.RunSimple(ctx, "lsblk", "-d", "-n", "-o", "NAME,SIZE,MODEL,TYPE,MOUNTPOINT")
+// mounted reports whether the device or anything stacked on it (a
+// partition, an md array, an LVM volume) is mounted.
+func (d blockDevice) mounted() bool {
+	if d.Mountpoint != nil && *d.Mountpoint != "" {
+		return true
+	}
+	return slices.ContainsFunc(d.Children, blockDevice.mounted)
+}
+
+// DiscoverDisks lists the whole disks lsblk reports. A disk is in use
+// when it or anything stacked on it is mounted, which covers the disk
+// holding the root filesystem. The JSON form is parsed because the
+// column form splits a model name with spaces, or no model at all, into
+// the wrong columns.
+func (s *StorageService) DiscoverDisks(ctx context.Context) ([]AvailableDisk, error) {
+	out, err := netutil.RunSimple(ctx, "lsblk", "--json", "-o", "NAME,SIZE,MODEL,TYPE,MOUNTPOINT")
 	if err != nil {
 		return nil, fmt.Errorf("lsblk: %w", err)
 	}
-
-	var disks []AvailableDisk
-	for line := range strings.SplitSeq(out, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 4 {
-			continue
-		}
-		if fields[3] != "disk" {
-			continue
-		}
-
-		disk := AvailableDisk{
-			Device: "/dev/" + fields[0],
-			Size:   fields[1],
-			Type:   fields[3],
-		}
-		if len(fields) >= 3 {
-			disk.Model = fields[2]
-		}
-		if len(fields) >= 5 && fields[4] != "" {
-			disk.InUse = true
-		}
-
-		rootDisk, _ := netutil.RunSimple(ctx, "findmnt", "-n", "-o", "SOURCE", "/")
-		if strings.Contains(strings.TrimSpace(rootDisk), fields[0]) {
-			disk.InUse = true
-		}
-
-		disks = append(disks, disk)
+	var tree struct {
+		BlockDevices []blockDevice `json:"blockdevices"`
+	}
+	if err := json.Unmarshal([]byte(out), &tree); err != nil {
+		return nil, fmt.Errorf("decode lsblk: %w", err)
 	}
 
+	var disks []AvailableDisk
+	for _, d := range tree.BlockDevices {
+		if d.Type != "disk" {
+			continue
+		}
+		disk := AvailableDisk{Device: "/dev/" + d.Name, Size: d.Size, Type: d.Type, InUse: d.mounted()}
+		if d.Model != nil {
+			disk.Model = strings.TrimSpace(*d.Model)
+		}
+		disks = append(disks, disk)
+	}
 	return disks, nil
 }
 
