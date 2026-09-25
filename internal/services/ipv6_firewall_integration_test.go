@@ -42,73 +42,123 @@ func (f *fakeAgent) Call(_ context.Context, method string, params any) (json.Raw
 	defer f.mu.Unlock()
 	switch method {
 	case "exec.run":
-		// Decode the params struct via JSON so we don't depend on the
-		// unexported execParams type from the netutil package.
-		raw, err := json.Marshal(params)
-		if err != nil {
-			return nil, err
-		}
-		var p struct {
-			Cmd  string   `json:"cmd"`
-			Args []string `json:"args"`
-		}
-		if err := json.Unmarshal(raw, &p); err != nil {
-			return nil, err
-		}
-		f.execLog = append(f.execLog, execCall{Cmd: p.Cmd, Args: append([]string(nil), p.Args...)})
-		// Return an empty successful ExecResult.
-		return []byte(`{"stdout":"","stderr":"","exitCode":0}`), nil
+		return f.recordExec(params)
 	case "file.write":
-		raw, err := json.Marshal(params)
-		if err != nil {
-			return nil, err
-		}
-		var p struct {
-			Path    string `json:"path"`
-			Content string `json:"content"`
-		}
-		if err := json.Unmarshal(raw, &p); err != nil {
-			return nil, err
-		}
-		f.writeLog = append(f.writeLog, writeCall{Path: p.Path, Body: p.Content})
-		// Mirror the write to the real filesystem so a subsequent
-		// file.read passthrough sees the same bytes a production
-		// agent would have persisted. Best-effort: failures are
-		// silent because some tests target paths under /etc which
-		// the test process cannot create. Those tests assert via
-		// writeLog instead of round-tripping through file.read.
-		if dir := filepath.Dir(p.Path); dir != "" {
-			_ = os.MkdirAll(dir, 0o755)
-		}
-		_ = os.WriteFile(p.Path, []byte(p.Content), 0o644)
-		return []byte(`{}`), nil
+		return f.recordWrite(params)
 	case "file.mkdir":
 		return []byte(`{}`), nil
 	case "file.read":
-		// The test seeds the lease state via os.WriteFile directly, but
-		// IPv6Service.rdnssAddrs reads it via netutil.ReadFile which
-		// goes through the agent when one is set. Pass through to the
-		// real filesystem so the rendered RA actually sees the JSON.
-		raw, err := json.Marshal(params)
-		if err != nil {
-			return nil, err
-		}
-		var p struct {
-			Path string `json:"path"`
-		}
-		if err := json.Unmarshal(raw, &p); err != nil {
-			return nil, err
-		}
-		body, err := os.ReadFile(p.Path)
-		if err != nil {
-			return nil, fmt.Errorf("file.read passthrough: %w", err)
-		}
-		out, _ := json.Marshal(struct {
-			Content string `json:"content"`
-		}{Content: string(body)})
-		return out, nil
+		return readPassthrough(params)
 	}
 	return nil, fmt.Errorf("fakeAgent: unhandled method %q", method)
+}
+
+// decodeParams round-trips params through JSON into v, so the fake does
+// not depend on the unexported param types of the netutil package.
+func decodeParams(params, v any) error {
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, v)
+}
+
+// recordExec logs one exec.run and answers an empty success.
+func (f *fakeAgent) recordExec(params any) (json.RawMessage, error) {
+	var p struct {
+		Cmd  string   `json:"cmd"`
+		Args []string `json:"args"`
+	}
+	if err := decodeParams(params, &p); err != nil {
+		return nil, err
+	}
+	f.execLog = append(f.execLog, execCall{Cmd: p.Cmd, Args: append([]string(nil), p.Args...)})
+	return []byte(`{"stdout":"","stderr":"","exitCode":0}`), nil
+}
+
+// recordWrite logs one file.write and mirrors it to the real filesystem,
+// so a later file.read passthrough sees the bytes a production agent
+// would have persisted. The mirror is best-effort: some tests target
+// paths under /etc that the test process cannot create, and those
+// tests assert through writeLog instead of reading the file back.
+func (f *fakeAgent) recordWrite(params any) (json.RawMessage, error) {
+	var p struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}
+	if err := decodeParams(params, &p); err != nil {
+		return nil, err
+	}
+	f.writeLog = append(f.writeLog, writeCall{Path: p.Path, Body: p.Content})
+	if dir := filepath.Dir(p.Path); dir != "" {
+		_ = os.MkdirAll(dir, 0o755)
+	}
+	_ = os.WriteFile(p.Path, []byte(p.Content), 0o644)
+	return []byte(`{}`), nil
+}
+
+// readPassthrough answers file.read from the real filesystem. The tests
+// seed lease state with os.WriteFile, but IPv6Service reads it through
+// netutil.ReadFile, which goes through the agent when one is set.
+func readPassthrough(params any) (json.RawMessage, error) {
+	var p struct {
+		Path string `json:"path"`
+	}
+	if err := decodeParams(params, &p); err != nil {
+		return nil, err
+	}
+	body, err := os.ReadFile(p.Path)
+	if err != nil {
+		return nil, fmt.Errorf("file.read passthrough: %w", err)
+	}
+	return json.Marshal(struct {
+		Content string `json:"content"`
+	}{Content: string(body)})
+}
+
+// nftModes reports whether an `nft -c -f` validate and an `nft -f`
+// apply were run.
+func (f *fakeAgent) nftModes() (validate, apply bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, c := range f.execLog {
+		if c.Cmd != "nft" {
+			continue
+		}
+		flat := strings.Join(c.Args, " ")
+		if strings.Contains(flat, "-c -f") {
+			validate = true
+		} else if strings.HasPrefix(flat, "-f ") {
+			apply = true
+		}
+	}
+	return validate, apply
+}
+
+// writeLeaseAtomically writes a dhcp6c lease for prefix/56 the way the
+// hook script does: a temp file renamed into place.
+func writeLeaseAtomically(t *testing.T, statePath, prefix string) {
+	t.Helper()
+	tmp := statePath + ".tmp"
+	body := []byte(fmt.Sprintf(
+		`{"timestamp":%d,"reason":"REPLY","prefix":%q,"prefixLength":56,"preferredLifetime":3600,"validLifetime":7200,"rdnss":"2001:4860:4860::8888 2001:4860:4860::8844"}`,
+		time.Now().Unix(), prefix))
+	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+		t.Fatalf("write tmp lease: %v", err)
+	}
+	if err := os.Rename(tmp, statePath); err != nil {
+		t.Fatalf("rename lease: %v", err)
+	}
+}
+
+// waitForHits polls until counter reaches n or the timeout passes, and
+// reports whether it did.
+func waitForHits(counter *atomic.Int32, n int32, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for counter.Load() < n && time.Now().Before(deadline) {
+		time.Sleep(25 * time.Millisecond)
+	}
+	return counter.Load() >= n
 }
 
 func (f *fakeAgent) execCount(cmd string) int {
@@ -205,26 +255,13 @@ func TestIPv6LeaseTriggersFirewallApply(t *testing.T) {
 	defer ipv6.StopLeaseWatcher()
 
 	// Simulate the dhcp6c hook script's atomic-mv lease write.
-	tmp := statePath + ".tmp"
-	body := []byte(fmt.Sprintf(
-		`{"timestamp":%d,"reason":"REPLY","prefix":"2001:db8:abcd::","prefixLength":56,"preferredLifetime":3600,"validLifetime":7200,"rdnss":"2001:4860:4860::8888 2001:4860:4860::8844"}`,
-		time.Now().Unix()))
-	if err := os.WriteFile(tmp, body, 0o644); err != nil {
-		t.Fatalf("write tmp lease: %v", err)
-	}
-	if err := os.Rename(tmp, statePath); err != nil {
-		t.Fatalf("rename lease: %v", err)
-	}
+	writeLeaseAtomically(t, statePath, "2001:db8:abcd::")
 
 	// Wait until the watcher dispatches the lease event. The initial
 	// dispatch (before any file exists) silently fails Status() and
 	// never reaches the callback, so the first hit corresponds to our
 	// atomic-mv write.
-	deadline := time.Now().Add(3 * time.Second)
-	for callbackHits.Load() < 1 && time.Now().Before(deadline) {
-		time.Sleep(25 * time.Millisecond)
-	}
-	if callbackHits.Load() < 1 {
+	if !waitForHits(&callbackHits, 1, 3*time.Second) {
 		t.Fatalf("expected callback to fire after lease write, got %d hits", callbackHits.Load())
 	}
 
@@ -255,20 +292,7 @@ func TestIPv6LeaseTriggersFirewallApply(t *testing.T) {
 
 	// Spot-check: confirm we actually saw the validate flag, not just
 	// three random nft calls. This is the cross-service contract.
-	sawValidate := false
-	sawApply := false
-	for _, c := range agent.execLog {
-		if c.Cmd != "nft" {
-			continue
-		}
-		flat := strings.Join(c.Args, " ")
-		if strings.Contains(flat, "-c -f") {
-			sawValidate = true
-		} else if strings.HasPrefix(flat, "-f ") {
-			sawApply = true
-		}
-	}
-	if !sawValidate || !sawApply {
+	if sawValidate, sawApply := agent.nftModes(); !sawValidate || !sawApply {
 		t.Errorf("missing nft validate/apply (validate=%v apply=%v); exec log: %+v",
 			sawValidate, sawApply, agent.execLog)
 	}
