@@ -167,16 +167,7 @@ func TestGatewayOfSubnet(t *testing.T) {
 //
 // This test focuses on the data-flow, not the cross-org auth model.
 func TestS2SHandshakeFlow_LocalCryptoOnly(t *testing.T) {
-	a := newS2STestService(t)
-	// Put the originator on LAN .10 and the "joining side" on a
-	// different RFC1918 block so subnet conflict logic doesn't fire.
-	b := newS2STestService(t)
-	b.cfg.Interfaces = []config.InterfaceConfig{
-		{ID: "lan0", Device: "eth1", Role: "lan", Address: "192.168.5.1/24"},
-	}
-	b.cfg.VPN.Server.Address = "10.10.11.1/24"
-	// Share the secret so the ack signed by B verifies on A.
-	b.cfg.System.SessionSecret = a.cfg.System.SessionSecret
+	a, b := newS2SPeerPair(t)
 
 	// CreateS2SInvite calls GeneratePresharedKey via netutil.RunSimple
 	// → no agent in tests means it falls back to local exec, which
@@ -185,29 +176,8 @@ func TestS2SHandshakeFlow_LocalCryptoOnly(t *testing.T) {
 		t.Skipf("wg binary not available: %v", err)
 	}
 
-	// A side: issue invite for B (B will announce 192.168.5.0/24)
-	tok, peer, err := a.CreateS2SInvite(context.Background(), "siteB", "Istanbul", "203.0.113.5:51820", []string{"192.168.5.0/24"})
-	if err != nil {
-		t.Fatalf("CreateS2SInvite: %v", err)
-	}
-	if !peer.Pending {
-		t.Errorf("freshly issued peer should be Pending=true")
-	}
-	if peer.PublicKey != "" {
-		t.Errorf("Pending peer must not have PublicKey set yet")
-	}
-
-	// B side: consume invite → returns ack token + B's pubkey.
-	ack, bPub, joinedPeer, err := b.ConsumeInvite(context.Background(), tok)
-	if err != nil {
-		t.Fatalf("ConsumeInvite: %v", err)
-	}
-	if joinedPeer.Pending {
-		t.Errorf("joined peer on B should not be Pending")
-	}
-	if bPub == "" {
-		t.Errorf("ConsumeInvite must return B's public key")
-	}
+	tok := issueS2SInvite(t, a)
+	ack, bPub := joinS2SInvite(t, b, tok)
 
 	// A side: finalize with B's ack token.
 	finalized, err := a.FinalizeInvite(context.Background(), "siteB", ack)
@@ -220,6 +190,55 @@ func TestS2SHandshakeFlow_LocalCryptoOnly(t *testing.T) {
 	if finalized.PublicKey != bPub {
 		t.Errorf("Finalized PublicKey mismatch: %q vs %q", finalized.PublicKey, bPub)
 	}
+}
+
+// newS2SPeerPair builds the originator on LAN .10 and the joining side
+// on a different RFC1918 block, so the subnet conflict check does not
+// fire. They share the secret so an ack signed by B verifies on A.
+func newS2SPeerPair(t *testing.T) (a, b *VPNService) {
+	t.Helper()
+	a = newS2STestService(t)
+	b = newS2STestService(t)
+	b.cfg.Interfaces = []config.InterfaceConfig{
+		{ID: "lan0", Device: "eth1", Role: "lan", Address: "192.168.5.1/24"},
+	}
+	b.cfg.VPN.Server.Address = "10.10.11.1/24"
+	b.cfg.System.SessionSecret = a.cfg.System.SessionSecret
+	return a, b
+}
+
+// issueS2SInvite has A issue an invite for B, which will announce
+// 192.168.5.0/24, and checks the pending peer it records.
+func issueS2SInvite(t *testing.T, a *VPNService) string {
+	t.Helper()
+	tok, peer, err := a.CreateS2SInvite(context.Background(), "siteB", "Istanbul", "203.0.113.5:51820", []string{"192.168.5.0/24"})
+	if err != nil {
+		t.Fatalf("CreateS2SInvite: %v", err)
+	}
+	if !peer.Pending {
+		t.Errorf("freshly issued peer should be Pending=true")
+	}
+	if peer.PublicKey != "" {
+		t.Errorf("Pending peer must not have PublicKey set yet")
+	}
+	return tok
+}
+
+// joinS2SInvite has B consume the invite and returns the ack token and
+// B's public key.
+func joinS2SInvite(t *testing.T, b *VPNService, tok string) (ack, bPub string) {
+	t.Helper()
+	ack, bPub, joinedPeer, err := b.ConsumeInvite(context.Background(), tok)
+	if err != nil {
+		t.Fatalf("ConsumeInvite: %v", err)
+	}
+	if joinedPeer.Pending {
+		t.Errorf("joined peer on B should not be Pending")
+	}
+	if bPub == "" {
+		t.Errorf("ConsumeInvite must return B's public key")
+	}
+	return ack, bPub
 }
 
 func TestGCExpiredInvitesReapsOldPendings(t *testing.T) {
