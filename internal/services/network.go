@@ -114,6 +114,36 @@ func (s *NetworkService) ConfiguredInterfaces() []config.InterfaceConfig {
 // templates, and those render with text/template, which performs no
 // escaping of any kind.
 func (s *NetworkService) SetInterface(in config.InterfaceConfig) error {
+	if err := validateInterfaceEntry(in); err != nil {
+		return err
+	}
+
+	// Two entries pointing at one device produce two conflicting
+	// renderings of the same NIC, and which one wins depends on
+	// iteration order.
+	for _, existing := range s.cfg.Interfaces {
+		if existing.ID != in.ID && existing.Device == in.Device {
+			return fmt.Errorf("%w: %s", ErrDuplicateInterface, in.Device)
+		}
+	}
+
+	idx := s.interfaceIndex(in.ID)
+	if idx < 0 {
+		s.cfg.Interfaces = append(s.cfg.Interfaces, in)
+		return s.cfg.SaveToFile()
+	}
+
+	// Moving the only LAN interface to WAN is the same lockout as
+	// deleting it, so it is refused in the same place.
+	if s.cfg.Interfaces[idx].Role == "lan" && in.Role != "lan" && s.countLANExcept(in.ID) == 0 {
+		return ErrLastLANInterface
+	}
+	s.cfg.Interfaces[idx] = in
+	return s.cfg.SaveToFile()
+}
+
+// validateInterfaceEntry checks every field of an interface entry.
+func validateInterfaceEntry(in config.InterfaceConfig) error {
 	if err := netutil.ValidateInterfaceName(in.ID); err != nil {
 		return fmt.Errorf("id: %w", err)
 	}
@@ -135,51 +165,25 @@ func (s *NetworkService) SetInterface(in config.InterfaceConfig) error {
 		}
 	}
 	if in.MTU != 0 {
-		if err := netutil.ValidateMTU(in.MTU); err != nil {
-			return err
-		}
+		return netutil.ValidateMTU(in.MTU)
 	}
+	return nil
+}
 
-	// Two entries pointing at one device produce two conflicting
-	// renderings of the same NIC, and which one wins depends on
-	// iteration order.
-	for _, existing := range s.cfg.Interfaces {
-		if existing.ID != in.ID && existing.Device == in.Device {
-			return fmt.Errorf("%w: %s", ErrDuplicateInterface, in.Device)
-		}
-	}
-
-	idx := -1
+// interfaceIndex returns the position of the entry with the given ID,
+// or -1.
+func (s *NetworkService) interfaceIndex(id string) int {
 	for i := range s.cfg.Interfaces {
-		if s.cfg.Interfaces[i].ID == in.ID {
-			idx = i
-			break
+		if s.cfg.Interfaces[i].ID == id {
+			return i
 		}
 	}
-
-	// Moving the only LAN interface to WAN is the same lockout as
-	// deleting it, so it is refused in the same place.
-	if idx >= 0 && s.cfg.Interfaces[idx].Role == "lan" && in.Role != "lan" && s.countLANExcept(in.ID) == 0 {
-		return ErrLastLANInterface
-	}
-
-	if idx >= 0 {
-		s.cfg.Interfaces[idx] = in
-	} else {
-		s.cfg.Interfaces = append(s.cfg.Interfaces, in)
-	}
-	return s.cfg.SaveToFile()
+	return -1
 }
 
 // RemoveInterface drops an entry by ID.
 func (s *NetworkService) RemoveInterface(id string) error {
-	idx := -1
-	for i := range s.cfg.Interfaces {
-		if s.cfg.Interfaces[i].ID == id {
-			idx = i
-			break
-		}
-	}
+	idx := s.interfaceIndex(id)
 	if idx < 0 {
 		return fmt.Errorf("%w: %s", ErrInterfaceNotFound, id)
 	}
