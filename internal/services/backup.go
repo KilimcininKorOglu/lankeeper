@@ -90,43 +90,83 @@ func (s *BackupService) Export(ctx context.Context, outputPath, passphrase strin
 			time.Now().Format("20060102-150405"))
 	}
 
+	if passphrase == "" {
+		return s.exportPlain(ctx, outputPath)
+	}
+	return s.exportEncrypted(ctx, outputPath, passphrase)
+}
+
+// exportPlain has the agent write the archive straight to outputPath,
+// which only the agent reads afterwards (the pre-update snapshot).
+func (s *BackupService) exportPlain(ctx context.Context, outputPath string) error {
 	if _, err := netutil.Run(ctx, "tar", buildExportArgs(outputPath, s.configDir, backupExtraDirs)...); err != nil {
 		return fmt.Errorf("create backup: %w", err)
 	}
-
-	if passphrase != "" {
-		// outputPath is composed by the caller from os.TempDir or a
-		// whitelisted backup directory; no caller passes request input.
-		// #nosec G304
-		plaintext, err := os.ReadFile(outputPath)
-		if err != nil {
-			return fmt.Errorf("read archive for encryption: %w", err)
-		}
-
-		encrypted, err := encryptBackup(plaintext, passphrase)
-		if err != nil {
-			return fmt.Errorf("encrypt backup: %w", err)
-		}
-
-		// The taint is the exported parameter, not a request value.
-		// All four callers build the path themselves from os.TempDir,
-		// os.CreateTemp or the backups directory.
-		// #nosec G703
-		if err := os.WriteFile(outputPath, encrypted, 0o600); err != nil {
-			return fmt.Errorf("write encrypted backup: %w", err)
-		}
-	}
-
-	// Restrict the archive whether or not it was encrypted. tar runs as
-	// root through the agent under systemd's default umask, so an
-	// unencrypted archive would otherwise keep mode 0644 while holding
-	// every secret on the device. Tightening only inside the encryption
-	// branch left the one caller that passes no passphrase, the
-	// pre-update snapshot, with a world-readable copy of router.yaml.
+	// tar runs as root through the agent under systemd's default umask,
+	// so the archive would otherwise keep mode 0644 while holding every
+	// secret on the device.
 	if _, err := netutil.Run(ctx, "chmod", "600", outputPath); err != nil {
 		return fmt.Errorf("restrict backup archive: %w", err)
 	}
+	return nil
+}
 
+// backupStagingDir is where the agent leaves a plaintext archive for this
+// process to encrypt. The installer creates it root:<service group> with
+// mode 2750: root writes into it, the setgid bit hands each file the
+// service group, and this process can read but never create an entry,
+// so it cannot plant a symlink for root's tar to follow.
+func backupStagingDir() string {
+	return filepath.Join(tlsDataDir(), "staging")
+}
+
+// exportEncrypted has the agent write the plaintext archive into the
+// staging directory, reads it through the group, and writes only the
+// encrypted copy to outputPath.
+//
+// The archive cannot go to outputPath directly: the callers build it
+// under this process's /tmp, which PrivateTmp hides from the agent, and
+// a file tar creates is root's, which this process could not replace
+// with the encrypted copy anyway.
+func (s *BackupService) exportEncrypted(ctx context.Context, outputPath, passphrase string) error {
+	dir := backupStagingDir()
+	if _, err := os.Stat(dir); err != nil {
+		return fmt.Errorf("backup staging directory unavailable, re-run the installer: %w", err)
+	}
+	staged := filepath.Join(dir, fmt.Sprintf("export-%d.tar.gz", time.Now().UnixNano()))
+	if _, err := netutil.Run(ctx, "tar", buildExportArgs(staged, s.configDir, backupExtraDirs)...); err != nil {
+		return fmt.Errorf("create backup: %w", err)
+	}
+	defer func() {
+		if _, err := netutil.Run(context.WithoutCancel(ctx), "rm", "-f", staged); err != nil {
+			log.Printf("backup: remove staged archive: %v", err)
+		}
+	}()
+	if _, err := netutil.Run(ctx, "chmod", "640", staged); err != nil {
+		return fmt.Errorf("share staged archive: %w", err)
+	}
+
+	// staged is composed above from the fixed staging directory.
+	// #nosec G304
+	plaintext, err := os.ReadFile(staged)
+	if err != nil {
+		return fmt.Errorf("read archive for encryption: %w", err)
+	}
+	encrypted, err := encryptBackup(plaintext, passphrase)
+	if err != nil {
+		return fmt.Errorf("encrypt backup: %w", err)
+	}
+
+	// The taint is the exported parameter, not a request value. Every
+	// caller builds the path itself from os.TempDir or os.CreateTemp.
+	// #nosec G703
+	if err := os.WriteFile(outputPath, encrypted, 0o600); err != nil {
+		return fmt.Errorf("write encrypted backup: %w", err)
+	}
+	// WriteFile keeps the mode of a file that already existed.
+	if err := os.Chmod(outputPath, 0o600); err != nil {
+		return fmt.Errorf("restrict backup archive: %w", err)
+	}
 	return nil
 }
 

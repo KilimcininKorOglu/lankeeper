@@ -145,6 +145,7 @@ func TestEncryptedExportImportRoundTrip(t *testing.T) {
 		t.Skip("tar not available")
 	}
 
+	useBackupStaging(t)
 	root := t.TempDir()
 	cfgDir := filepath.Join(root, "lankeeper")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
@@ -215,6 +216,7 @@ func TestImportRejectsTheWrongPassphrase(t *testing.T) {
 		t.Skip("tar not available")
 	}
 
+	useBackupStaging(t)
 	root := t.TempDir()
 	cfgDir := filepath.Join(root, "lankeeper")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {

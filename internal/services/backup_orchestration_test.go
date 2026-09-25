@@ -92,6 +92,7 @@ func (f *localFakeAgent) Call(_ context.Context, method string, params any) (jso
 // per-target unit tests; this is the integration-level safety net
 // for the local + history persistence path.
 func TestBackupOrchestratorRunsAndRotates(t *testing.T) {
+	useBackupStagingDir(t)
 	// Process-global agent client; cannot run in parallel.
 	agent := &localFakeAgent{}
 	netutil.SetAgentClient(agent)

@@ -81,6 +81,17 @@ func fakeChmod(args []string) error {
 	return os.Chmod(args[1], os.FileMode(mode))
 }
 
+// useBackupStagingDir points the data directory at a temp dir holding
+// the staging directory the installer creates.
+func useBackupStagingDir(t *testing.T) {
+	t.Helper()
+	dataDir := t.TempDir()
+	t.Setenv("LANKEEPER_DATA_DIR", dataDir)
+	if err := os.Mkdir(filepath.Join(dataDir, "staging"), 0o750); err != nil {
+		t.Fatalf("create staging dir: %v", err)
+	}
+}
+
 func (a *exportAgent) snapshot() []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -128,6 +139,7 @@ func TestExportRestrictsAnUnencryptedArchive(t *testing.T) {
 // TestExportRestrictsAnEncryptedArchive keeps the passphrase path at the
 // same mode, so the guard does not depend on which branch ran.
 func TestExportRestrictsAnEncryptedArchive(t *testing.T) {
+	useBackupStagingDir(t)
 	agent := &exportAgent{tarMode: 0o644}
 	netutil.SetAgentClient(agent)
 	t.Cleanup(func() { netutil.SetAgentClient(nil) })

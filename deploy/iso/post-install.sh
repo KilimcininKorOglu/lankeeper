@@ -133,6 +133,13 @@ mkdir -p "$DATA_DIR/sysconf"
 mkdir -p "$LOG_DIR"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR" 2>/dev/null || true
 chown -R "$SERVICE_USER:$SERVICE_USER" "$LOG_DIR" 2>/dev/null || true
+# Backup staging: root writes the plaintext archive, the setgid bit gives
+# it the service group, and the service reads it but cannot create
+# entries, so it cannot plant a symlink for root's tar to follow. Set
+# after the recursive chown above.
+mkdir -p "$DATA_DIR/staging"
+chown root:"$SERVICE_USER" "$DATA_DIR/staging" 2>/dev/null || true
+chmod 2750 "$DATA_DIR/staging"
 mkdir -p /var/log/unbound
 chown unbound:unbound /var/log/unbound 2>/dev/null || true
 mkdir -p /var/log/chrony

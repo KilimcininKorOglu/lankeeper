@@ -148,6 +148,15 @@ setup_directories() {
     chown -R "$SERVICE_USER:$SERVICE_USER" "$LOG_DIR"
     chown unbound:unbound /var/log/unbound 2>/dev/null || true
 
+    # The agent leaves a plaintext backup archive here for the service
+    # to encrypt. Root writes, the setgid bit gives each file the service
+    # group, and the service can read but not create entries, so it
+    # cannot plant a symlink for root's tar to follow. Set after the
+    # recursive chown above, which would otherwise hand it to the service.
+    mkdir -p "$DATA_DIR/staging"
+    chown root:"$SERVICE_USER" "$DATA_DIR/staging"
+    chmod 2750 "$DATA_DIR/staging"
+
     log_info "Created directories"
 }
 
