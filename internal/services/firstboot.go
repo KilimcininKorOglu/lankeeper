@@ -86,38 +86,18 @@ func (s *FirstBootService) Setup(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("detect interfaces: %w", err)
 	}
 
-	var physicalNICs []string
-	for _, iface := range ifaces {
-		if iface.IsVirtual || iface.Name == "lo" {
-			continue
-		}
-		physicalNICs = append(physicalNICs, iface.Name)
-	}
-
+	physicalNICs := physicalNICNames(ifaces)
 	if len(physicalNICs) == 0 {
 		return nil, fmt.Errorf("no physical NICs found")
 	}
 
-	if _, err := netutil.Run(ctx, "ip", "link", "add", firstBootBridge, "type", "bridge"); err != nil {
-		log.Printf("first-boot: bridge add: %v", err)
-	}
-	if _, err := netutil.Run(ctx, "ip", "link", "set", firstBootBridge, "up"); err != nil {
-		log.Printf("first-boot: bridge up: %v", err)
-	}
+	bringUpFirstBootBridge(ctx)
 
 	var enslaved []string
 	for _, nic := range physicalNICs {
-		if _, err := netutil.Run(ctx, "ip", "addr", "flush", "dev", nic); err != nil {
-			log.Printf("first-boot: addr flush %s: %v", nic, err)
+		if enslaveNIC(ctx, nic) {
+			enslaved = append(enslaved, nic)
 		}
-		if _, err := netutil.Run(ctx, "ip", "link", "set", nic, "up"); err != nil {
-			log.Printf("first-boot: link up %s: %v", nic, err)
-		}
-		if _, err := netutil.Run(ctx, "ip", "link", "set", nic, "master", firstBootBridge); err != nil {
-			log.Printf("first-boot: failed to add %s to bridge: %v", nic, err)
-			continue
-		}
-		enslaved = append(enslaved, nic)
 	}
 
 	if _, err := netutil.Run(ctx, "ip", "addr", "add", firstBootCIDR, "dev", firstBootBridge); err != nil {
@@ -126,6 +106,46 @@ func (s *FirstBootService) Setup(ctx context.Context) ([]string, error) {
 
 	log.Printf("first-boot: bridge %s ready at %s with %d NICs", firstBootBridge, firstBootCIDR, len(enslaved))
 	return enslaved, nil
+}
+
+// physicalNICNames lists the names of the non-virtual, non-loopback
+// interfaces.
+func physicalNICNames(ifaces []netutil.InterfaceInfo) []string {
+	var names []string
+	for _, iface := range ifaces {
+		if iface.IsVirtual || iface.Name == "lo" {
+			continue
+		}
+		names = append(names, iface.Name)
+	}
+	return names
+}
+
+// bringUpFirstBootBridge creates the bridge and sets it up. Failures are
+// logged: the bridge may already exist from an earlier start.
+func bringUpFirstBootBridge(ctx context.Context) {
+	if _, err := netutil.Run(ctx, "ip", "link", "add", firstBootBridge, "type", "bridge"); err != nil {
+		log.Printf("first-boot: bridge add: %v", err)
+	}
+	if _, err := netutil.Run(ctx, "ip", "link", "set", firstBootBridge, "up"); err != nil {
+		log.Printf("first-boot: bridge up: %v", err)
+	}
+}
+
+// enslaveNIC clears the NIC's addresses, sets it up and adds it to the
+// bridge. It reports whether the NIC joined the bridge.
+func enslaveNIC(ctx context.Context, nic string) bool {
+	if _, err := netutil.Run(ctx, "ip", "addr", "flush", "dev", nic); err != nil {
+		log.Printf("first-boot: addr flush %s: %v", nic, err)
+	}
+	if _, err := netutil.Run(ctx, "ip", "link", "set", nic, "up"); err != nil {
+		log.Printf("first-boot: link up %s: %v", nic, err)
+	}
+	if _, err := netutil.Run(ctx, "ip", "link", "set", nic, "master", firstBootBridge); err != nil {
+		log.Printf("first-boot: failed to add %s to bridge: %v", nic, err)
+		return false
+	}
+	return true
 }
 
 // Complete ends first-boot mode: the configured WAN devices leave the
