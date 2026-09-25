@@ -236,17 +236,19 @@ func renderPeerFile(data peerTemplateData) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// writeSecrets adds the credentials to the CHAP and PAP secrets files
-// when a password is configured.
+// writeSecrets stores the credentials in the CHAP and PAP secrets files
+// when a password is configured, replacing the line an earlier password
+// left for the same user.
 func (s *PPPoEService) writeSecrets() error {
 	if s.cfg.PPPoE.Password == "" {
 		return nil
 	}
-	secretsLine := fmt.Sprintf("%q * %q\n", s.cfg.PPPoE.Username, s.cfg.PPPoE.Password)
-	if err := appendToFile("/etc/ppp/chap-secrets", secretsLine); err != nil {
+	prefix := fmt.Sprintf("%q * ", s.cfg.PPPoE.Username)
+	secretsLine := fmt.Sprintf("%s%q\n", prefix, s.cfg.PPPoE.Password)
+	if err := upsertSecret("/etc/ppp/chap-secrets", prefix, secretsLine); err != nil {
 		return fmt.Errorf("write chap-secrets: %w", err)
 	}
-	if err := appendToFile("/etc/ppp/pap-secrets", secretsLine); err != nil {
+	if err := upsertSecret("/etc/ppp/pap-secrets", prefix, secretsLine); err != nil {
 		return fmt.Errorf("write pap-secrets: %w", err)
 	}
 	return nil
@@ -361,17 +363,25 @@ func (s *PPPoEService) SniffStatus() *SniffStatus {
 	return status
 }
 
-// appendToFile adds line to the pppd secrets file at path. The ppp
-// package ships both secrets files, so a read error is returned rather
-// than taken for an empty file, which would overwrite every other entry.
-func appendToFile(path, line string) error {
+// upsertSecret writes line into the pppd secrets file at path in place
+// of every line that starts with prefix, the client name this service
+// writes, and keeps all other lines. The ppp package ships both secrets
+// files, so a read error is returned rather than taken for an empty file,
+// which would overwrite every other entry.
+func upsertSecret(path, prefix, line string) error {
 	existing, err := netutil.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
-	if strings.Contains(string(existing), strings.TrimSpace(line)) {
-		return nil
+	var b strings.Builder
+	for l := range strings.Lines(string(existing)) {
+		if !strings.HasPrefix(l, prefix) {
+			b.WriteString(l)
+		}
 	}
-	newContent := string(existing) + line
-	return netutil.WriteFile(path, []byte(newContent), 0o600)
+	if b.Len() > 0 && !strings.HasSuffix(b.String(), "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString(line)
+	return netutil.WriteFile(path, []byte(b.String()), 0o600)
 }
