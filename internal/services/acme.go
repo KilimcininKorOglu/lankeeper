@@ -224,15 +224,9 @@ func (s *ACMEService) provider() (dnsProvider, error) {
 // interface that would then be down.
 func (s *ACMEService) Issue(ctx context.Context) (*config.TLSCertInfo, error) {
 	acmeCfg := s.cfg.System.TLS.ACME
-	domain := strings.TrimSpace(acmeCfg.Domain)
-	if domain == "" {
-		return nil, ErrACMEDomainRequired
-	}
-	if err := ValidateDomain(domain); err != nil {
+	domain, err := validateACMEConfig(acmeCfg)
+	if err != nil {
 		return nil, err
-	}
-	if strings.TrimSpace(acmeCfg.Email) == "" {
-		return nil, ErrACMEEmailRequired
 	}
 
 	prov, err := s.provider()
@@ -240,12 +234,46 @@ func (s *ACMEService) Issue(ctx context.Context) (*config.TLSCertInfo, error) {
 		return nil, err
 	}
 
-	accountKey, err := loadOrCreateAccountKey()
+	client, err := s.newACMEClient()
 	if err != nil {
 		return nil, err
 	}
 
-	client := &acme.Client{
+	order, err := s.authorizeOrder(ctx, client, prov, acmeCfg.Email, domain)
+	if err != nil {
+		return nil, err
+	}
+
+	certPEM, keyPEM, err := finalizeOrder(ctx, client, order, domain)
+	if err != nil {
+		return nil, err
+	}
+	return s.installACMEPair(certPEM, keyPEM)
+}
+
+// validateACMEConfig checks the domain and contact address before any
+// request reaches the CA, and returns the trimmed domain.
+func validateACMEConfig(acmeCfg config.ACMEConfig) (string, error) {
+	domain := strings.TrimSpace(acmeCfg.Domain)
+	if domain == "" {
+		return "", ErrACMEDomainRequired
+	}
+	if err := ValidateDomain(domain); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(acmeCfg.Email) == "" {
+		return "", ErrACMEEmailRequired
+	}
+	return domain, nil
+}
+
+// newACMEClient builds a client around the stored account key.
+func (s *ACMEService) newACMEClient() (*acme.Client, error) {
+	accountKey, err := loadOrCreateAccountKey()
+	if err != nil {
+		return nil, err
+	}
+	return &acme.Client{
 		Key:          accountKey,
 		DirectoryURL: s.directoryURL,
 		// The guarded client, not a bare one. This process can reach
@@ -254,11 +282,15 @@ func (s *ACMEService) Issue(ctx context.Context) (*config.TLSCertInfo, error) {
 		// covers the CA.
 		HTTPClient: outboundFetchClient,
 		UserAgent:  "lankeeper",
-	}
+	}, nil
+}
 
+// authorizeOrder registers the account, opens an order for the domain,
+// satisfies every authorization and waits until the order is ready.
+func (s *ACMEService) authorizeOrder(ctx context.Context, client *acme.Client, prov dnsProvider, email, domain string) (*acme.Order, error) {
 	// Registration is idempotent: an existing account comes back as
 	// ErrAccountAlreadyExists, which is a success for our purposes.
-	acct := &acme.Account{Contact: []string{"mailto:" + acmeCfg.Email}}
+	acct := &acme.Account{Contact: []string{"mailto:" + email}}
 	if _, err := client.Register(ctx, acct, acme.AcceptTOS); err != nil && !errors.Is(err, acme.ErrAccountAlreadyExists) {
 		return nil, fmt.Errorf("register acme account: %w", err)
 	}
@@ -277,34 +309,41 @@ func (s *ACMEService) Issue(ctx context.Context) (*config.TLSCertInfo, error) {
 	if order, err = client.WaitOrder(ctx, order.URI); err != nil {
 		return nil, fmt.Errorf("wait for order: %w", err)
 	}
+	return order, nil
+}
 
+// finalizeOrder generates the certificate key, submits the CSR and
+// returns the issued chain and the key, both PEM-encoded.
+func finalizeOrder(ctx context.Context, client *acme.Client, order *acme.Order, domain string) (certPEM, keyPEM []byte, err error) {
 	certKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, fmt.Errorf("generate certificate key: %w", err)
+		return nil, nil, fmt.Errorf("generate certificate key: %w", err)
 	}
 	csr, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
 		Subject:  pkix.Name{CommonName: domain},
 		DNSNames: []string{domain},
 	}, certKey)
 	if err != nil {
-		return nil, fmt.Errorf("create CSR: %w", err)
+		return nil, nil, fmt.Errorf("create CSR: %w", err)
 	}
 
 	der, _, err := client.CreateOrderCert(ctx, order.FinalizeURL, csr, true)
 	if err != nil {
-		return nil, fmt.Errorf("finalize order: %w", err)
+		return nil, nil, fmt.Errorf("finalize order: %w", err)
 	}
 
-	var certPEM []byte
 	for _, b := range der {
 		certPEM = append(certPEM, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: b})...)
 	}
 	keyDER, err := x509.MarshalECPrivateKey(certKey)
 	if err != nil {
-		return nil, fmt.Errorf("marshal certificate key: %w", err)
+		return nil, nil, fmt.Errorf("marshal certificate key: %w", err)
 	}
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	return certPEM, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), nil
+}
 
+// installACMEPair installs the issued pair, then records the acme mode.
+func (s *ACMEService) installACMEPair(certPEM, keyPEM []byte) (*config.TLSCertInfo, error) {
 	next := s.cfg.System.TLS
 	next.Mode = "acme"
 	next.ACME.Enabled = true
@@ -335,15 +374,9 @@ func (s *ACMEService) satisfy(ctx context.Context, client *acme.Client, prov dns
 		return nil
 	}
 
-	var chal *acme.Challenge
-	for _, c := range authz.Challenges {
-		if c.Type == "dns-01" {
-			chal = c
-			break
-		}
-	}
-	if chal == nil {
-		return fmt.Errorf("%w: %s", ErrACMENoDNSChallenge, authz.Identifier.Value)
+	chal, err := dns01Challenge(authz)
+	if err != nil {
+		return err
 	}
 
 	value, err := client.DNS01ChallengeRecord(chal.Token)
@@ -371,6 +404,16 @@ func (s *ACMEService) satisfy(ctx context.Context, client *acme.Client, prov dns
 		return fmt.Errorf("wait for validation: %w", err)
 	}
 	return nil
+}
+
+// dns01Challenge returns the authorization's dns-01 challenge.
+func dns01Challenge(authz *acme.Authorization) (*acme.Challenge, error) {
+	for _, c := range authz.Challenges {
+		if c.Type == "dns-01" {
+			return c, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: %s", ErrACMENoDNSChallenge, authz.Identifier.Value)
 }
 
 // StartRenewal runs the renewal loop until ctx is cancelled.
