@@ -330,24 +330,33 @@ func (s *UpdateService) stageBinary(archivePath string) (string, error) {
 // failed. A failure is logged and the update continues.
 //
 // The snapshot holds every secret on the device in the clear, so the
-// directory is created through the agent at 0750 rather than by this
-// unprivileged process at 0755, and the archive is removed once the
-// update is settled. It is deliberately not passphrase-encrypted: the
-// backup passphrase is optional, and an update must not depend on the
-// operator having configured one.
+// archive is restricted to root and removed once the update is settled.
+// It is deliberately not passphrase-encrypted: the backup passphrase is
+// optional, and an update must not depend on the operator having
+// configured one.
 func (s *UpdateService) snapshotConfig(ctx context.Context, version string) string {
 	if s.backup == nil {
 		return ""
 	}
-	backupPath := fmt.Sprintf("/var/lib/lankeeper/backups/pre-update-%s.tar.gz", version)
-	if err := netutil.MkdirAll(filepath.Dir(backupPath), 0o750); err != nil {
-		log.Printf("pre-update backup: mkdir: %v", err)
-	}
+	backupPath := preUpdateSnapshotPath(version)
 	if err := s.backup.Export(ctx, backupPath, ""); err != nil {
 		log.Printf("pre-update backup failed (continuing): %v", err)
 		return ""
 	}
 	return backupPath
+}
+
+// preUpdateSnapshotDir holds the pre-update config snapshot. Root's tar
+// writes the archive and chmod follows it, both by a name built from the
+// release tag, so the directory must be one the service account cannot
+// create entries in. /var/lib/lankeeper/backups is owned by that account,
+// which could plant a symlink there and have root overwrite any file.
+// Debian's base-files ships /var/backups as root:root 0755.
+const preUpdateSnapshotDir = "/var/backups"
+
+// preUpdateSnapshotPath returns the snapshot archive path for version.
+func preUpdateSnapshotPath(version string) string {
+	return filepath.Join(preUpdateSnapshotDir, fmt.Sprintf("lankeeper-pre-update-%s.tar.gz", version))
 }
 
 // installBinary saves the running binary to backupBinary, copies the new
