@@ -146,13 +146,20 @@ func (s *Server) Serve(ctx context.Context) error {
 
 	_ = os.Remove(s.socketPath)
 
-	var err error
-	s.listener, err = net.Listen("unix", s.socketPath)
+	ln, err := net.Listen("unix", s.socketPath)
 	if err != nil {
 		return fmt.Errorf("listen unix: %w", err)
 	}
+	// Close runs on another goroutine, at shutdown, possibly while this
+	// one is still starting, so the field is only touched under mu.
+	s.mu.Lock()
+	s.listener = ln
+	s.mu.Unlock()
 
 	if err := s.restrictSocket(); err != nil {
+		// Closing also unlinks the socket, so a socket whose mode could
+		// not be restricted does not stay reachable.
+		_ = ln.Close()
 		return err
 	}
 
@@ -160,11 +167,11 @@ func (s *Server) Serve(ctx context.Context) error {
 
 	go func() {
 		<-ctx.Done()
-		_ = s.listener.Close()
+		_ = ln.Close()
 	}()
 
 	for {
-		conn, err := s.listener.Accept()
+		conn, err := ln.Accept()
 		if err != nil {
 			select {
 			case <-ctx.Done():
@@ -292,8 +299,11 @@ func (s *Server) authorizePeer(conn net.Conn) error {
 }
 
 func (s *Server) Close() {
-	if s.listener != nil {
-		_ = s.listener.Close()
+	s.mu.RLock()
+	ln := s.listener
+	s.mu.RUnlock()
+	if ln != nil {
+		_ = ln.Close()
 	}
 	_ = os.Remove(s.socketPath)
 }
