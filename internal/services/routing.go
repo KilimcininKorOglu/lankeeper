@@ -181,8 +181,11 @@ func (s *RoutingService) Clear(ctx context.Context) error {
 func (s *RoutingService) generateFullNftChain(policies []config.RoutingPolicy) string {
 	var sb strings.Builder
 
-	sb.WriteString("flush chain inet filter pbr_policies 2>/dev/null\n")
+	// add is a no-op on an existing chain, so the flush after it always
+	// has a chain to empty and a re-apply does not duplicate rules. The
+	// script is read by nft, not a shell, so no redirection may appear.
 	sb.WriteString("add chain inet filter pbr_policies { type filter hook forward priority -1 ; policy accept ; }\n")
+	sb.WriteString("flush chain inet filter pbr_policies\n")
 
 	for _, p := range policies {
 		if !p.Enabled {

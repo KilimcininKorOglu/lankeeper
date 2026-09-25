@@ -255,3 +255,32 @@ func TestRoutingRemovePolicyNotFound(t *testing.T) {
 		t.Error("should error for nonexistent policy")
 	}
 }
+
+// TestRoutingNftScriptIsNftSyntax keeps shell syntax out of the script
+// handed to `nft -f`. The chain was flushed with a `2>/dev/null`
+// suffix, which nft rejects as a syntax error, so every PBR apply
+// failed before any rule loaded.
+func TestRoutingNftScriptIsNftSyntax(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
+	cfg.VPN.Clients = []config.WGClientTunnel{{Name: "nl", Table: 100, Fwmark: 100}}
+	svc := services.NewRoutingService(cfg)
+	if err := svc.AddPolicy(config.RoutingPolicy{Name: "p", Enabled: true, SrcIPs: []string{"10.10.10.5"}, Tunnel: "nl"}); err != nil {
+		t.Fatalf("add policy: %v", err)
+	}
+
+	lines := strings.Split(svc.GenerateNftRules(), "\n")
+	for _, bad := range []string{"2>", "/dev/null", "||", "&&"} {
+		for _, l := range lines {
+			if strings.Contains(l, bad) {
+				t.Errorf("script line carries shell syntax %q: %s", bad, l)
+			}
+		}
+	}
+	// The chain must exist before it is flushed, or the flush fails on
+	// the first apply.
+	if !strings.HasPrefix(lines[0], "add chain inet filter pbr_policies ") ||
+		lines[1] != "flush chain inet filter pbr_policies" {
+		t.Errorf("script must add then flush the chain, got:\n%s", strings.Join(lines[:2], "\n"))
+	}
+}
