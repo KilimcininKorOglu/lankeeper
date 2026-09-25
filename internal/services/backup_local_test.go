@@ -1,7 +1,6 @@
 package services
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,7 +57,7 @@ func TestUploadLocalCopiesAndAtomicRename(t *testing.T) {
 	}
 
 	target := config.BackupTarget{Type: "local", Path: tmp}
-	got, err := uploadLocal(context.Background(), src, target)
+	got, err := uploadLocal(src, target)
 	if err != nil {
 		t.Fatalf("uploadLocal: %v", err)
 	}
@@ -83,18 +82,7 @@ func TestCleanupLocalRetention(t *testing.T) {
 	tmp := t.TempDir()
 	withLocalRoot(t, tmp)
 
-	// 5 backup files with stair-stepped mtimes (older first).
-	now := time.Now()
-	for i := range 5 {
-		p := filepath.Join(tmp, "lankeeper-backup-2026-05-0"+string(rune('1'+i))+".tar.gz.enc")
-		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		mtime := now.Add(time.Duration(i) * time.Minute)
-		if err := os.Chtimes(p, mtime, mtime); err != nil {
-			t.Fatal(err)
-		}
-	}
+	writeStairStepBackups(t, tmp, 5)
 	// Decoy that must NOT be touched.
 	decoy := filepath.Join(tmp, "manual-rsync.tar")
 	if err := os.WriteFile(decoy, []byte("keep me"), 0o600); err != nil {
@@ -119,16 +107,42 @@ func TestCleanupLocalRetention(t *testing.T) {
 	}
 
 	// Two newest survive (indices 3 and 4 → ...04 and ...05).
-	survivors, _ := os.ReadDir(tmp)
+	if count := countBackupFiles(t, tmp); count != 2 {
+		t.Errorf("survivors = %d, want 2", count)
+	}
+}
+
+// writeStairStepBackups writes n backup files whose mtimes rise a minute
+// apart, oldest first.
+func writeStairStepBackups(t *testing.T, dir string, n int) {
+	t.Helper()
+	now := time.Now()
+	for i := range n {
+		p := filepath.Join(dir, "lankeeper-backup-2026-05-0"+string(rune('1'+i))+".tar.gz.enc")
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		mtime := now.Add(time.Duration(i) * time.Minute)
+		if err := os.Chtimes(p, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// countBackupFiles counts the lankeeper backup files in dir.
+func countBackupFiles(t *testing.T, dir string) int {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
 	count := 0
-	for _, e := range survivors {
+	for _, e := range entries {
 		if strings.HasPrefix(e.Name(), "lankeeper-backup-") {
 			count++
 		}
 	}
-	if count != 2 {
-		t.Errorf("survivors = %d, want 2", count)
-	}
+	return count
 }
 
 func TestCleanupLocalRejectsZeroRetention(t *testing.T) {

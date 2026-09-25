@@ -71,11 +71,6 @@ func (o *BackupOrchestrator) runOnce(ctx context.Context) error {
 	if len(bcfg.Targets) == 0 {
 		return o.failRun(started, errors.New("no backup targets configured"))
 	}
-	retention := bcfg.Retention
-	if retention < 1 {
-		retention = 7
-	}
-
 	stamp := started.Format("20060102-150405")
 	tmpPath := filepath.Join(os.TempDir(), fmt.Sprintf("lankeeper-backup-%s.tar.gz.enc", stamp))
 	defer func() { _ = os.Remove(tmpPath) }()
@@ -87,33 +82,14 @@ func (o *BackupOrchestrator) runOnce(ctx context.Context) error {
 	if err != nil {
 		return o.failRun(started, fmt.Errorf("stat archive: %w", err))
 	}
-	size := info.Size()
 
-	var (
-		successTargets []string
-		errMessages    []string
-	)
-	for _, target := range bcfg.Targets {
-		if err := o.uploadOne(ctx, tmpPath, target, retention); err != nil {
-			errMessages = append(errMessages, fmt.Sprintf("%s: %v", target.Name, err))
-			log.Printf("backup: target %s failed: %v", target.Name, err)
-			continue
-		}
-		successTargets = append(successTargets, target.Name)
-	}
-
-	status := "ok"
-	switch {
-	case len(successTargets) == 0:
-		status = "error"
-	case len(errMessages) > 0:
-		status = "partial"
-	}
+	successTargets, errMessages := o.uploadAll(ctx, tmpPath, bcfg.Targets, retentionOrDefault(bcfg.Retention))
+	status := runStatus(len(successTargets), len(errMessages))
 
 	entry := historyEntry{
 		StartedAt:   started,
 		CompletedAt: time.Now(),
-		Bytes:       size,
+		Bytes:       info.Size(),
 		Targets:     successTargets,
 		Status:      status,
 		Message:     strings.Join(errMessages, "; "),
@@ -126,6 +102,42 @@ func (o *BackupOrchestrator) runOnce(ctx context.Context) error {
 	return nil
 }
 
+// retentionOrDefault keeps seven archives per target unless a positive
+// retention is configured.
+func retentionOrDefault(retention int) int {
+	if retention < 1 {
+		return 7
+	}
+	return retention
+}
+
+// uploadAll sends the archive to every target and returns the names of
+// the targets that took it and a message per target that failed.
+func (o *BackupOrchestrator) uploadAll(ctx context.Context, src string, targets []config.BackupTarget, keep int) (succeeded, failures []string) {
+	for _, target := range targets {
+		if err := o.uploadOne(ctx, src, target, keep); err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", target.Name, err))
+			log.Printf("backup: target %s failed: %v", target.Name, err)
+			continue
+		}
+		succeeded = append(succeeded, target.Name)
+	}
+	return succeeded, failures
+}
+
+// runStatus is "error" when no target succeeded, "partial" when some
+// failed and "ok" otherwise.
+func runStatus(succeeded, failed int) string {
+	switch {
+	case succeeded == 0:
+		return "error"
+	case failed > 0:
+		return "partial"
+	default:
+		return "ok"
+	}
+}
+
 // uploadOne dispatches by target type and triggers per-target
 // retention immediately after a successful upload. Per-target
 // retention rather than global so a fragile remote doesn't drag
@@ -133,7 +145,7 @@ func (o *BackupOrchestrator) runOnce(ctx context.Context) error {
 func (o *BackupOrchestrator) uploadOne(ctx context.Context, src string, t config.BackupTarget, keep int) error {
 	switch t.Type {
 	case "local":
-		if _, err := uploadLocal(ctx, src, t); err != nil {
+		if _, err := uploadLocal(src, t); err != nil {
 			return err
 		}
 		if _, err := cleanupLocal(t, keep); err != nil {

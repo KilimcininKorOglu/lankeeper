@@ -1,7 +1,6 @@
 package services
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -61,7 +60,7 @@ func validateLocalPath(spec string) (string, error) {
 // never leaves a half-written backup that retention would later
 // keep around. Returns the final path so the caller can record it
 // in the run history.
-func uploadLocal(ctx context.Context, srcPath string, t config.BackupTarget) (string, error) {
+func uploadLocal(srcPath string, t config.BackupTarget) (string, error) {
 	dir, err := validateLocalPath(t.Path)
 	if err != nil {
 		return "", err
@@ -123,38 +122,9 @@ func cleanupLocal(t config.BackupTarget, keep int) ([]string, error) {
 		return nil, err
 	}
 
-	entries, err := os.ReadDir(dir)
+	files, err := listLocalBackups(dir)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("readdir: %w", err)
-	}
-
-	type fileWithMtime struct {
-		path  string
-		mtime int64
-	}
-	var files []fileWithMtime
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		if !strings.HasPrefix(name, "lankeeper-backup-") {
-			continue
-		}
-		if strings.HasSuffix(name, ".tmp") {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		files = append(files, fileWithMtime{
-			path:  filepath.Join(dir, name),
-			mtime: info.ModTime().UnixNano(),
-		})
+		return nil, err
 	}
 
 	// Newest first.
@@ -168,4 +138,37 @@ func cleanupLocal(t config.BackupTarget, keep int) ([]string, error) {
 		deleted = append(deleted, files[i].path)
 	}
 	return deleted, nil
+}
+
+// localBackup is one finished archive in the target directory.
+type localBackup struct {
+	path  string
+	mtime int64
+}
+
+// listLocalBackups lists the finished lankeeper archives in dir. A
+// missing directory holds none. An entry whose metadata cannot be read,
+// typically one removed since the listing, is skipped.
+func listLocalBackups(dir string) ([]localBackup, error) {
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("readdir: %w", err)
+	}
+
+	var files []localBackup
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasPrefix(name, "lankeeper-backup-") || strings.HasSuffix(name, ".tmp") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, localBackup{path: filepath.Join(dir, name), mtime: info.ModTime().UnixNano()})
+	}
+	return files, nil
 }
