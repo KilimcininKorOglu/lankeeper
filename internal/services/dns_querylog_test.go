@@ -82,23 +82,32 @@ func TestQueryLogTailKeepsLinesWrittenBetweenPolls(t *testing.T) {
 	}
 
 	// A line written without its newline yet is read once it completes.
-	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		t.Fatalf("open log: %v", err)
-	}
-	if _, err := f.WriteString("[1700000003] unbound[1:0] info: 10.10.10.7 half"); err != nil {
-		t.Fatalf("write partial line: %v", err)
-	}
-	time.Sleep(1500 * time.Millisecond)
-	if _, err := f.WriteString(".example. A IN\n"); err != nil {
-		t.Fatalf("finish line: %v", err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatalf("close log: %v", err)
-	}
+	writeSplitLine(t, logPath, "[1700000003] unbound[1:0] info: 10.10.10.7 half", ".example. A IN\n", 1500*time.Millisecond)
 	// GetRecentQueries returns the newest entry first.
 	got = waitForQueries(svc, 3)
 	if len(got) != 3 || got[0].Domain != "half.example" {
 		t.Errorf("after the split line the buffer holds %+v", got)
+	}
+}
+
+// writeSplitLine appends head, waits across at least one poll, then
+// appends tail.
+func writeSplitLine(t *testing.T, path, head, tail string, pause time.Duration) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatalf("open log: %v", err)
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			t.Errorf("close log: %v", err)
+		}
+	}()
+	if _, err := f.WriteString(head); err != nil {
+		t.Fatalf("write line head: %v", err)
+	}
+	time.Sleep(pause)
+	if _, err := f.WriteString(tail); err != nil {
+		t.Fatalf("write line tail: %v", err)
 	}
 }

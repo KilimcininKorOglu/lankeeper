@@ -48,13 +48,11 @@ func TestSamplePerClientComputesRatesFromTheLastSample(t *testing.T) {
 	svc := NewQoSService(&config.Config{})
 	svc.clientLeases = map[string]Lease{mac: {MAC: mac, IP: "10.10.10.5", Hostname: "alice"}}
 
-	first, err := svc.SamplePerClient(context.Background())
-	if err != nil {
-		t.Fatalf("first sample: %v", err)
-	}
-	if len(first) != 1 || first[0].InBytes != 1000 || first[0].OutBytes != 2000 ||
-		first[0].InBPS != 0 || first[0].OutBPS != 0 || first[0].Hostname != "alice" {
-		t.Fatalf("first sample = %+v", first)
+	first := sampleOne(t, svc)
+	first.Updated = time.Time{}
+	want := ClientUsage{MAC: mac, IP: "10.10.10.5", Hostname: "alice", InBytes: 1000, OutBytes: 2000}
+	if first != want {
+		t.Fatalf("first sample = %+v, want %+v", first, want)
 	}
 
 	svc.mu.Lock()
@@ -62,19 +60,34 @@ func TestSamplePerClientComputesRatesFromTheLastSample(t *testing.T) {
 	svc.mu.Unlock()
 	agent.stdout = qosCountersJSON(mac, 3000, 2500)
 
-	second, err := svc.SamplePerClient(context.Background())
-	if err != nil {
-		t.Fatalf("second sample: %v", err)
-	}
 	// 2000 bytes in and 500 bytes out over a little more than 2 s.
-	if in := second[0].InBPS; in < 7900 || in > 8000 {
-		t.Errorf("InBPS = %d, want about 8000", in)
-	}
-	if out := second[0].OutBPS; out < 1975 || out > 2000 {
-		t.Errorf("OutBPS = %d, want about 2000", out)
-	}
+	second := sampleOne(t, svc)
+	assertRateNear(t, "InBPS", second.InBPS, 8000)
+	assertRateNear(t, "OutBPS", second.OutBPS, 2000)
 	if got := svc.ClientHistory(mac); len(got) != 2 {
 		t.Errorf("history holds %d samples, want 2", len(got))
+	}
+}
+
+// sampleOne takes a sample and requires exactly one client in it.
+func sampleOne(t *testing.T, svc *QoSService) ClientUsage {
+	t.Helper()
+	usages, err := svc.SamplePerClient(context.Background())
+	if err != nil {
+		t.Fatalf("sample: %v", err)
+	}
+	if len(usages) != 1 {
+		t.Fatalf("sample holds %d clients, want 1", len(usages))
+	}
+	return usages[0]
+}
+
+// assertRateNear accepts a rate at most 1.25% below want, which covers
+// the time the test itself takes between the two samples.
+func assertRateNear(t *testing.T, name string, got, want uint64) {
+	t.Helper()
+	if got > want || got < want-want/80 {
+		t.Errorf("%s = %d, want about %d", name, got, want)
 	}
 }
 
