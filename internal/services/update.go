@@ -254,8 +254,8 @@ func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error
 		return fmt.Errorf("checksum verification: %w", err)
 	}
 
-	tmpBinary := "/tmp/lankeeper-new"
-	if err := s.extractBinary(tmpArchive, tmpBinary); err != nil {
+	tmpBinary, err := s.stageBinary(tmpArchive)
+	if err != nil {
 		return fmt.Errorf("extract: %w", err)
 	}
 	defer func() { _ = os.Remove(tmpBinary) }()
@@ -299,6 +299,25 @@ func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error
 	}
 
 	return nil
+}
+
+// stageBinary extracts the new binary into the staging directory beside
+// the update state and returns its path.
+//
+// The staging directory is under the data directory rather than /tmp
+// because the agent copies the file into place, and the web unit runs
+// with PrivateTmp: a file this process writes to /tmp does not exist in
+// the /tmp the agent sees.
+func (s *UpdateService) stageBinary(archivePath string) (string, error) {
+	dir := filepath.Join(filepath.Dir(s.statePath), "update")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return "", fmt.Errorf("create staging directory: %w", err)
+	}
+	staged := filepath.Join(dir, "lankeeper-new")
+	if err := s.extractBinary(archivePath, staged); err != nil {
+		return "", err
+	}
+	return staged, nil
 }
 
 // snapshotConfig exports the config before an update and returns the
