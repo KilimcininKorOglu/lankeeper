@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -66,5 +67,26 @@ func TestTheAgentRunsInTheHostMountNamespace(t *testing.T) {
 	}
 	if unit["User"] != "root" {
 		t.Errorf("lankeeper-agent.service runs as %q, want root", unit["User"])
+	}
+}
+
+// TestTheWebUnitCanWriteWhereTheServiceWrites keeps the web unit's
+// sandbox in step with the paths the unprivileged process writes itself.
+// Under ProtectSystem=strict everything else is read-only, and the M3U
+// sync writes playlists under /srv and /mnt directly.
+func TestTheWebUnitCanWriteWhereTheServiceWrites(t *testing.T) {
+	unit := unitDirectives(t, "lankeeper-web.service")
+	if unit["ProtectSystem"] != "strict" {
+		t.Skipf("the web unit no longer uses ProtectSystem=strict (%q); re-derive this check", unit["ProtectSystem"])
+	}
+	var writable []string
+	for _, w := range strings.Fields(unit["ReadWritePaths"]) {
+		// A leading '-' only tells systemd to skip a missing path.
+		writable = append(writable, strings.TrimPrefix(w, "-"))
+	}
+	for _, want := range []string{"/etc/lankeeper", "/var/lib/lankeeper", "/var/log/lankeeper", "/srv", "/mnt"} {
+		if !slices.Contains(writable, want) {
+			t.Errorf("lankeeper-web.service ReadWritePaths lacks %s (has %q)", want, unit["ReadWritePaths"])
+		}
 	}
 }

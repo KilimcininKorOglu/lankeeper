@@ -20,7 +20,10 @@ ProtectHome=true
 PrivateTmp=true
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/etc/lankeeper /var/lib/lankeeper /var/log/lankeeper
+# /srv and /mnt hold the media directories the M3U sync writes playlists
+# into as this user. The '-' keeps a missing directory from stopping the
+# unit from starting.
+ReadWritePaths=/etc/lankeeper /var/lib/lankeeper /var/log/lankeeper -/srv -/mnt
 
 [Install]
 WantedBy=lankeeper.target
