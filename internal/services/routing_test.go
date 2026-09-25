@@ -1,11 +1,13 @@
 package services_test
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
+	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 	"github.com/KilimcininKorOglu/lankeeper/internal/services"
 )
 
@@ -282,5 +284,42 @@ func TestRoutingNftScriptIsNftSyntax(t *testing.T) {
 	if !strings.HasPrefix(lines[0], "add chain inet filter pbr_policies ") ||
 		lines[1] != "flush chain inet filter pbr_policies" {
 		t.Errorf("script must add then flush the chain, got:\n%s", strings.Join(lines[:2], "\n"))
+	}
+}
+
+// TestRoutingApplyLoadsTheScriptTheAgentWrote pins that nft loads the
+// PBR script from a file the agent itself wrote. The web process wrote
+// it to its own /tmp, which PrivateTmp separates from the agent's, so
+// the agent's `nft -f` found no file.
+func TestRoutingApplyLoadsTheScriptTheAgentWrote(t *testing.T) {
+	agent := &fakeAgent{}
+	netutil.SetAgentClient(agent)
+	t.Cleanup(func() { netutil.SetAgentClient(nil) })
+
+	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
+	cfg.VPN.Clients = []config.WGClientTunnel{{Name: "nl", Table: 100, Fwmark: 100}}
+	svc := services.NewRoutingService(cfg)
+	if err := svc.AddPolicy(config.RoutingPolicy{Name: "p", Enabled: true, SrcIPs: []string{"10.10.10.5"}, Tunnel: "nl"}); err != nil {
+		t.Fatalf("add policy: %v", err)
+	}
+	if err := svc.Apply(context.Background()); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	var loaded string
+	for _, c := range agent.execCallsCopy() {
+		if c.Cmd == "nft" && len(c.Args) == 2 && c.Args[0] == "-f" {
+			loaded = c.Args[1]
+		}
+	}
+	if loaded == "" {
+		t.Fatal("nft -f was never run")
+	}
+	if !strings.HasPrefix(loaded, "/tmp/lankeeper-") {
+		t.Errorf("nft loads %s, which the agent write whitelist does not cover", loaded)
+	}
+	if !agent.wroteFile(loaded) {
+		t.Errorf("nft loads %s, but the agent never wrote it (writes: %+v)", loaded, agent.writeLog)
 	}
 }
