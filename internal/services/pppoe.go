@@ -75,13 +75,7 @@ func (s *PPPoEService) Status(ctx context.Context) (*PPPoEStatus, error) {
 
 	addrs, err := netutil.GetInterfaceAddresses("ppp0")
 	if err == nil {
-		for _, addr := range addrs {
-			if strings.Contains(addr, ".") && status.LocalIP == "" {
-				status.LocalIP = strings.SplitN(addr, "/", 2)[0]
-			} else if strings.Contains(addr, ":") && !strings.HasPrefix(addr, "fe80") && status.LocalIPv6 == "" {
-				status.LocalIPv6 = strings.SplitN(addr, "/", 2)[0]
-			}
-		}
+		status.LocalIP, status.LocalIPv6 = firstPPPAddresses(addrs)
 	}
 
 	s.mu.Lock()
@@ -160,42 +154,9 @@ type peerTemplateData struct {
 }
 
 func (s *PPPoEService) renderConfig() error {
-	var wanDevice string
-	for _, iface := range s.cfg.Interfaces {
-		if iface.Role == "wan" {
-			wanDevice = iface.Device
-			break
-		}
-	}
+	wanDevice := firstWANDevice(s.cfg.Interfaces)
 	if wanDevice == "" {
 		return fmt.Errorf("no WAN interface configured")
-	}
-
-	data := peerTemplateData{
-		WANDevice:       wanDevice,
-		Username:        s.cfg.PPPoE.Username,
-		MTU:             s.cfg.PPPoE.MTU,
-		MRU:             s.cfg.PPPoE.MRU,
-		LCPEchoInterval: s.cfg.PPPoE.LCPEchoInterval,
-		LCPEchoFailure:  s.cfg.PPPoE.LCPEchoFailure,
-		Holdoff:         s.cfg.PPPoE.Holdoff,
-		IPv6CP:          s.cfg.PPPoE.IPv6CP,
-	}
-
-	if data.MTU == 0 {
-		data.MTU = 1492
-	}
-	if data.MRU == 0 {
-		data.MRU = 1492
-	}
-	if data.LCPEchoInterval == 0 {
-		data.LCPEchoInterval = 10
-	}
-	if data.LCPEchoFailure == 0 {
-		data.LCPEchoFailure = 3
-	}
-	if data.Holdoff == 0 {
-		data.Holdoff = 5
 	}
 
 	peerDir := "/etc/ppp/peers"
@@ -210,30 +171,90 @@ func (s *PPPoEService) renderConfig() error {
 		}
 	}
 
-	tmpl, err := template.ParseFiles("configs/sysconf/pppoe-peer.tmpl")
+	peer, err := renderPeerFile(s.peerData(wanDevice))
 	if err != nil {
-		return fmt.Errorf("parse peer template: %w", err)
+		return err
 	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return fmt.Errorf("execute peer template: %w", err)
-	}
-
-	if err := netutil.WriteFile(filepath.Join(peerDir, "wan"), buf.Bytes(), 0o644); err != nil {
+	if err := netutil.WriteFile(filepath.Join(peerDir, "wan"), peer, 0o644); err != nil {
 		return fmt.Errorf("write peer file: %w", err)
 	}
 
-	if s.cfg.PPPoE.Password != "" {
-		secretsLine := fmt.Sprintf("%q * %q\n", s.cfg.PPPoE.Username, s.cfg.PPPoE.Password)
-		if err := appendToFile("/etc/ppp/chap-secrets", secretsLine); err != nil {
-			return fmt.Errorf("write chap-secrets: %w", err)
-		}
-		if err := appendToFile("/etc/ppp/pap-secrets", secretsLine); err != nil {
-			return fmt.Errorf("write pap-secrets: %w", err)
+	return s.writeSecrets()
+}
+
+// firstPPPAddresses returns the first IPv4 address and the first
+// non-link-local IPv6 address, both without their prefix length.
+func firstPPPAddresses(addrs []string) (ipv4, ipv6 string) {
+	for _, addr := range addrs {
+		if strings.Contains(addr, ".") && ipv4 == "" {
+			ipv4 = strings.SplitN(addr, "/", 2)[0]
+		} else if strings.Contains(addr, ":") && !strings.HasPrefix(addr, "fe80") && ipv6 == "" {
+			ipv6 = strings.SplitN(addr, "/", 2)[0]
 		}
 	}
+	return ipv4, ipv6
+}
 
+// firstWANDevice returns the device of the first WAN interface, or "".
+func firstWANDevice(ifaces []config.InterfaceConfig) string {
+	for _, iface := range ifaces {
+		if iface.Role == "wan" {
+			return iface.Device
+		}
+	}
+	return ""
+}
+
+// orDefault returns v, or def when v is zero.
+func orDefault(v, def int) int {
+	if v == 0 {
+		return def
+	}
+	return v
+}
+
+// peerData fills the peer template data, with defaults for the unset
+// link parameters.
+func (s *PPPoEService) peerData(wanDevice string) peerTemplateData {
+	p := s.cfg.PPPoE
+	return peerTemplateData{
+		WANDevice:       wanDevice,
+		Username:        p.Username,
+		MTU:             orDefault(p.MTU, 1492),
+		MRU:             orDefault(p.MRU, 1492),
+		LCPEchoInterval: orDefault(p.LCPEchoInterval, 10),
+		LCPEchoFailure:  orDefault(p.LCPEchoFailure, 3),
+		Holdoff:         orDefault(p.Holdoff, 5),
+		IPv6CP:          p.IPv6CP,
+	}
+}
+
+// renderPeerFile executes the pppd peer template.
+func renderPeerFile(data peerTemplateData) ([]byte, error) {
+	tmpl, err := template.ParseFiles("configs/sysconf/pppoe-peer.tmpl")
+	if err != nil {
+		return nil, fmt.Errorf("parse peer template: %w", err)
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return nil, fmt.Errorf("execute peer template: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// writeSecrets adds the credentials to the CHAP and PAP secrets files
+// when a password is configured.
+func (s *PPPoEService) writeSecrets() error {
+	if s.cfg.PPPoE.Password == "" {
+		return nil
+	}
+	secretsLine := fmt.Sprintf("%q * %q\n", s.cfg.PPPoE.Username, s.cfg.PPPoE.Password)
+	if err := appendToFile("/etc/ppp/chap-secrets", secretsLine); err != nil {
+		return fmt.Errorf("write chap-secrets: %w", err)
+	}
+	if err := appendToFile("/etc/ppp/pap-secrets", secretsLine); err != nil {
+		return fmt.Errorf("write pap-secrets: %w", err)
+	}
 	return nil
 }
 
