@@ -394,9 +394,32 @@ func (s *SixInFourService) UpdateRemoteIPv4(ctx context.Context, currentIPv4 str
 		return DDNSResult{}, fmt.Errorf("UpdateRemoteIPv4: TunnelID/Username/UpdateKey not configured")
 	}
 
+	res, err := sendDDNSUpdate(ctx, client, t, currentIPv4)
+	if err != nil {
+		return DDNSResult{}, err
+	}
+
+	// Cache the IP only on a positive response code so a transient
+	// badauth doesn't pin lastIPv4 against the next retry.
+	if res.Code == "good" || res.Code == "nochg" {
+		s.mu.Lock()
+		s.lastIPv4 = currentIPv4
+		s.mu.Unlock()
+	}
+
+	s.recordDDNSResult(ctx, res.Code)
+	return res, nil
+}
+
+// maxDDNSResponseBytes bounds the /nic/update reply, which is one short
+// line such as "good 1.2.3.4".
+const maxDDNSResponseBytes = 4096
+
+// sendDDNSUpdate sends one /nic/update request and parses the reply.
+func sendDDNSUpdate(ctx context.Context, client *http.Client, t config.IPv6TunnelConfig, ipv4 string) (DDNSResult, error) {
 	q := url.Values{}
 	q.Set("hostname", t.TunnelID)
-	q.Set("myip", currentIPv4)
+	q.Set("myip", ipv4)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		heNicUpdateURL+"?"+q.Encode(), nil)
@@ -411,28 +434,29 @@ func (s *SixInFourService) UpdateRemoteIPv4(ctx context.Context, currentIPv4 str
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxDDNSResponseBytes))
 	if err != nil {
 		return DDNSResult{}, fmt.Errorf("read body: %w", err)
 	}
-	res := parseDDNSResponse(string(body))
+	return parseDDNSResponse(string(body)), nil
+}
 
-	// Cache the IP only on a positive response code so a transient
-	// badauth doesn't pin lastIPv4 against the next retry.
-	if res.Code == "good" || res.Code == "nochg" {
-		s.mu.Lock()
-		s.lastIPv4 = currentIPv4
-		s.mu.Unlock()
+// recordDDNSResult writes the update result into the persisted tunnel
+// status when a tunnel is up.
+func (s *SixInFourService) recordDDNSResult(ctx context.Context, code string) {
+	st, err := s.Status(ctx)
+	if err != nil {
+		log.Printf("6in4: read status for DDNS result: %v", err)
+		return
 	}
-
-	// Reflect the result in the persisted status.
-	if st, _ := s.Status(ctx); st.Device != "" {
-		st.LastDDNS = res.Code
-		st.LastDDNSTime = time.Now()
-		_ = s.persistState(st)
+	if st.Device == "" {
+		return
 	}
-
-	return res, nil
+	st.LastDDNS = code
+	st.LastDDNSTime = time.Now()
+	if err := s.persistState(st); err != nil {
+		log.Printf("6in4: persist DDNS result: %v", err)
+	}
 }
 
 // parseDDNSResponse splits the Dyn-DNS-format body into Code+IP.
