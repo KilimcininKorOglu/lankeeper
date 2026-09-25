@@ -2,7 +2,6 @@ package services_test
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -559,37 +558,33 @@ func TestIPv6LeaseWatcherFiresOnFileChange(t *testing.T) {
 	defer svc.StopLeaseWatcher()
 
 	// Initial dispatch fires once with the empty state.
-	select {
-	case st := <-calls:
-		if st.Active() {
-			t.Fatalf("expected inactive initial state, got %+v", st)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("initial dispatch never fired")
+	if st := nextLease(t, calls, 2*time.Second, "initial dispatch"); st.Active() {
+		t.Fatalf("expected inactive initial state, got %+v", st)
 	}
 
-	// Simulate the dhcp6c hook script's atomic-mv write. Use the
+	// Simulate the dhcp6c hook script's atomic-mv write. It carries the
 	// current wall-clock timestamp so PrefixState.Active() does not
 	// short-circuit on Expired() (lease lifetime 7200s starts now).
-	tmp := statePath + ".tmp"
-	body := []byte(fmt.Sprintf(`{"timestamp":%d,"reason":"REPLY","prefix":"2001:db8::","prefixLength":56,"preferredLifetime":3600,"validLifetime":7200}`, time.Now().Unix()))
-	if err := os.WriteFile(tmp, body, 0o644); err != nil {
-		t.Fatalf("write tmp: %v", err)
-	}
-	if err := os.Rename(tmp, statePath); err != nil {
-		t.Fatalf("rename: %v", err)
-	}
+	writeLeaseAtomically(t, statePath, "2001:db8::")
 
+	st := nextLease(t, calls, 3*time.Second, "lease change dispatch")
+	if !st.Active() {
+		t.Fatalf("expected Active state after lease write, got %+v", st)
+	}
+	if st.Prefix != "2001:db8::" || st.PrefixLength != 56 {
+		t.Errorf("unexpected lease body: %+v", st)
+	}
+}
+
+// nextLease waits for the next dispatched lease state.
+func nextLease(t *testing.T, calls <-chan services.PrefixState, timeout time.Duration, what string) services.PrefixState {
+	t.Helper()
 	select {
 	case st := <-calls:
-		if !st.Active() {
-			t.Fatalf("expected Active state after lease write, got %+v", st)
-		}
-		if st.Prefix != "2001:db8::" || st.PrefixLength != 56 {
-			t.Errorf("unexpected lease body: %+v", st)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("lease change dispatch never fired")
+		return st
+	case <-time.After(timeout):
+		t.Fatalf("%s never fired", what)
+		return services.PrefixState{}
 	}
 }
 
