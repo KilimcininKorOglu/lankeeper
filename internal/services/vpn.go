@@ -2,6 +2,7 @@ package services
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -411,32 +412,34 @@ func (s *VPNService) GeneratePeerConfig(peer *config.WGServerPeer, peerPrivKey s
 	if peer.PresharedKey != "" {
 		fmt.Fprintf(&sb, "PresharedKey = %s\n", peer.PresharedKey)
 	}
-	wgEndpoint := server.PublicEndpoint
-	if wgEndpoint == "" {
-		wgEndpoint = "<YOUR_PUBLIC_IP>"
-	}
-	fmt.Fprintf(&sb, "Endpoint = %s:%d\n", wgEndpoint, server.ListenPort)
+	fmt.Fprintf(&sb, "Endpoint = %s:%d\n", cmp.Or(server.PublicEndpoint, "<YOUR_PUBLIC_IP>"), server.ListenPort)
 
-	if peer.IsSiteToSite {
-		var localSubnets []string
-		for _, iface := range s.cfg.Interfaces {
-			if iface.Role == "lan" && iface.Address != "" {
-				localSubnets = append(localSubnets, s.addressToSubnet(iface.Address))
-			}
-		}
-		if addr := server.Address; addr != "" {
-			localSubnets = append(localSubnets, s.addressToSubnet(addr))
-		}
-		fmt.Fprintf(&sb, "AllowedIPs = %s\n", strings.Join(localSubnets, ", "))
-	} else {
-		fmt.Fprintf(&sb, "AllowedIPs = 0.0.0.0/0, ::/0\n")
-	}
+	fmt.Fprintf(&sb, "AllowedIPs = %s\n", s.peerAllowedIPs(peer))
 
 	if peer.Keepalive > 0 {
 		fmt.Fprintf(&sb, "PersistentKeepalive = %d\n", peer.Keepalive)
 	}
 
 	return sb.String()
+}
+
+// peerAllowedIPs is what the peer routes into the tunnel: everything for
+// a road-warrior peer, and the LAN and tunnel subnets for a
+// site-to-site peer.
+func (s *VPNService) peerAllowedIPs(peer *config.WGServerPeer) string {
+	if !peer.IsSiteToSite {
+		return "0.0.0.0/0, ::/0"
+	}
+	var localSubnets []string
+	for _, iface := range s.cfg.Interfaces {
+		if iface.Role == "lan" && iface.Address != "" {
+			localSubnets = append(localSubnets, s.addressToSubnet(iface.Address))
+		}
+	}
+	if addr := s.cfg.VPN.Server.Address; addr != "" {
+		localSubnets = append(localSubnets, s.addressToSubnet(addr))
+	}
+	return strings.Join(localSubnets, ", ")
 }
 
 func (s *VPNService) addressToSubnet(addr string) string {
