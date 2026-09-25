@@ -361,8 +361,14 @@ func (s *PPPoEService) SniffStatus() *SniffStatus {
 	return status
 }
 
+// appendToFile adds line to the pppd secrets file at path. The ppp
+// package ships both secrets files, so a read error is returned rather
+// than taken for an empty file, which would overwrite every other entry.
 func appendToFile(path, line string) error {
-	existing, _ := netutil.ReadFile(path)
+	existing, err := netutil.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
 	if strings.Contains(string(existing), strings.TrimSpace(line)) {
 		return nil
 	}
