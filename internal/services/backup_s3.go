@@ -45,7 +45,12 @@ func newS3Client(t config.BackupTarget) *s3Client {
 		AccessKey: t.AccessKeyID,
 		SecretKey: t.SecretAccessKey,
 		PathStyle: t.UsePathStyle,
-		HTTP:      &http.Client{Timeout: 30 * time.Minute},
+		// Deliberately not a guarded client from safefetch.go. A
+		// self-hosted S3 target (MinIO on the LAN or a NAS) is a
+		// supported setup, and the guard refuses exactly those
+		// addresses. The endpoint is written by the authenticated
+		// operator on the backup page, not taken from a remote party.
+		HTTP: &http.Client{Timeout: 30 * time.Minute},
 	}
 }
 
