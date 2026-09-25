@@ -445,24 +445,9 @@ func (s *DoHService) Probe(ctx context.Context, spec string) (time.Duration, err
 		return 0, errors.New("catalogue picks are validated by name; no probe required")
 	}
 
-	var endpoint string
-	switch {
-	case strings.HasPrefix(spec, "https://"):
-		if err := validateHTTPSUpstream(spec); err != nil {
-			return 0, err
-		}
-		endpoint = spec
-	case strings.HasPrefix(spec, "sdns://"):
-		if err := validateSDNSUpstream(spec); err != nil {
-			return 0, err
-		}
-		host, path, err := parseSDNSEndpoint(spec)
-		if err != nil {
-			return 0, err
-		}
-		endpoint = "https://" + host + path
-	default:
-		return 0, errors.New("probe requires https:// URL or sdns:// stamp")
+	endpoint, err := dohProbeEndpoint(spec)
+	if err != nil {
+		return 0, err
 	}
 
 	query, err := buildDoHQuery("www.example.com.")
@@ -488,21 +473,53 @@ func (s *DoHService) Probe(ctx context.Context, spec string) (time.Duration, err
 		return 0, fmt.Errorf("request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if err := checkDoHResponse(resp); err != nil {
+		return 0, err
+	}
+	return time.Since(start), nil
+}
+
+// dohProbeEndpoint validates a https:// URL or an sdns:// stamp and
+// returns the URL to probe.
+func dohProbeEndpoint(spec string) (string, error) {
+	switch {
+	case strings.HasPrefix(spec, "https://"):
+		if err := validateHTTPSUpstream(spec); err != nil {
+			return "", err
+		}
+		return spec, nil
+	case strings.HasPrefix(spec, "sdns://"):
+		if err := validateSDNSUpstream(spec); err != nil {
+			return "", err
+		}
+		host, path, err := parseSDNSEndpoint(spec)
+		if err != nil {
+			return "", err
+		}
+		return "https://" + host + path, nil
+	default:
+		return "", errors.New("probe requires https:// URL or sdns:// stamp")
+	}
+}
+
+// checkDoHResponse accepts a 200 answer that decodes as a DNS message
+// with a success rcode.
+func checkDoHResponse(resp *http.Response) error {
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if err != nil {
-		return 0, fmt.Errorf("read response: %w", err)
+		return fmt.Errorf("read response: %w", err)
 	}
 	var msg dnsmessage.Message
 	if err := msg.Unpack(body); err != nil {
-		return 0, fmt.Errorf("unpack DNS response: %w", err)
+		return fmt.Errorf("unpack DNS response: %w", err)
 	}
 	if msg.RCode != dnsmessage.RCodeSuccess {
-		return 0, fmt.Errorf("DNS rcode %s", msg.RCode)
+		return fmt.Errorf("DNS rcode %s", msg.RCode)
 	}
-	return time.Since(start), nil
+	return nil
 }
 
 func buildDoHQuery(name string) ([]byte, error) {

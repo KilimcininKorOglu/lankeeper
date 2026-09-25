@@ -1,6 +1,8 @@
 package services
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -129,10 +131,9 @@ func TestProbeAgainstHTTPTestServer(t *testing.T) {
 	srv := newDoHTestServer(t)
 	defer srv.Close()
 
-	svc := &DoHService{cfg: &config.Config{}}
-	// httptest server uses HTTP, not HTTPS - but our validator
-	// rejects http://. So we exercise the probe via a stub that
-	// builds the request directly. Just check the helper.
+	// The httptest server speaks plain HTTP, which the endpoint
+	// validator rejects, so the query and the response check run
+	// without Probe's validation and guarded client around them.
 	q, err := buildDoHQuery("www.example.com.")
 	if err != nil {
 		t.Fatal(err)
@@ -140,7 +141,31 @@ func TestProbeAgainstHTTPTestServer(t *testing.T) {
 	if len(q) < 12 {
 		t.Errorf("DoH query too short: %d bytes", len(q))
 	}
-	_ = svc
+
+	resp, err := srv.Client().Post(srv.URL, "application/dns-message", bytes.NewReader(q))
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if err := checkDoHResponse(resp); err != nil {
+		t.Errorf("a NOERROR answer was rejected: %v", err)
+	}
+}
+
+// TestCheckDoHResponseRejectsFailures pins the answers Probe reports as
+// a failed upstream.
+func TestCheckDoHResponseRejectsFailures(t *testing.T) {
+	servfail := []byte{0x12, 0x34, 0x80, 0x02, 0, 0, 0, 0, 0, 0, 0, 0}
+	cases := map[string]*http.Response{
+		"status":  {StatusCode: http.StatusBadGateway, Body: io.NopCloser(bytes.NewReader(nil))},
+		"garbage": {StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("<html>"))},
+		"rcode":   {StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(servfail))},
+	}
+	for name, resp := range cases {
+		if err := checkDoHResponse(resp); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
 }
 
 func TestSaveDNSSettingsRejectsBothEnabled(t *testing.T) {
