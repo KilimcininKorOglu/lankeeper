@@ -26,8 +26,20 @@ const (
 // the snapshot is small (~150 lines, ~10 kB), so streaming is
 // simpler than buffering and gives the same wall-clock cost.
 func (snap MetricsSnapshot) Write(w io.Writer) error {
-	// build_info: a sentinel gauge whose only purpose is to expose
-	// the version+commit pair as labels. Prometheus convention.
+	snap.writeHost(w)
+	snap.writeInterfaces(w)
+	snap.writeDHCPAndDNS(w)
+	snap.writeClients(w)
+	snap.writeWireGuardPeers(w)
+	snap.writeS2SPeers(w)
+	snap.writeSubsystems(w)
+	return nil
+}
+
+// writeHost writes the build info, uptime, CPU, memory and temperature.
+func (snap MetricsSnapshot) writeHost(w io.Writer) {
+	// build_info: a sentinel gauge whose only purpose is to expose the
+	// version+commit pair as labels. Prometheus convention.
 	if snap.BuildVersion != "" || snap.BuildCommit != "" {
 		writeHelp(w, "lankeeper_build_info", "Build version and commit reported by the running binary.", metricGauge)
 		writeMetric(w, "lankeeper_build_info", map[string]string{
@@ -35,130 +47,115 @@ func (snap MetricsSnapshot) Write(w io.Writer) error {
 			"commit":  snap.BuildCommit,
 		}, 1)
 	}
+	writeScalar(w, "lankeeper_uptime_seconds", "Process uptime since last restart.", metricGauge, snap.UptimeSeconds)
+	writeScalar(w, "lankeeper_cpu_percent", "Current system-wide CPU usage in percent (0-100).", metricGauge, snap.CPUPercent)
+	writeScalar(w, "lankeeper_memory_total_bytes", "Total system memory in bytes.", metricGauge, float64(snap.MemoryTotal))
+	writeScalar(w, "lankeeper_memory_used_bytes", "Resident system memory in bytes.", metricGauge, float64(snap.MemoryUsed))
+	writeScalar(w, "lankeeper_temperature_celsius", "Hottest CPU/SoC sensor reading; 0 when no sensor is available.", metricGauge, snap.Temperature)
+}
 
-	writeHelp(w, "lankeeper_uptime_seconds", "Process uptime since last restart.", metricGauge)
-	writeMetric(w, "lankeeper_uptime_seconds", nil, snap.UptimeSeconds)
-
-	writeHelp(w, "lankeeper_cpu_percent", "Current system-wide CPU usage in percent (0-100).", metricGauge)
-	writeMetric(w, "lankeeper_cpu_percent", nil, snap.CPUPercent)
-
-	writeHelp(w, "lankeeper_memory_total_bytes", "Total system memory in bytes.", metricGauge)
-	writeMetric(w, "lankeeper_memory_total_bytes", nil, float64(snap.MemoryTotal))
-
-	writeHelp(w, "lankeeper_memory_used_bytes", "Resident system memory in bytes.", metricGauge)
-	writeMetric(w, "lankeeper_memory_used_bytes", nil, float64(snap.MemoryUsed))
-
-	writeHelp(w, "lankeeper_temperature_celsius", "Hottest CPU/SoC sensor reading; 0 when no sensor is available.", metricGauge)
-	writeMetric(w, "lankeeper_temperature_celsius", nil, snap.Temperature)
-
-	if len(snap.Interfaces) > 0 {
-		writeHelp(w, "lankeeper_interface_rx_bytes_total", "Cumulative bytes received per OS interface.", metricCounter)
-		for _, iface := range snap.Interfaces {
-			writeMetric(w, "lankeeper_interface_rx_bytes_total",
-				map[string]string{"device": iface.Device}, float64(iface.RxBytes))
-		}
-		writeHelp(w, "lankeeper_interface_tx_bytes_total", "Cumulative bytes transmitted per OS interface.", metricCounter)
-		for _, iface := range snap.Interfaces {
-			writeMetric(w, "lankeeper_interface_tx_bytes_total",
-				map[string]string{"device": iface.Device}, float64(iface.TxBytes))
-		}
+// writeInterfaces writes the per-interface byte counters, when there are
+// interfaces.
+func (snap MetricsSnapshot) writeInterfaces(w io.Writer) {
+	if len(snap.Interfaces) == 0 {
+		return
 	}
+	device := func(iface IfaceMetric) map[string]string { return map[string]string{"device": iface.Device} }
+	writeFamily(w, "lankeeper_interface_rx_bytes_total", "Cumulative bytes received per OS interface.", metricCounter,
+		snap.Interfaces, func(iface IfaceMetric) (map[string]string, float64) { return device(iface), float64(iface.RxBytes) })
+	writeFamily(w, "lankeeper_interface_tx_bytes_total", "Cumulative bytes transmitted per OS interface.", metricCounter,
+		snap.Interfaces, func(iface IfaceMetric) (map[string]string, float64) { return device(iface), float64(iface.TxBytes) })
+}
 
-	writeHelp(w, "lankeeper_dhcp_active_leases", "Number of currently active DHCP leases.", metricGauge)
-	writeMetric(w, "lankeeper_dhcp_active_leases", nil, float64(snap.DHCPLeases))
+// writeDHCPAndDNS writes the lease count and the Unbound counters.
+func (snap MetricsSnapshot) writeDHCPAndDNS(w io.Writer) {
+	writeScalar(w, "lankeeper_dhcp_active_leases", "Number of currently active DHCP leases.", metricGauge, float64(snap.DHCPLeases))
+	writeScalar(w, "lankeeper_dns_queries_total", "Total DNS queries served by Unbound.", metricCounter, float64(snap.DNSQueriesTotal))
+	writeScalar(w, "lankeeper_dns_cache_hits_total", "Total DNS cache hits.", metricCounter, float64(snap.DNSCacheHitsTotal))
+	writeScalar(w, "lankeeper_dns_cache_misses_total", "Total DNS cache misses.", metricCounter, float64(snap.DNSCacheMissesTotal))
+	writeScalar(w, "lankeeper_dns_blocked_total", "Total DNS responses that hit a blocklist.", metricCounter, float64(snap.DNSBlockedTotal))
+}
 
-	writeHelp(w, "lankeeper_dns_queries_total", "Total DNS queries served by Unbound.", metricCounter)
-	writeMetric(w, "lankeeper_dns_queries_total", nil, float64(snap.DNSQueriesTotal))
-
-	writeHelp(w, "lankeeper_dns_cache_hits_total", "Total DNS cache hits.", metricCounter)
-	writeMetric(w, "lankeeper_dns_cache_hits_total", nil, float64(snap.DNSCacheHitsTotal))
-
-	writeHelp(w, "lankeeper_dns_cache_misses_total", "Total DNS cache misses.", metricCounter)
-	writeMetric(w, "lankeeper_dns_cache_misses_total", nil, float64(snap.DNSCacheMissesTotal))
-
-	writeHelp(w, "lankeeper_dns_blocked_total", "Total DNS responses that hit a blocklist.", metricCounter)
-	writeMetric(w, "lankeeper_dns_blocked_total", nil, float64(snap.DNSBlockedTotal))
-
-	if len(snap.Clients) > 0 {
-		writeHelp(w, "lankeeper_client_rx_bytes_total", "Cumulative bytes received from each LAN client (post-NAT).", metricCounter)
-		for _, c := range snap.Clients {
-			writeMetric(w, "lankeeper_client_rx_bytes_total", clientLabels(c), float64(c.RxBytes))
-		}
-		writeHelp(w, "lankeeper_client_tx_bytes_total", "Cumulative bytes transmitted to each LAN client.", metricCounter)
-		for _, c := range snap.Clients {
-			writeMetric(w, "lankeeper_client_tx_bytes_total", clientLabels(c), float64(c.TxBytes))
-		}
-		writeHelp(w, "lankeeper_client_rx_bps", "Instantaneous bytes-per-second received from each LAN client.", metricGauge)
-		for _, c := range snap.Clients {
-			writeMetric(w, "lankeeper_client_rx_bps", clientLabels(c), float64(c.RxBPS))
-		}
-		writeHelp(w, "lankeeper_client_tx_bps", "Instantaneous bytes-per-second transmitted to each LAN client.", metricGauge)
-		for _, c := range snap.Clients {
-			writeMetric(w, "lankeeper_client_tx_bps", clientLabels(c), float64(c.TxBPS))
-		}
+// writeClients writes the per-client bandwidth series, when there are
+// clients.
+func (snap MetricsSnapshot) writeClients(w io.Writer) {
+	if len(snap.Clients) == 0 {
+		return
 	}
+	writeFamily(w, "lankeeper_client_rx_bytes_total", "Cumulative bytes received from each LAN client (post-NAT).", metricCounter,
+		snap.Clients, func(c ClientBandwidthMetric) (map[string]string, float64) { return clientLabels(c), float64(c.RxBytes) })
+	writeFamily(w, "lankeeper_client_tx_bytes_total", "Cumulative bytes transmitted to each LAN client.", metricCounter,
+		snap.Clients, func(c ClientBandwidthMetric) (map[string]string, float64) { return clientLabels(c), float64(c.TxBytes) })
+	writeFamily(w, "lankeeper_client_rx_bps", "Instantaneous bytes-per-second received from each LAN client.", metricGauge,
+		snap.Clients, func(c ClientBandwidthMetric) (map[string]string, float64) { return clientLabels(c), float64(c.RxBPS) })
+	writeFamily(w, "lankeeper_client_tx_bps", "Instantaneous bytes-per-second transmitted to each LAN client.", metricGauge,
+		snap.Clients, func(c ClientBandwidthMetric) (map[string]string, float64) { return clientLabels(c), float64(c.TxBPS) })
+}
 
-	if len(snap.WGPeers) > 0 {
-		writeHelp(w, "lankeeper_wireguard_peer_online", "1 when the WireGuard peer's last handshake is younger than 180s.", metricGauge)
-		for _, p := range snap.WGPeers {
-			writeMetric(w, "lankeeper_wireguard_peer_online",
-				map[string]string{"peer": p.Name}, float64(p.Online))
-		}
-		writeHelp(w, "lankeeper_wireguard_peer_handshake_age_seconds", "Seconds since the WireGuard peer's last handshake; -1 means never.", metricGauge)
-		for _, p := range snap.WGPeers {
-			writeMetric(w, "lankeeper_wireguard_peer_handshake_age_seconds",
-				map[string]string{"peer": p.Name}, float64(p.HandshakeAge))
-		}
-		writeHelp(w, "lankeeper_wireguard_peer_rx_bytes_total", "Cumulative bytes received from the WireGuard peer.", metricCounter)
-		for _, p := range snap.WGPeers {
-			writeMetric(w, "lankeeper_wireguard_peer_rx_bytes_total",
-				map[string]string{"peer": p.Name}, float64(p.RxBytes))
-		}
-		writeHelp(w, "lankeeper_wireguard_peer_tx_bytes_total", "Cumulative bytes transmitted to the WireGuard peer.", metricCounter)
-		for _, p := range snap.WGPeers {
-			writeMetric(w, "lankeeper_wireguard_peer_tx_bytes_total",
-				map[string]string{"peer": p.Name}, float64(p.TxBytes))
-		}
+// writeWireGuardPeers writes the road-warrior peer series, when there
+// are peers.
+func (snap MetricsSnapshot) writeWireGuardPeers(w io.Writer) {
+	if len(snap.WGPeers) == 0 {
+		return
 	}
+	writeFamily(w, "lankeeper_wireguard_peer_online", "1 when the WireGuard peer's last handshake is younger than 180s.", metricGauge,
+		snap.WGPeers, func(p WGPeerMetric) (map[string]string, float64) { return peerLabels(p), float64(p.Online) })
+	writeFamily(w, "lankeeper_wireguard_peer_handshake_age_seconds", "Seconds since the WireGuard peer's last handshake; -1 means never.", metricGauge,
+		snap.WGPeers, func(p WGPeerMetric) (map[string]string, float64) { return peerLabels(p), float64(p.HandshakeAge) })
+	writeFamily(w, "lankeeper_wireguard_peer_rx_bytes_total", "Cumulative bytes received from the WireGuard peer.", metricCounter,
+		snap.WGPeers, func(p WGPeerMetric) (map[string]string, float64) { return peerLabels(p), float64(p.RxBytes) })
+	writeFamily(w, "lankeeper_wireguard_peer_tx_bytes_total", "Cumulative bytes transmitted to the WireGuard peer.", metricCounter,
+		snap.WGPeers, func(p WGPeerMetric) (map[string]string, float64) { return peerLabels(p), float64(p.TxBytes) })
+}
 
-	if len(snap.S2SPeers) > 0 {
-		writeHelp(w, "lankeeper_s2s_peer_online", "1 when the site-to-site peer's last handshake is younger than 180s.", metricGauge)
-		for _, p := range snap.S2SPeers {
-			writeMetric(w, "lankeeper_s2s_peer_online",
-				map[string]string{"peer": p.Name}, float64(p.Online))
-		}
-		writeHelp(w, "lankeeper_s2s_peer_handshake_age_seconds", "Seconds since the S2S peer's last handshake; -1 means never.", metricGauge)
-		for _, p := range snap.S2SPeers {
-			writeMetric(w, "lankeeper_s2s_peer_handshake_age_seconds",
-				map[string]string{"peer": p.Name}, float64(p.HandshakeAge))
-		}
+// writeS2SPeers writes the site-to-site peer series, when there are
+// peers.
+func (snap MetricsSnapshot) writeS2SPeers(w io.Writer) {
+	if len(snap.S2SPeers) == 0 {
+		return
 	}
+	writeFamily(w, "lankeeper_s2s_peer_online", "1 when the site-to-site peer's last handshake is younger than 180s.", metricGauge,
+		snap.S2SPeers, func(p S2SPeerMetric) (map[string]string, float64) {
+			return map[string]string{"peer": p.Name}, float64(p.Online)
+		})
+	writeFamily(w, "lankeeper_s2s_peer_handshake_age_seconds", "Seconds since the S2S peer's last handshake; -1 means never.", metricGauge,
+		snap.S2SPeers, func(p S2SPeerMetric) (map[string]string, float64) {
+			return map[string]string{"peer": p.Name}, float64(p.HandshakeAge)
+		})
+}
 
-	writeHelp(w, "lankeeper_openvpn_active_sessions", "Currently connected OpenVPN clients.", metricGauge)
-	writeMetric(w, "lankeeper_openvpn_active_sessions", nil, float64(snap.OpenVPNPeers))
-
-	writeHelp(w, "lankeeper_backup_last_run_timestamp", "UNIX timestamp of the most recent backup attempt.", metricGauge)
-	writeMetric(w, "lankeeper_backup_last_run_timestamp", nil, float64(snap.BackupLastRunUnix))
-
-	writeHelp(w, "lankeeper_backup_last_status_ok", "1 when the most recent backup completed successfully.", metricGauge)
-	writeMetric(w, "lankeeper_backup_last_status_ok", nil, float64(snap.BackupLastStatusOK))
-
-	writeHelp(w, "lankeeper_backup_history_total", "Backup history ring-buffer size (max 50).", metricGauge)
-	writeMetric(w, "lankeeper_backup_history_total", nil, float64(snap.BackupHistorySize))
-
-	writeHelp(w, "lankeeper_pppoe_connected", "1 when pppd is running for the configured PPPoE peer.", metricGauge)
-	writeMetric(w, "lankeeper_pppoe_connected", nil, float64(snap.PPPoEConnected))
-
-	writeHelp(w, "lankeeper_ipv6_active", "1 when an IPv6 plane (PD or 6in4) is enabled.", metricGauge)
-	writeMetric(w, "lankeeper_ipv6_active", nil, float64(snap.IPv6Active))
-
+// writeSubsystems writes the OpenVPN, backup, PPPoE, IPv6 and firewall
+// state.
+func (snap MetricsSnapshot) writeSubsystems(w io.Writer) {
+	writeScalar(w, "lankeeper_openvpn_active_sessions", "Currently connected OpenVPN clients.", metricGauge, float64(snap.OpenVPNPeers))
+	writeScalar(w, "lankeeper_backup_last_run_timestamp", "UNIX timestamp of the most recent backup attempt.", metricGauge, float64(snap.BackupLastRunUnix))
+	writeScalar(w, "lankeeper_backup_last_status_ok", "1 when the most recent backup completed successfully.", metricGauge, float64(snap.BackupLastStatusOK))
+	writeScalar(w, "lankeeper_backup_history_total", "Backup history ring-buffer size (max 50).", metricGauge, float64(snap.BackupHistorySize))
+	writeScalar(w, "lankeeper_pppoe_connected", "1 when pppd is running for the configured PPPoE peer.", metricGauge, float64(snap.PPPoEConnected))
+	writeScalar(w, "lankeeper_ipv6_active", "1 when an IPv6 plane (PD or 6in4) is enabled.", metricGauge, float64(snap.IPv6Active))
 	writeHelp(w, "lankeeper_ipv6_mode_info", "Info-style metric carrying the configured IPv6 mode as a label.", metricGauge)
 	writeMetric(w, "lankeeper_ipv6_mode_info", map[string]string{"mode": snap.IPv6Mode}, 1)
+	writeScalar(w, "lankeeper_firewall_active", "1 when nftables ruleset is loaded.", metricGauge, float64(snap.FirewallActive))
+}
 
-	writeHelp(w, "lankeeper_firewall_active", "1 when nftables ruleset is loaded.", metricGauge)
-	writeMetric(w, "lankeeper_firewall_active", nil, float64(snap.FirewallActive))
+// writeScalar writes a family with one unlabelled sample.
+func writeScalar(w io.Writer, name, help string, kind metricKind, value float64) {
+	writeHelp(w, name, help, kind)
+	writeMetric(w, name, nil, value)
+}
 
-	return nil
+// writeFamily writes a family with one sample per item.
+func writeFamily[T any](w io.Writer, name, help string, kind metricKind, items []T, sample func(T) (map[string]string, float64)) {
+	writeHelp(w, name, help, kind)
+	for _, item := range items {
+		labels, value := sample(item)
+		writeMetric(w, name, labels, value)
+	}
+}
+
+// peerLabels labels a WireGuard or site-to-site peer series.
+func peerLabels(p WGPeerMetric) map[string]string {
+	return map[string]string{"peer": p.Name}
 }
 
 // clientLabels assembles the label map for per-MAC bandwidth
