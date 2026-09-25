@@ -3,6 +3,7 @@ package services_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"testing"
@@ -89,6 +90,30 @@ func TestSMARTInfoParsesAttributes(t *testing.T) {
 		Temperature: 41, HealthOK: false}
 	if *nvme != wantNVMe {
 		t.Errorf("nvme = %+v, want %+v", *nvme, wantNVMe)
+	}
+}
+
+// failingAgent answers every exec.run with the error the agent returns
+// for a command that exited non-zero.
+type failingAgent struct{ msg string }
+
+func (a failingAgent) Call(context.Context, string, any) (json.RawMessage, error) {
+	return nil, errors.New(a.msg)
+}
+
+// TestSMARTInfoIsNotHealthyWhenSmartctlFails is the regression test.
+// Any error mentioning an exit status was accepted with the output
+// discarded, so the result was an empty record marked healthy. smartctl
+// sets bit 3 of its exit status for a disk whose self-assessment failed,
+// which made exactly that disk read as healthy.
+func TestSMARTInfoIsNotHealthyWhenSmartctlFails(t *testing.T) {
+	netutil.SetAgentClient(failingAgent{msg: "rpc error -32000: exec smartctl: exit status 8 (stderr: )"})
+	t.Cleanup(func() { netutil.SetAgentClient(nil) })
+	svc := services.NewStorageService(&config.Config{})
+
+	info, err := svc.GetSMARTInfo(context.Background(), "/dev/sda")
+	if err == nil {
+		t.Fatalf("a failed smartctl run was accepted: %+v", *info)
 	}
 }
 

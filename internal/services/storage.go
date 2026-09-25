@@ -96,9 +96,13 @@ func (status *RAIDStatus) applyDetailLine(line string) {
 	}
 }
 
+// GetSMARTInfo reads `smartctl -a` for device. smartctl reports a failing
+// disk, and a device it cannot open, through a non-zero exit status, and
+// RunSimple returns no output with that error, so any failure is returned
+// as an error and never as a healthy result.
 func (s *StorageService) GetSMARTInfo(ctx context.Context, device string) (*SMARTInfo, error) {
 	out, err := netutil.RunSimple(ctx, "smartctl", "-a", device)
-	if err != nil && !strings.Contains(err.Error(), "exit status") {
+	if err != nil {
 		return nil, fmt.Errorf("smartctl: %w", err)
 	}
 
