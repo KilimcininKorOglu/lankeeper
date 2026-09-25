@@ -83,10 +83,12 @@ func parseQoSForm(r *http.Request, current config.QoSConfig) (config.QoSConfig, 
 	upload, uploadOK := optionalKbps(r.FormValue("uploadKbps"), current.UploadKbps)
 	download, downloadOK := optionalKbps(r.FormValue("downloadKbps"), current.DownloadKbps)
 	if key := firstFailed(
-		check{!oneOf(profile, "", "default", "gaming", "streaming", "voip"), "error.invalidQoSProfile"},
+		// The sets are the ones QoSService.Apply and config.Validate
+		// accept, which are also the only values the page offers.
+		check{!oneOf(profile, "", "cake", "fq_codel", "none"), "error.invalidQoSProfile"},
 		check{!uploadOK, "error.invalidUploadBandwidth"},
 		check{!downloadOK, "error.invalidDownloadBandwidth"},
-		check{!oneOf(cc, "", "bbr", "cubic", "cake"), "error.invalidCongestionControl"},
+		check{!oneOf(cc, "", "bbr", "cubic"), "error.invalidCongestionControl"},
 	); key != "" {
 		return current, key
 	}
