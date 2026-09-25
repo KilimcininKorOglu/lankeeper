@@ -3,10 +3,12 @@ package services
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -733,55 +735,89 @@ func (s *DNSService) RemoveStaticRecord(index int) error {
 }
 
 func (s *DNSService) tailQueryLog(ctx context.Context) {
-	logPath := s.cfg.DNS.QueryLog.LogPath
-	if logPath == "" {
-		logPath = "/var/log/unbound/queries.log"
-	}
+	logPath := cmp.Or(s.cfg.DNS.QueryLog.LogPath, "/var/log/unbound/queries.log")
 
+	// The read position survives between polls. Reopening at the end of
+	// the file on every poll skipped each line unbound wrote while the
+	// tail slept. -1 means the file has not been opened yet, and the
+	// tail then starts at its end, so old history is not replayed.
+	offset := int64(-1)
 	for {
+		wait := time.Second
+		next, err := s.readQueryLog(logPath, offset)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				log.Printf("dns query log: %v", err)
+			}
+			wait = 5 * time.Second
+		} else {
+			offset = next
+		}
+
 		select {
 		case <-ctx.Done():
 			return
-		default:
+		case <-time.After(wait):
 		}
+	}
+}
 
-		// logPath is the unbound log location from the parsed config.
-		// #nosec G304
-		f, err := os.Open(logPath)
+// readQueryLog records every complete line after offset and returns the
+// offset past the last one. A line still missing its newline is left for
+// the next poll. A file shorter than offset was rotated or truncated, so
+// reading restarts at its beginning.
+func (s *DNSService) readQueryLog(path string, offset int64) (int64, error) {
+	// path is the unbound log location from the parsed config.
+	// #nosec G304
+	f, err := os.Open(path)
+	if err != nil {
+		return offset, err
+	}
+	defer func() { _ = f.Close() }()
+
+	info, err := f.Stat()
+	if err != nil {
+		return offset, err
+	}
+	if offset < 0 {
+		return info.Size(), nil
+	}
+	if info.Size() < offset {
+		offset = 0
+	}
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return offset, err
+	}
+
+	r := bufio.NewReader(f)
+	for {
+		line, err := r.ReadString('\n')
+		if errors.Is(err, io.EOF) {
+			return offset, nil
+		}
 		if err != nil {
-			time.Sleep(5 * time.Second)
-			continue
+			return offset, err
 		}
+		offset += int64(len(line))
+		s.recordQuery(line)
+	}
+}
 
-		_, _ = f.Seek(0, 2)
+// recordQuery adds one query log line to the ring buffer.
+func (s *DNSService) recordQuery(line string) {
+	entry := parseQueryLogLine(line)
+	if entry == nil {
+		return
+	}
 
-		scanner := bufio.NewScanner(f)
-		for scanner.Scan() {
-			select {
-			case <-ctx.Done():
-				_ = f.Close()
-				return
-			default:
-			}
-
-			entry := parseQueryLogLine(scanner.Text())
-			if entry == nil {
-				continue
-			}
-
-			s.mu.Lock()
-			if len(s.queryBuf) >= s.bufSize {
-				s.queryBuf = s.queryBuf[1:]
-			}
-			s.queryBuf = append(s.queryBuf, *entry)
-			if entry.Blocked {
-				s.stats.BlockedCount++
-			}
-			s.mu.Unlock()
-		}
-
-		_ = f.Close()
-		time.Sleep(1 * time.Second)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.queryBuf) >= s.bufSize {
+		s.queryBuf = s.queryBuf[1:]
+	}
+	s.queryBuf = append(s.queryBuf, *entry)
+	if entry.Blocked {
+		s.stats.BlockedCount++
 	}
 }
 
