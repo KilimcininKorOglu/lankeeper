@@ -14,11 +14,12 @@ User=root
 RuntimeDirectory=lankeeper
 RuntimeDirectoryMode=0755
 
-ProtectHome=true
-PrivateTmp=true
+# No filesystem namespace. The agent exists to write /etc, replace the
+# binary in /usr/local/bin and mount storage for the whole system, and
+# its boundary is the command and path whitelist. ProtectSystem=full
+# made /etc and /usr read-only for it, and any namespace (ProtectSystem,
+# ProtectHome, PrivateTmp) kept its mounts out of the host's view.
 NoNewPrivileges=false
-ProtectSystem=full
-ReadWritePaths=/etc/default /boot
 
 [Install]
 WantedBy=lankeeper.target
