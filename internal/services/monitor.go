@@ -2,7 +2,10 @@ package services
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"runtime"
 	"strconv"
@@ -181,27 +184,47 @@ func readMemInfo() (total, used uint64, percent float64) {
 
 	f, err := os.Open("/proc/meminfo")
 	if err != nil {
+		log.Printf("monitor: %v", err)
 		return 0, 0, 0
 	}
 	defer func() { _ = f.Close() }()
 
+	total, used, percent, err = parseMemInfo(f)
+	if err != nil {
+		log.Printf("monitor: /proc/meminfo: %v", err)
+		return 0, 0, 0
+	}
+	return total, used, percent
+}
+
+// parseMemInfo reads MemTotal and MemAvailable from /proc/meminfo
+// content. A read error or a missing field is an error: an absent
+// MemAvailable read as zero reported all memory as used.
+func parseMemInfo(r io.Reader) (total, used uint64, percent float64, err error) {
 	var memTotal, memAvailable uint64
-	scanner := bufio.NewScanner(f)
+	var haveTotal, haveAvailable bool
+	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "MemTotal:") {
-			_, _ = fmt.Sscanf(line, "MemTotal: %d kB", &memTotal)
+			_, err := fmt.Sscanf(line, "MemTotal: %d kB", &memTotal)
+			haveTotal = err == nil
 		} else if strings.HasPrefix(line, "MemAvailable:") {
-			_, _ = fmt.Sscanf(line, "MemAvailable: %d kB", &memAvailable)
+			_, err := fmt.Sscanf(line, "MemAvailable: %d kB", &memAvailable)
+			haveAvailable = err == nil
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, 0, 0, err
+	}
+	if !haveTotal || !haveAvailable || memTotal == 0 || memAvailable > memTotal {
+		return 0, 0, 0, errors.New("MemTotal or MemAvailable missing or inconsistent")
 	}
 
 	total = memTotal * 1024
 	used = (memTotal - memAvailable) * 1024
-	if memTotal > 0 {
-		percent = float64(memTotal-memAvailable) / float64(memTotal) * 100
-	}
-	return
+	percent = float64(memTotal-memAvailable) / float64(memTotal) * 100
+	return total, used, percent, nil
 }
 
 func readTemperature() float64 {
