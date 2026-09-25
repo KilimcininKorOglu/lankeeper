@@ -80,3 +80,31 @@ func TestVLANDHCPRangeHasAddresses(t *testing.T) {
 		t.Errorf("a VLAN range has no addresses:\n%s", out)
 	}
 }
+
+// TestVLANClientsAreToldTheRouterAddress is the regression test for the
+// gateway. Clients on a VLAN were told the network address, 10.10.20.0,
+// as their router and DNS server, which nothing answers on, so a lease
+// came with no working route and no name resolution.
+func TestVLANClientsAreToldTheRouterAddress(t *testing.T) {
+	t.Chdir("../..")
+
+	cfg := config.DefaultConfig()
+	cfg.Interfaces = []config.InterfaceConfig{{ID: "lan", Device: "eth1", Role: "lan"}}
+	cfg.IPv6.Enabled = "off"
+	cfg.VLANs = []config.VLANConfig{
+		{Parent: "lan", VID: 20, Address: "10.10.20.1/24", DHCP: config.VLANDHCPConfig{Enabled: true}},
+	}
+
+	out, err := NewDHCPService(cfg).RenderConfig()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, want := range []string{
+		"dhcp-option=eth1.20,option:router,10.10.20.1\n",
+		"dhcp-option=eth1.20,option:dns-server,10.10.20.1\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered config lacks %q:\n%s", strings.TrimSpace(want), out)
+		}
+	}
+}

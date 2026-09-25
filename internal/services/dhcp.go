@@ -123,15 +123,18 @@ func (s *DHCPService) vlanDHCPRanges(leaseTime string) []vlanDHCPRange {
 		}
 		parentDev := deviceByID(s.cfg.Interfaces, vlan.Parent)
 		start, end, ok := vlanRangeBounds(vlan)
-		if parentDev == "" || !ok {
+		// The router's own address on the VLAN is the gateway and the
+		// resolver the clients are told about.
+		routerIP, _, err := net.ParseCIDR(vlan.Address)
+		if parentDev == "" || !ok || err != nil {
 			continue
 		}
 		ranges = append(ranges, vlanDHCPRange{
 			Device:     fmt.Sprintf("%s.%d", parentDev, vlan.VID),
 			RangeStart: start,
 			RangeEnd:   end,
-			Gateway:    subnetFromCIDR(vlan.Address),
-			DNSServer:  subnetFromCIDR(vlan.Address),
+			Gateway:    routerIP.String(),
+			DNSServer:  routerIP.String(),
 			LeaseTime:  cmp.Or(vlan.DHCP.LeaseTime, leaseTime),
 		})
 	}
