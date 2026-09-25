@@ -230,26 +230,9 @@ func (s *OpenVPNService) GenerateClientOVPN(name string) (string, error) {
 		return "", err
 	}
 
-	pkiDir := "/etc/openvpn/pki"
-
-	ca, err := os.ReadFile(pkiDir + "/ca.crt")
+	pki, err := readClientPKI(name)
 	if err != nil {
-		return "", fmt.Errorf("read CA: %w", err)
-	}
-
-	cert, err := os.ReadFile(fmt.Sprintf("%s/issued/%s.crt", pkiDir, name))
-	if err != nil {
-		return "", fmt.Errorf("read cert: %w", err)
-	}
-
-	key, err := os.ReadFile(fmt.Sprintf("%s/private/%s.key", pkiDir, name))
-	if err != nil {
-		return "", fmt.Errorf("read key: %w", err)
-	}
-
-	ta, err := os.ReadFile(pkiDir + "/ta.key")
-	if err != nil {
-		return "", fmt.Errorf("read ta.key: %w", err)
+		return "", err
 	}
 
 	srv := s.cfg.OpenVPN.Server
@@ -257,14 +240,6 @@ func (s *OpenVPNService) GenerateClientOVPN(name string) (string, error) {
 	endpoint := srv.PublicEndpoint
 	if endpoint == "" {
 		endpoint = "<YOUR_PUBLIC_IP>"
-	}
-
-	var clientEntry *config.OVPNClientEntry
-	for i := range srv.Clients {
-		if srv.Clients[i].Name == name || srv.Clients[i].CommonName == name {
-			clientEntry = &srv.Clients[i]
-			break
-		}
 	}
 
 	var sb strings.Builder
@@ -281,30 +256,80 @@ func (s *OpenVPNService) GenerateClientOVPN(name string) (string, error) {
 	fmt.Fprintf(&sb, "key-direction 1\n")
 	fmt.Fprintf(&sb, "verb 3\n")
 
-	if clientEntry != nil && clientEntry.IsSiteToSite {
+	if entry := findServerClient(srv.Clients, name); entry != nil && entry.IsSiteToSite {
 		fmt.Fprintf(&sb, "route-nopull\n")
-		for _, iface := range s.cfg.Interfaces {
-			if iface.Role == "lan" && iface.Address != "" {
-				subnetIP := subnetFromCIDR(iface.Address)
-				_, mask := cidrToIPMask(iface.Address)
-				if subnetIP != "" {
-					fmt.Fprintf(&sb, "route %s %s\n", subnetIP, mask)
-				}
-			}
+		for _, subnet := range s.lanSubnets() {
+			writeRoute(&sb, "route %s %s\n", subnet)
 		}
-		ovpnSubnetIP := subnetFromCIDR(srv.Subnet)
-		_, ovpnMask := cidrToIPMask(srv.Subnet)
-		if ovpnSubnetIP != "" {
-			fmt.Fprintf(&sb, "route %s %s\n", ovpnSubnetIP, ovpnMask)
-		}
+		writeRoute(&sb, "route %s %s\n", srv.Subnet)
 	}
 
-	fmt.Fprintf(&sb, "\n<ca>\n%s</ca>\n\n", ca)
-	fmt.Fprintf(&sb, "<cert>\n%s</cert>\n\n", cert)
-	fmt.Fprintf(&sb, "<key>\n%s</key>\n\n", key)
-	fmt.Fprintf(&sb, "<tls-auth>\n%s</tls-auth>\n", ta)
+	fmt.Fprintf(&sb, "\n<ca>\n%s</ca>\n\n", pki.ca)
+	fmt.Fprintf(&sb, "<cert>\n%s</cert>\n\n", pki.cert)
+	fmt.Fprintf(&sb, "<key>\n%s</key>\n\n", pki.key)
+	fmt.Fprintf(&sb, "<tls-auth>\n%s</tls-auth>\n", pki.ta)
 
 	return sb.String(), nil
+}
+
+// clientPKI is the key material embedded in a client profile.
+type clientPKI struct {
+	ca, cert, key, ta []byte
+}
+
+// readClientPKI reads the CA, the client's certificate and key, and the
+// TLS auth key. name must already be validated: it indexes two files.
+func readClientPKI(name string) (*clientPKI, error) {
+	const pkiDir = "/etc/openvpn/pki"
+	files := []struct {
+		path, label string
+	}{
+		{pkiDir + "/ca.crt", "CA"},
+		{fmt.Sprintf("%s/issued/%s.crt", pkiDir, name), "cert"},
+		{fmt.Sprintf("%s/private/%s.key", pkiDir, name), "key"},
+		{pkiDir + "/ta.key", "ta.key"},
+	}
+	contents := make([][]byte, len(files))
+	for i, f := range files {
+		b, err := os.ReadFile(f.path)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", f.label, err)
+		}
+		contents[i] = b
+	}
+	return &clientPKI{ca: contents[0], cert: contents[1], key: contents[2], ta: contents[3]}, nil
+}
+
+// findServerClient returns the server client whose name or common name
+// is name, or nil.
+func findServerClient(clients []config.OVPNClientEntry, name string) *config.OVPNClientEntry {
+	for i := range clients {
+		if clients[i].Name == name || clients[i].CommonName == name {
+			return &clients[i]
+		}
+	}
+	return nil
+}
+
+// lanSubnets lists the address of every LAN interface that has one.
+func (s *OpenVPNService) lanSubnets() []string {
+	var subnets []string
+	for _, iface := range s.cfg.Interfaces {
+		if iface.Role == "lan" && iface.Address != "" {
+			subnets = append(subnets, iface.Address)
+		}
+	}
+	return subnets
+}
+
+// writeRoute writes format with the network address and mask of cidr,
+// or nothing when cidr does not parse.
+func writeRoute(sb *strings.Builder, format, cidr string) {
+	subnetIP := subnetFromCIDR(cidr)
+	_, mask := cidrToIPMask(cidr)
+	if subnetIP != "" {
+		fmt.Fprintf(sb, format, subnetIP, mask)
+	}
 }
 
 type ovpnServerTemplateData struct {
@@ -333,20 +358,7 @@ func (s *OpenVPNService) RenderServerConfig() error {
 		OVPNServerConfig: srv,
 		SubnetIP:         subnetIP,
 		SubnetMask:       subnetMask,
-	}
-
-	for _, client := range srv.Clients {
-		if client.IsSiteToSite && client.Enabled {
-			for _, subnet := range client.RemoteSubnets {
-				ip, mask := cidrToIPMask(subnet)
-				if ip != "" {
-					data.SiteToSiteRoutes = append(data.SiteToSiteRoutes, ovpnRouteEntry{
-						SubnetIP:   ip,
-						SubnetMask: mask,
-					})
-				}
-			}
-		}
+		SiteToSiteRoutes: siteToSiteRoutes(srv.Clients),
 	}
 
 	if err := netutil.MkdirAll("/etc/openvpn", 0o755); err != nil {
@@ -365,15 +377,38 @@ func (s *OpenVPNService) RenderServerConfig() error {
 		return fmt.Errorf("write server.conf: %w", err)
 	}
 
-	for _, client := range srv.Clients {
-		if client.Enabled {
-			if err := s.writeCCD(client); err != nil {
-				log.Printf("write CCD for %s: %v", client.Name, err)
+	s.writeEnabledCCDs(srv.Clients)
+	return nil
+}
+
+// siteToSiteRoutes lists the remote subnets of every enabled
+// site-to-site client that parse.
+func siteToSiteRoutes(clients []config.OVPNClientEntry) []ovpnRouteEntry {
+	var routes []ovpnRouteEntry
+	for _, client := range clients {
+		if !client.IsSiteToSite || !client.Enabled {
+			continue
+		}
+		for _, subnet := range client.RemoteSubnets {
+			if ip, mask := cidrToIPMask(subnet); ip != "" {
+				routes = append(routes, ovpnRouteEntry{SubnetIP: ip, SubnetMask: mask})
 			}
 		}
 	}
+	return routes
+}
 
-	return nil
+// writeEnabledCCDs writes the client-config file of every enabled
+// client. A failure is logged per client.
+func (s *OpenVPNService) writeEnabledCCDs(clients []config.OVPNClientEntry) {
+	for _, client := range clients {
+		if !client.Enabled {
+			continue
+		}
+		if err := s.writeCCD(client); err != nil {
+			log.Printf("write CCD for %s: %v", client.Name, err)
+		}
+	}
 }
 
 func (s *OpenVPNService) writeCCD(entry config.OVPNClientEntry) error {
@@ -382,40 +417,41 @@ func (s *OpenVPNService) writeCCD(entry config.OVPNClientEntry) error {
 		return fmt.Errorf("mkdir ccd: %w", err)
 	}
 
-	var sb strings.Builder
-
-	if entry.FixedIP != "" {
-		ip, mask := cidrToIPMask(entry.FixedIP + "/24")
-		if ip != "" {
-			fmt.Fprintf(&sb, "ifconfig-push %s %s\n", entry.FixedIP, mask)
-			_ = ip
-		}
-	}
-
-	if entry.IsSiteToSite {
-		fmt.Fprintf(&sb, "push-reset\n")
-		for _, iface := range s.cfg.Interfaces {
-			if iface.Role == "lan" && iface.Address != "" {
-				ip, mask := cidrToIPMask(iface.Address)
-				if ip != "" {
-					fmt.Fprintf(&sb, "push \"route %s %s\"\n", subnetFromCIDR(iface.Address), mask)
-				}
-			}
-		}
-		for _, subnet := range entry.RemoteSubnets {
-			ip, mask := cidrToIPMask(subnet)
-			if ip != "" {
-				fmt.Fprintf(&sb, "iroute %s %s\n", ip, mask)
-			}
-		}
-	}
-
 	cn := entry.CommonName
 	if cn == "" {
 		cn = entry.Name
 	}
 
-	return netutil.WriteFile(filepath.Join(ccdDir, cn), []byte(sb.String()), 0o644)
+	return netutil.WriteFile(filepath.Join(ccdDir, cn), []byte(s.ccdContent(entry)), 0o644)
+}
+
+// ccdContent renders the client-config directives: the fixed address,
+// and for a site-to-site client the pushed LAN routes and its own
+// remote subnets.
+func (s *OpenVPNService) ccdContent(entry config.OVPNClientEntry) string {
+	var sb strings.Builder
+
+	if entry.FixedIP != "" {
+		if ip, mask := cidrToIPMask(entry.FixedIP + "/24"); ip != "" {
+			fmt.Fprintf(&sb, "ifconfig-push %s %s\n", entry.FixedIP, mask)
+		}
+	}
+	if !entry.IsSiteToSite {
+		return sb.String()
+	}
+
+	fmt.Fprintf(&sb, "push-reset\n")
+	for _, addr := range s.lanSubnets() {
+		if ip, mask := cidrToIPMask(addr); ip != "" {
+			fmt.Fprintf(&sb, "push \"route %s %s\"\n", subnetFromCIDR(addr), mask)
+		}
+	}
+	for _, subnet := range entry.RemoteSubnets {
+		if ip, mask := cidrToIPMask(subnet); ip != "" {
+			fmt.Fprintf(&sb, "iroute %s %s\n", ip, mask)
+		}
+	}
+	return sb.String()
 }
 
 func cidrToIPMask(cidr string) (string, string) {
@@ -505,6 +541,23 @@ func (s *OpenVPNService) renderClientConfig(c config.OVPNClientConfig, confPath 
 		return fmt.Errorf("parse openvpn client template: %w", err)
 	}
 
+	applyClientDefaults(&c)
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, c); err != nil {
+		return fmt.Errorf("render client config: %w", err)
+	}
+
+	if err := netutil.WriteFile(confPath, buf.Bytes(), 0o600); err != nil {
+		return err
+	}
+
+	return writeClientAuth(c)
+}
+
+// applyClientDefaults fills the port, protocol, cipher and digest an
+// outbound client left empty.
+func applyClientDefaults(c *config.OVPNClientConfig) {
 	if c.RemotePort == 0 {
 		c.RemotePort = 1194
 	}
@@ -517,24 +570,19 @@ func (s *OpenVPNService) renderClientConfig(c config.OVPNClientConfig, confPath 
 	if c.Auth == "" {
 		c.Auth = "SHA256"
 	}
+}
 
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, c); err != nil {
-		return fmt.Errorf("render client config: %w", err)
+// writeClientAuth writes the credentials file an outbound client with a
+// username and password reads, and does nothing otherwise.
+func writeClientAuth(c config.OVPNClientConfig) error {
+	if c.Username == "" || c.Password == "" {
+		return nil
 	}
-
-	if err := netutil.WriteFile(confPath, buf.Bytes(), 0o600); err != nil {
-		return err
+	authPath := fmt.Sprintf("/etc/openvpn/client/%s-auth.txt", c.Name)
+	authContent := fmt.Sprintf("%s\n%s\n", c.Username, c.Password)
+	if err := netutil.WriteFile(authPath, []byte(authContent), 0o600); err != nil {
+		return fmt.Errorf("write auth file: %w", err)
 	}
-
-	if c.Username != "" && c.Password != "" {
-		authPath := fmt.Sprintf("/etc/openvpn/client/%s-auth.txt", c.Name)
-		authContent := fmt.Sprintf("%s\n%s\n", c.Username, c.Password)
-		if err := netutil.WriteFile(authPath, []byte(authContent), 0o600); err != nil {
-			return fmt.Errorf("write auth file: %w", err)
-		}
-	}
-
 	return nil
 }
 
