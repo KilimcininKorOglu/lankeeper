@@ -147,3 +147,29 @@ func readAllFrom(r *limitedBody) (int, error) {
 		}
 	}
 }
+
+// TestBlocklistFetchDropsEntriesUnboundCannotParse keeps a malformed
+// downloaded entry out of blocklist.conf. Unbound includes that file
+// into its main config, so a single quote in one entry failed the whole
+// config and stopped DNS for the LAN.
+func TestBlocklistFetchDropsEntriesUnboundCannotParse(t *testing.T) {
+	publicLoopbackClient(t)
+	list := "0.0.0.0 ads.example.test\n" +
+		"0.0.0.0 evil\"x.test\n" +
+		"127.0.0.1 back\\slash.test\n" +
+		"0.0.0.0 track_er.example.test\n" +
+		"0.0.0.0 " + strings.Repeat("a", 254) + "\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(list))
+	}))
+	t.Cleanup(srv.Close)
+
+	domains, err := downloadBlocklist(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("download: %v", err)
+	}
+	want := []string{"ads.example.test", "track_er.example.test"}
+	if strings.Join(domains, ",") != strings.Join(want, ",") {
+		t.Errorf("domains = %q, want %q", domains, want)
+	}
+}

@@ -288,10 +288,17 @@ func downloadBlocklist(ctx context.Context, url string) ([]string, error) {
 	var domains []string
 	body := newLimitedBody(resp.Body)
 	scanner := bufio.NewScanner(body)
+	skipped := 0
 	for scanner.Scan() {
-		if domain, ok := parseHostsLine(scanner.Text()); ok {
-			domains = append(domains, domain)
+		domain, ok := parseHostsLine(scanner.Text())
+		if !ok {
+			continue
 		}
+		if !validBlocklistDomain(domain) {
+			skipped++
+			continue
+		}
+		domains = append(domains, domain)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -300,7 +307,23 @@ func downloadBlocklist(ctx context.Context, url string) ([]string, error) {
 	if body.overflowed() {
 		return nil, errFetchTooLarge
 	}
+	if skipped > 0 {
+		log.Printf("blocklist %s: skipped %d malformed entries", url, skipped)
+	}
 	return domains, nil
+}
+
+// blocklistDomainPattern is the character set a blocklist entry may use:
+// dot-separated labels of letters, digits, hyphens and underscores. The
+// entry is rendered inside a quoted string in blocklist.conf, which
+// Unbound includes into its main config, so one quote or backslash from
+// a downloaded list would fail the whole config and take DNS down.
+var blocklistDomainPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$`)
+
+// validBlocklistDomain reports whether a downloaded entry is safe to
+// render into blocklist.conf.
+func validBlocklistDomain(domain string) bool {
+	return len(domain) <= maxDomainLength && blocklistDomainPattern.MatchString(domain)
 }
 
 // parseHostsLine returns the blocked domain from one hosts-format line
