@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -120,17 +122,53 @@ func (s *DHCPService) vlanDHCPRanges(leaseTime string) []vlanDHCPRange {
 			continue
 		}
 		parentDev := deviceByID(s.cfg.Interfaces, vlan.Parent)
-		if parentDev == "" {
+		start, end, ok := vlanRangeBounds(vlan)
+		if parentDev == "" || !ok {
 			continue
 		}
 		ranges = append(ranges, vlanDHCPRange{
-			Device:    fmt.Sprintf("%s.%d", parentDev, vlan.VID),
-			Gateway:   subnetFromCIDR(vlan.Address),
-			DNSServer: subnetFromCIDR(vlan.Address),
-			LeaseTime: leaseTime,
+			Device:     fmt.Sprintf("%s.%d", parentDev, vlan.VID),
+			RangeStart: start,
+			RangeEnd:   end,
+			Gateway:    subnetFromCIDR(vlan.Address),
+			DNSServer:  subnetFromCIDR(vlan.Address),
+			LeaseTime:  cmp.Or(vlan.DHCP.LeaseTime, leaseTime),
 		})
 	}
 	return ranges
+}
+
+// vlanRangeBounds returns the DHCP range for a VLAN: the one the entry
+// names, or else .100 to .200 of a /24 or wider subnet, the same span
+// the LAN ships with, or every host but the first of a smaller one.
+// The VLAN page has no range fields, so the second case is the usual
+// one. ok is false when the address yields no usable range.
+func vlanRangeBounds(vlan config.VLANConfig) (start, end string, ok bool) {
+	if vlan.DHCP.RangeStart != "" && vlan.DHCP.RangeEnd != "" {
+		return vlan.DHCP.RangeStart, vlan.DHCP.RangeEnd, true
+	}
+	_, subnet, err := net.ParseCIDR(vlan.Address)
+	if err != nil || subnet.IP.To4() == nil {
+		return "", "", false
+	}
+	ones, bits := subnet.Mask.Size()
+	hostBits := bits - ones
+	base := binary.BigEndian.Uint32(subnet.IP.To4())
+	if hostBits >= 8 {
+		return uint32IP(base + 100), uint32IP(base + 200), true
+	}
+	if hostBits < 2 {
+		return "", "", false
+	}
+	broadcast := base | (uint32(1)<<hostBits - 1)
+	return uint32IP(base + 2), uint32IP(broadcast - 1), true
+}
+
+// uint32IP formats an IPv4 address held as a number.
+func uint32IP(v uint32) string {
+	ip := make(net.IP, 4)
+	binary.BigEndian.PutUint32(ip, v)
+	return ip.String()
 }
 
 // deviceByID returns the device of the interface with the given ID, or
