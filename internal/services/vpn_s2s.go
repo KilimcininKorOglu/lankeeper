@@ -8,11 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net"
-	"os"
-	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,10 +20,13 @@ import (
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 )
 
-// inviteSchemaVersion is bumped whenever the S2SInvite JSON shape
+// inviteSchemaVersion is bumped whenever the invite or ack JSON shape
 // changes. Consumers reject tokens with an unknown version so a
 // downgraded LANKeeper does not silently misinterpret a newer token.
-const inviteSchemaVersion = 1
+//
+// Version 1 signed both tokens with a key only the issuing router
+// held, so the other router could never verify them.
+const inviteSchemaVersion = 2
 
 // inviteDefaultTTL is how long a freshly issued join token stays
 // valid. Long enough that an operator can switch between two
@@ -32,17 +34,21 @@ const inviteSchemaVersion = 1
 // indefinitely usable.
 const inviteDefaultTTL = 60 * time.Minute
 
-// inviteTokenSeparator splits the JSON body from the HMAC signature
-// inside a token. Both halves are base64url with padding stripped.
-const inviteTokenSeparator = "."
+// ackMACSeparator splits an ack token's JSON body from its MAC. Both
+// halves are base64url with padding stripped.
+const ackMACSeparator = "."
 
-// ackKindInvite distinguishes the initial invite token from the ack
-// token returned by the joining side. Both share the same JSON
-// envelope and signature scheme but carry different payload fields.
+// tokenKindInvite and tokenKindAck distinguish the invite token from
+// the ack token returned by the joining side, so neither can be pasted
+// where the other is expected.
 const (
 	tokenKindInvite = "invite"
 	tokenKindAck    = "ack"
 )
+
+// s2sNamePattern bounds a peer name. The name is written into the
+// rendered wgs0.conf, so a newline in it would add lines to that file.
+var s2sNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 // S2SInvite is the payload exchanged between two LANKeepers when an
 // operator runs the site-to-site wizard. It carries everything the
@@ -50,11 +56,13 @@ const (
 // public key, preshared key, tunnel endpoint and the LAN subnets
 // the joining side will route through the tunnel.
 //
-// PSK is sent in plaintext inside the token. The token itself is
-// HMAC-signed with the local token signing key to prevent tampering but
-// is not encrypted; copy/paste it only over a trusted channel
-// (LAN-only TLS UI, signal/email between admins, etc.). Tokens
-// expire after inviteDefaultTTL by default.
+// The invite is not signed. Two routers share no secret before the
+// wizard runs, so nothing the originator could attach would be
+// verifiable by the joining side; its authenticity rests on the channel
+// the operator copies it over, exactly as for a WireGuard config file.
+// It carries the preshared key in plaintext, so that channel must also
+// be private. Every field is validated on arrival, because the joining
+// side writes them into its WireGuard config as root.
 type S2SInvite struct {
 	Version         int       `json:"v"`
 	Kind            string    `json:"kind"`
@@ -73,6 +81,11 @@ type S2SInvite struct {
 // S2SAck is the reply token the joining side hands back to the
 // originator so the originator can fill in the peer's public key
 // and finalize the tunnel.
+//
+// The ack is MACed with the invite's preshared key. That key is unique
+// to one invite and known only to the two routers, so a valid MAC
+// proves the ack answers that invite and was made by someone who read
+// it.
 type S2SAck struct {
 	Version   int       `json:"v"`
 	Kind      string    `json:"kind"`
@@ -84,13 +97,14 @@ type S2SAck struct {
 // Errors returned by token validation. Wrapped with %w so callers
 // can branch on errors.Is.
 var (
-	ErrInviteExpired      = errors.New("s2s invite token expired")
-	ErrInviteSignature    = errors.New("s2s invite signature invalid")
-	ErrInviteSchema       = errors.New("s2s invite schema version unsupported")
-	ErrInviteMalformed    = errors.New("s2s invite token malformed")
-	ErrPeerNotPending     = errors.New("s2s peer is not in pending state")
-	ErrPeerSubnetConflict = errors.New("s2s peer subnet conflicts with a local subnet")
-	ErrPeerNameInUse      = errors.New("a peer with that name already exists")
+	ErrInviteExpired       = errors.New("s2s invite token expired")
+	ErrInviteSignature     = errors.New("s2s invite signature invalid")
+	ErrInviteSchema        = errors.New("s2s invite schema version unsupported")
+	ErrInviteMalformed     = errors.New("s2s invite token malformed")
+	ErrPeerNotPending      = errors.New("s2s peer is not in pending state")
+	ErrPeerSubnetConflict  = errors.New("s2s peer subnet conflicts with a local subnet")
+	ErrPeerNameInUse       = errors.New("a peer with that name already exists")
+	ErrS2SServerKeyMissing = errors.New("the WireGuard server has no key pair; set up the server before a site-to-site link")
 )
 
 // peerNameTakenLocked reports whether name is already claimed, pending
@@ -110,190 +124,168 @@ func (s *VPNService) peerNameTakenLocked(name string) bool {
 	return false
 }
 
-// s2sKeyPath resolves the token signing key location. It lives beside
-// the credential encryption key rather than in router.yaml: the service
-// account can write there, so the key survives a restart even where the
-// config file itself is not writable, and nothing that copies or exports
-// the config carries it along.
-//
-// The environment override exists for tests, which cannot write under
-// /var/lib.
-func s2sKeyPath() string {
-	if p := os.Getenv("LANKEEPER_S2S_KEY"); p != "" {
-		return p
+// encodeInvite serialises an invite as unpadded base64url JSON.
+func encodeInvite(inv *S2SInvite) (string, error) {
+	body, err := json.Marshal(inv)
+	if err != nil {
+		return "", fmt.Errorf("marshal invite: %w", err)
 	}
-	return "/var/lib/lankeeper/credentials/s2s-token.key"
+	return base64.RawURLEncoding.EncodeToString(body), nil
 }
 
-// signingKey returns the HMAC key used to sign site-to-site tokens,
-// generating and persisting one on first use.
-//
-// This used to be System.SessionSecret, the same value that
-// authenticates web session cookies. Those are two unrelated trust
-// domains: an invite token carries a WireGuard preshared key, so one
-// disclosed secret let an attacker both forge session cookies and
-// induce a peer into establishing a rogue tunnel. They are now
-// independent, and either can be rotated without touching the other.
-//
-// A failure to read or create the key is returned rather than papered
-// over with a fallback: signing with a key nobody can reproduce would
-// mint tokens that never verify, and verifying with one would accept
-// nothing. Both are better reported than guessed at.
-func (s *VPNService) signingKey() ([]byte, error) {
-	s.keyMu.Lock()
-	defer s.keyMu.Unlock()
-
-	if len(s.s2sKey) > 0 {
-		return s.s2sKey, nil
-	}
-
-	path := s2sKeyPath()
-	key, err := config.LoadKey(path)
-	if err == nil {
-		s.s2sKey = key
-		return key, nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("read s2s token key: %w", err)
-	}
-
-	key, err = config.GenerateKey()
+// ParseInviteToken decodes a join invite token and validates every
+// field the joining side will write into its WireGuard config. Returns
+// the payload on success or one of ErrInvite* on failure.
+func ParseInviteToken(token string) (*S2SInvite, error) {
+	body, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(token))
 	if err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, fmt.Errorf("create s2s key directory: %w", err)
-	}
-	if err := config.SaveKey(path, key); err != nil {
-		return nil, fmt.Errorf("write s2s token key: %w", err)
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		return nil, fmt.Errorf("restrict s2s token key: %w", err)
-	}
-
-	log.Printf("vpn: generated a new site-to-site token signing key at %s", path)
-	s.s2sKey = key
-	return key, nil
-}
-
-// RotateS2SSigningKey replaces the token signing key, which is the
-// response to a suspected disclosure. Every outstanding invite and ack
-// token stops verifying immediately, so a rotation is also the way to
-// revoke tokens that were handed out and should not be redeemed.
-// Established tunnels are unaffected: they authenticate with WireGuard
-// keys, not with these tokens.
-func (s *VPNService) RotateS2SSigningKey() error {
-	key, err := config.GenerateKey()
-	if err != nil {
-		return err
-	}
-
-	path := s2sKeyPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("create s2s key directory: %w", err)
-	}
-	if err := config.SaveKey(path, key); err != nil {
-		return fmt.Errorf("write s2s token key: %w", err)
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		return fmt.Errorf("restrict s2s token key: %w", err)
-	}
-
-	s.keyMu.Lock()
-	s.s2sKey = key
-	s.keyMu.Unlock()
-
-	log.Printf("vpn: rotated the site-to-site token signing key; outstanding tokens no longer verify")
-	return nil
-}
-
-// signToken serialises payload to JSON, HMAC-SHA256-signs it with
-// the local secret, and returns the base64url(<json>.<sig>) token.
-func (s *VPNService) signToken(payload any) (string, error) {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("marshal token: %w", err)
-	}
-	key, err := s.signingKey()
-	if err != nil {
-		return "", err
-	}
-	mac := hmac.New(sha256.New, key)
-	mac.Write(body)
-	sig := mac.Sum(nil)
-
-	enc := base64.RawURLEncoding
-	return enc.EncodeToString(body) + inviteTokenSeparator + enc.EncodeToString(sig), nil
-}
-
-// verifyToken parses the wire format, checks the HMAC, and returns
-// the JSON body bytes. Callers unmarshal into the appropriate type.
-func (s *VPNService) verifyToken(token string) ([]byte, error) {
-	parts := strings.Split(strings.TrimSpace(token), inviteTokenSeparator)
-	if len(parts) != 2 {
-		return nil, ErrInviteMalformed
-	}
-	enc := base64.RawURLEncoding
-	body, err := enc.DecodeString(parts[0])
-	if err != nil {
-		return nil, fmt.Errorf("%w: body decode: %v", ErrInviteMalformed, err)
-	}
-	sig, err := enc.DecodeString(parts[1])
-	if err != nil {
-		return nil, fmt.Errorf("%w: sig decode: %v", ErrInviteMalformed, err)
-	}
-	key, err := s.signingKey()
-	if err != nil {
-		return nil, err
-	}
-	mac := hmac.New(sha256.New, key)
-	mac.Write(body)
-	if !hmac.Equal(mac.Sum(nil), sig) {
-		return nil, ErrInviteSignature
-	}
-	return body, nil
-}
-
-// ParseInviteToken decodes and validates a join invite token.
-// Returns the payload on success or one of ErrInvite* on failure.
-func (s *VPNService) ParseInviteToken(token string) (*S2SInvite, error) {
-	body, err := s.verifyToken(token)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: decode: %v", ErrInviteMalformed, err)
 	}
 	var inv S2SInvite
 	if err := json.Unmarshal(body, &inv); err != nil {
 		return nil, fmt.Errorf("%w: json: %v", ErrInviteMalformed, err)
 	}
-	if inv.Version != inviteSchemaVersion {
-		return nil, fmt.Errorf("%w: got %d want %d", ErrInviteSchema, inv.Version, inviteSchemaVersion)
-	}
-	if inv.Kind != tokenKindInvite {
-		return nil, fmt.Errorf("%w: kind %q", ErrInviteMalformed, inv.Kind)
+	if err := checkTokenHeader(inv.Version, inv.Kind, tokenKindInvite); err != nil {
+		return nil, err
 	}
 	if !inv.ExpiresAt.IsZero() && time.Now().After(inv.ExpiresAt) {
 		return nil, ErrInviteExpired
 	}
+	if err := validateInvite(&inv); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInviteMalformed, err)
+	}
 	return &inv, nil
 }
 
-// ParseAckToken decodes and validates a reply ack token.
-func (s *VPNService) ParseAckToken(token string) (*S2SAck, error) {
-	body, err := s.verifyToken(token)
+// checkTokenHeader refuses a token of another schema version or kind.
+func checkTokenHeader(version int, kind, want string) error {
+	if version != inviteSchemaVersion {
+		return fmt.Errorf("%w: got %d want %d", ErrInviteSchema, version, inviteSchemaVersion)
+	}
+	if kind != want {
+		return fmt.Errorf("%w: kind %q", ErrInviteMalformed, kind)
+	}
+	return nil
+}
+
+// validateInvite checks the fields that reach the rendered wgs0.conf.
+// The invite is unsigned, so this is the only thing standing between
+// its text and a config file that wg-quick runs as root.
+func validateInvite(inv *S2SInvite) error {
+	if !s2sNamePattern.MatchString(inv.Name) {
+		return fmt.Errorf("invalid peer name %q", inv.Name)
+	}
+	if err := validateWGKey(inv.PublicKey); err != nil {
+		return fmt.Errorf("public key: %w", err)
+	}
+	if err := validateWGKey(inv.PresharedKey); err != nil {
+		return fmt.Errorf("preshared key: %w", err)
+	}
+	if err := validateS2SEndpoint(inv.Endpoint); err != nil {
+		return err
+	}
+	return validateSubnetList(append(slices.Clone(inv.RemoteSubnets), inv.ExpectedSubnets...))
+}
+
+// validateWGKey accepts a WireGuard key: 32 bytes in standard base64.
+func validateWGKey(key string) error {
+	raw, err := base64.StdEncoding.DecodeString(key)
+	if err != nil || len(raw) != 32 {
+		return errors.New("not a WireGuard key")
+	}
+	return nil
+}
+
+// validateS2SEndpoint accepts host:port where host is an IP address or
+// a DNS name.
+func validateS2SEndpoint(endpoint string) error {
+	host, port, err := net.SplitHostPort(endpoint)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("invalid endpoint %q: %w", endpoint, err)
 	}
-	var ack S2SAck
-	if err := json.Unmarshal(body, &ack); err != nil {
-		return nil, fmt.Errorf("%w: json: %v", ErrInviteMalformed, err)
+	if n, err := strconv.Atoi(port); err != nil || netutil.ValidatePort(n) != nil {
+		return fmt.Errorf("invalid endpoint port %q", port)
 	}
-	if ack.Version != inviteSchemaVersion {
-		return nil, fmt.Errorf("%w: got %d want %d", ErrInviteSchema, ack.Version, inviteSchemaVersion)
+	if net.ParseIP(host) == nil && ValidateDomain(host) != nil {
+		return fmt.Errorf("invalid endpoint host %q", host)
 	}
-	if ack.Kind != tokenKindAck {
-		return nil, fmt.Errorf("%w: kind %q", ErrInviteMalformed, ack.Kind)
+	return nil
+}
+
+// validateSubnetList accepts only CIDRs.
+func validateSubnetList(subnets []string) error {
+	for _, cidr := range subnets {
+		if err := netutil.ValidateCIDR(cidr); err != nil {
+			return err
+		}
 	}
-	return &ack, nil
+	return nil
+}
+
+// signAck serialises an ack and appends its MAC under the invite's
+// preshared key.
+func signAck(ack *S2SAck, psk string) (string, error) {
+	body, err := json.Marshal(ack)
+	if err != nil {
+		return "", fmt.Errorf("marshal ack: %w", err)
+	}
+	mac, err := ackMAC(body, psk)
+	if err != nil {
+		return "", err
+	}
+	enc := base64.RawURLEncoding
+	return enc.EncodeToString(body) + ackMACSeparator + enc.EncodeToString(mac), nil
+}
+
+// ackMAC is HMAC-SHA256 over body keyed with the decoded preshared key.
+func ackMAC(body []byte, psk string) ([]byte, error) {
+	key, err := base64.StdEncoding.DecodeString(psk)
+	if err != nil || len(key) != 32 {
+		return nil, errors.New("the preshared key is not a WireGuard key")
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write(body)
+	return mac.Sum(nil), nil
+}
+
+// ParseAckToken decodes a reply ack token without verifying it. The key
+// that verifies it is the preshared key of the pending peer the ack
+// names, so the caller looks that peer up and calls verifyAck.
+func ParseAckToken(token string) (ack *S2SAck, body, mac []byte, err error) {
+	bodyPart, macPart, ok := strings.Cut(strings.TrimSpace(token), ackMACSeparator)
+	if !ok {
+		return nil, nil, nil, ErrInviteMalformed
+	}
+	enc := base64.RawURLEncoding
+	if body, err = enc.DecodeString(bodyPart); err != nil {
+		return nil, nil, nil, fmt.Errorf("%w: body decode: %v", ErrInviteMalformed, err)
+	}
+	if mac, err = enc.DecodeString(macPart); err != nil {
+		return nil, nil, nil, fmt.Errorf("%w: mac decode: %v", ErrInviteMalformed, err)
+	}
+	ack = &S2SAck{}
+	if err := json.Unmarshal(body, ack); err != nil {
+		return nil, nil, nil, fmt.Errorf("%w: json: %v", ErrInviteMalformed, err)
+	}
+	if err := checkTokenHeader(ack.Version, ack.Kind, tokenKindAck); err != nil {
+		return nil, nil, nil, err
+	}
+	if err := validateWGKey(ack.PublicKey); err != nil {
+		return nil, nil, nil, fmt.Errorf("%w: public key: %v", ErrInviteMalformed, err)
+	}
+	return ack, body, mac, nil
+}
+
+// verifyAck checks an ack's MAC against the pending peer's preshared key.
+func verifyAck(body, mac []byte, psk string) error {
+	want, err := ackMAC(body, psk)
+	if err != nil {
+		return err
+	}
+	if !hmac.Equal(want, mac) {
+		return ErrInviteSignature
+	}
+	return nil
 }
 
 // localSubnets returns the LAN-side CIDRs this router is willing to
@@ -394,14 +386,8 @@ func (s *VPNService) CreateS2SInvite(
 	peerName, siteName, endpoint string,
 	expectedRemote []string,
 ) (token string, peer *config.WGServerPeer, err error) {
-	if peerName == "" {
-		return "", nil, errors.New("peer name required")
-	}
-	if endpoint == "" {
-		return "", nil, errors.New("endpoint required")
-	}
-	if conflict, ok := s.subnetsConflict(expectedRemote); ok {
-		return "", nil, fmt.Errorf("%w: %s", ErrPeerSubnetConflict, conflict)
+	if err := s.validateInviteRequest(peerName, endpoint, expectedRemote); err != nil {
+		return "", nil, err
 	}
 
 	psk, err := s.GeneratePresharedKey(ctx)
@@ -459,7 +445,7 @@ func (s *VPNService) CreateS2SInvite(
 		CreatedAt:       now,
 		ExpiresAt:       expires,
 	}
-	token, err = s.signToken(inv)
+	token, err = encodeInvite(&inv)
 	if err != nil {
 		return "", nil, err
 	}
@@ -469,18 +455,46 @@ func (s *VPNService) CreateS2SInvite(
 	return token, &saved, nil
 }
 
-// ConsumeInvite is invoked on the joining side. It parses+verifies
-// the incoming invite, generates a fresh keypair for the local
-// side, registers the originating router as a (non-pending) peer,
-// and returns the ack token + the peer's own public key so the
-// operator can paste it back into the originator's wizard.
+// validateInviteRequest checks what the originating side is about to
+// put into an invite: the peer name and endpoint the joining side will
+// write into its config, a server key pair to hand out, and remote
+// subnets that do not overlap this router's own.
+func (s *VPNService) validateInviteRequest(peerName, endpoint string, expectedRemote []string) error {
+	if !s2sNamePattern.MatchString(peerName) {
+		return fmt.Errorf("invalid peer name %q", peerName)
+	}
+	if err := validateS2SEndpoint(endpoint); err != nil {
+		return err
+	}
+	if s.cfg.VPN.Server.PublicKey == "" {
+		return ErrS2SServerKeyMissing
+	}
+	if conflict, ok := s.subnetsConflict(expectedRemote); ok {
+		return fmt.Errorf("%w: %s", ErrPeerSubnetConflict, conflict)
+	}
+	return nil
+}
+
+// ConsumeInvite is invoked on the joining side. It parses and validates
+// the incoming invite, registers the originating router as a
+// (non-pending) peer, and returns the ack token and this router's
+// server public key so the operator can paste the ack back into the
+// originator's wizard.
+//
+// The key handed back is the server's own, because wgs0 is the
+// interface the tunnel runs on and it authenticates with the server key
+// pair. Any other key would name a private key nobody holds.
 func (s *VPNService) ConsumeInvite(
-	ctx context.Context,
+	_ context.Context,
 	token string,
 ) (ackToken string, ourPubKey string, savedPeer *config.WGServerPeer, err error) {
-	inv, err := s.ParseInviteToken(token)
+	inv, err := ParseInviteToken(token)
 	if err != nil {
 		return "", "", nil, err
+	}
+	pub := s.cfg.VPN.Server.PublicKey
+	if pub == "" {
+		return "", "", nil, ErrS2SServerKeyMissing
 	}
 
 	// The joining side's "remote subnets" are the originator's
@@ -488,12 +502,6 @@ func (s *VPNService) ConsumeInvite(
 	if conflict, ok := s.subnetsConflict(inv.RemoteSubnets); ok {
 		return "", "", nil, fmt.Errorf("%w: %s", ErrPeerSubnetConflict, conflict)
 	}
-
-	priv, pub, err := s.GenerateKeypair(ctx)
-	if err != nil {
-		return "", "", nil, fmt.Errorf("genkey: %w", err)
-	}
-	_ = priv // private key is rendered into the joining side's wgs0.conf via cfg.VPN.Server.PrivateKey on its own router; here we simply add the originator as a peer.
 
 	// Register the originating router as a peer on the joining
 	// side. AllowedIPs = invite.TunnelIP + invite.RemoteSubnets.
@@ -514,11 +522,9 @@ func (s *VPNService) ConsumeInvite(
 	}
 
 	s.mu.Lock()
-	for _, existing := range s.cfg.VPN.Server.Peers {
-		if existing.Name == inv.Name {
-			s.mu.Unlock()
-			return "", "", nil, fmt.Errorf("peer %q already exists", inv.Name)
-		}
+	if s.peerNameTakenLocked(inv.Name) {
+		s.mu.Unlock()
+		return "", "", nil, fmt.Errorf("%w: %s", ErrPeerNameInUse, inv.Name)
 	}
 	s.cfg.VPN.Server.Peers = append(s.cfg.VPN.Server.Peers, peer)
 	s.mu.Unlock()
@@ -534,7 +540,7 @@ func (s *VPNService) ConsumeInvite(
 		PublicKey: pub,
 		CreatedAt: time.Now().UTC().Truncate(time.Second),
 	}
-	ackToken, err = s.signToken(ack)
+	ackToken, err = signAck(&ack, inv.PresharedKey)
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -544,10 +550,10 @@ func (s *VPNService) ConsumeInvite(
 
 // FinalizeInvite is invoked on the originating side once the
 // operator pastes back the ack token from the joining router. It
-// fills in the joining side's public key, clears Pending, and
-// persists.
-func (s *VPNService) FinalizeInvite(ctx context.Context, peerName, ackToken string) (*config.WGServerPeer, error) {
-	ack, err := s.ParseAckToken(ackToken)
+// verifies the ack against the pending peer's preshared key, fills in
+// the joining side's public key, clears Pending, and persists.
+func (s *VPNService) FinalizeInvite(_ context.Context, peerName, ackToken string) (*config.WGServerPeer, error) {
+	ack, body, mac, err := ParseAckToken(ackToken)
 	if err != nil {
 		return nil, err
 	}
@@ -557,30 +563,13 @@ func (s *VPNService) FinalizeInvite(ctx context.Context, peerName, ackToken stri
 	}
 
 	s.mu.Lock()
-	idx := -1
-	for i, p := range s.cfg.VPN.Server.Peers {
-		if p.Name == peerName {
-			idx = i
-			break
-		}
+	idx, err := s.pendingPeerIndexLocked(peerName)
+	if err == nil {
+		err = verifyAck(body, mac, s.cfg.VPN.Server.Peers[idx].PresharedKey)
 	}
-	if idx < 0 {
+	if err != nil {
 		s.mu.Unlock()
-		return nil, fmt.Errorf("peer %q not found", peerName)
-	}
-	if !s.cfg.VPN.Server.Peers[idx].Pending {
-		s.mu.Unlock()
-		return nil, ErrPeerNotPending
-	}
-	// The Pending flag alone is not the expiry. It is cleared by the GC
-	// ticker, which runs every five minutes, so trusting it let a leaked
-	// or delayed invite become a permanent trusted peer for up to one
-	// sweep past its deadline. The ack token carries no expiry of its
-	// own, so this is the only place the originating side can enforce
-	// the limit it published.
-	if expires := s.cfg.VPN.Server.Peers[idx].InviteExpiresAt; !expires.IsZero() && time.Now().After(expires) {
-		s.mu.Unlock()
-		return nil, fmt.Errorf("%w: expired at %s", ErrInviteExpired, expires.UTC().Format(time.RFC3339))
+		return nil, err
 	}
 	s.cfg.VPN.Server.Peers[idx].PublicKey = ack.PublicKey
 	s.cfg.VPN.Server.Peers[idx].Pending = false
@@ -592,6 +581,31 @@ func (s *VPNService) FinalizeInvite(ctx context.Context, peerName, ackToken stri
 		return nil, fmt.Errorf("persist finalize: %w", err)
 	}
 	return &saved, nil
+}
+
+// pendingPeerIndexLocked finds the named peer and checks it is still an
+// unexpired pending invite. Caller must hold s.mu.
+//
+// The Pending flag alone is not the expiry. It is cleared by the GC
+// ticker, which runs every five minutes, so trusting it let a leaked or
+// delayed invite become a permanent trusted peer for up to one sweep
+// past its deadline. The ack token carries no expiry of its own, so
+// this is the only place the originating side can enforce the limit it
+// published.
+func (s *VPNService) pendingPeerIndexLocked(name string) (int, error) {
+	for i, p := range s.cfg.VPN.Server.Peers {
+		if p.Name != name {
+			continue
+		}
+		if !p.Pending {
+			return -1, ErrPeerNotPending
+		}
+		if !p.InviteExpiresAt.IsZero() && time.Now().After(p.InviteExpiresAt) {
+			return -1, fmt.Errorf("%w: expired at %s", ErrInviteExpired, p.InviteExpiresAt.UTC().Format(time.RFC3339))
+		}
+		return i, nil
+	}
+	return -1, fmt.Errorf("peer %q not found", name)
 }
 
 // CancelInvite removes a pending peer (e.g. operator aborts the

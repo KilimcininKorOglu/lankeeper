@@ -18,6 +18,7 @@ func pendingPeerWithExpiry(t *testing.T, expires time.Time) (*VPNService, string
 	const peerName = "branch"
 	svc.cfg.VPN.Server.Peers = []config.WGServerPeer{{
 		Name:            peerName,
+		PresharedKey:    testWGKey(t),
 		AllowedIPs:      "10.10.11.2/32, 192.168.5.0/24",
 		RemoteSubnets:   []string{"192.168.5.0/24"},
 		IsSiteToSite:    true,
@@ -27,15 +28,16 @@ func pendingPeerWithExpiry(t *testing.T, expires time.Time) (*VPNService, string
 	return svc, peerName
 }
 
-// ackFor mints the token the joining side hands back.
+// ackFor mints the token the joining side hands back, MACed with the
+// pending peer's preshared key.
 func ackFor(t *testing.T, svc *VPNService, peerName string) string {
 	t.Helper()
-	token, err := svc.signToken(&S2SAck{
+	token, err := signAck(&S2SAck{
 		Version:   inviteSchemaVersion,
 		Kind:      tokenKindAck,
 		Name:      peerName,
-		PublicKey: "fakeJoiningSidePubKeyAABBCCDDEEFF1122334=",
-	})
+		PublicKey: testWGKey(t),
+	}, svc.cfg.VPN.Server.Peers[0].PresharedKey)
 	if err != nil {
 		t.Fatalf("sign ack: %v", err)
 	}
