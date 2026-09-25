@@ -64,33 +64,35 @@ func (s *StorageService) GetRAIDStatus(ctx context.Context) (*RAIDStatus, error)
 	}
 
 	status := &RAIDStatus{Device: device}
-
 	for line := range strings.SplitSeq(out, "\n") {
-		line = strings.TrimSpace(line)
-		if after, ok := strings.CutPrefix(line, "Raid Level :"); ok {
-			status.Level = strings.TrimSpace(after)
-		}
-		if after, ok := strings.CutPrefix(line, "State :"); ok {
-			status.State = strings.TrimSpace(after)
-		}
-		if after, ok := strings.CutPrefix(line, "Active Devices :"); ok {
-			_, _ = fmt.Sscanf(after, "%d", &status.ActiveDisks)
-		}
-		if after, ok := strings.CutPrefix(line, "Total Devices :"); ok {
-			_, _ = fmt.Sscanf(after, "%d", &status.TotalDisks)
-		}
-		if strings.Contains(line, "/dev/sd") || strings.Contains(line, "/dev/nvme") {
-			fields := strings.Fields(line)
-			if len(fields) >= 7 {
-				status.Members = append(status.Members, DiskMember{
-					Device: fields[len(fields)-1],
-					State:  fields[4],
-				})
-			}
+		status.applyDetailLine(strings.TrimSpace(line))
+	}
+	return status, nil
+}
+
+// applyDetailLine records whatever one line of `mdadm --detail` output
+// carries.
+func (status *RAIDStatus) applyDetailLine(line string) {
+	if after, ok := strings.CutPrefix(line, "Raid Level :"); ok {
+		status.Level = strings.TrimSpace(after)
+	}
+	if after, ok := strings.CutPrefix(line, "State :"); ok {
+		status.State = strings.TrimSpace(after)
+	}
+	if after, ok := strings.CutPrefix(line, "Active Devices :"); ok {
+		_, _ = fmt.Sscanf(after, "%d", &status.ActiveDisks)
+	}
+	if after, ok := strings.CutPrefix(line, "Total Devices :"); ok {
+		_, _ = fmt.Sscanf(after, "%d", &status.TotalDisks)
+	}
+	if strings.Contains(line, "/dev/sd") || strings.Contains(line, "/dev/nvme") {
+		if fields := strings.Fields(line); len(fields) >= 7 {
+			status.Members = append(status.Members, DiskMember{
+				Device: fields[len(fields)-1],
+				State:  fields[4],
+			})
 		}
 	}
-
-	return status, nil
 }
 
 func (s *StorageService) GetSMARTInfo(ctx context.Context, device string) (*SMARTInfo, error) {
@@ -100,41 +102,50 @@ func (s *StorageService) GetSMARTInfo(ctx context.Context, device string) (*SMAR
 	}
 
 	info := &SMARTInfo{Device: device, HealthOK: true}
-
 	for line := range strings.SplitSeq(out, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Device Model:") || strings.HasPrefix(line, "Model Number:") {
-			info.Model = strings.TrimSpace(line[strings.Index(line, ":")+1:])
-		}
-		if strings.Contains(line, "Temperature_Celsius") || strings.Contains(line, "Temperature Sensor") {
-			fields := strings.Fields(line)
-			for i, f := range fields {
-				if f == "Celsius" && i > 0 {
-					_, _ = fmt.Sscanf(fields[i-1], "%d", &info.Temperature)
-				}
-			}
-			if info.Temperature == 0 && len(fields) >= 10 {
-				_, _ = fmt.Sscanf(fields[9], "%d", &info.Temperature)
-			}
-		}
-		if strings.Contains(line, "Power_On_Hours") {
-			fields := strings.Fields(line)
-			if len(fields) >= 10 {
-				_, _ = fmt.Sscanf(fields[9], "%d", &info.PowerOnHours)
-			}
-		}
-		if strings.Contains(line, "SMART overall-health") && strings.Contains(line, "FAILED") {
-			info.HealthOK = false
-		}
-		if strings.Contains(line, "Reallocated_Sector") {
-			fields := strings.Fields(line)
-			if len(fields) >= 10 {
-				_, _ = fmt.Sscanf(fields[9], "%d", &info.Errors)
-			}
+		info.applySMARTLine(strings.TrimSpace(line))
+	}
+	return info, nil
+}
+
+// applySMARTLine records whatever one line of `smartctl -a` output
+// carries.
+func (info *SMARTInfo) applySMARTLine(line string) {
+	if strings.HasPrefix(line, "Device Model:") || strings.HasPrefix(line, "Model Number:") {
+		info.Model = strings.TrimSpace(line[strings.Index(line, ":")+1:])
+	}
+	if strings.Contains(line, "Temperature_Celsius") || strings.Contains(line, "Temperature Sensor") {
+		scanTemperature(strings.Fields(line), &info.Temperature)
+	}
+	if strings.Contains(line, "Power_On_Hours") {
+		scanRawValue(line, &info.PowerOnHours)
+	}
+	if strings.Contains(line, "SMART overall-health") && strings.Contains(line, "FAILED") {
+		info.HealthOK = false
+	}
+	if strings.Contains(line, "Reallocated_Sector") {
+		scanRawValue(line, &info.Errors)
+	}
+}
+
+// scanTemperature reads the number before "Celsius", falling back to the
+// attribute's raw value when that yields nothing.
+func scanTemperature(fields []string, temp *int) {
+	for i, f := range fields {
+		if f == "Celsius" && i > 0 {
+			_, _ = fmt.Sscanf(fields[i-1], "%d", temp)
 		}
 	}
+	if *temp == 0 && len(fields) >= 10 {
+		_, _ = fmt.Sscanf(fields[9], "%d", temp)
+	}
+}
 
-	return info, nil
+// scanRawValue reads the RAW_VALUE column of a SMART attribute line.
+func scanRawValue(line string, dst *int) {
+	if fields := strings.Fields(line); len(fields) >= 10 {
+		_, _ = fmt.Sscanf(fields[9], "%d", dst)
+	}
 }
 
 func (s *StorageService) GetDiskUsage(ctx context.Context) ([]DiskUsage, error) {
