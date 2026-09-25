@@ -29,6 +29,24 @@ type CheckResult struct {
 	LastAction   string
 	LastActionAt time.Time
 	InCooldown   bool
+
+	// cooldownUntil ends the cooldown. It is a deadline rather than a
+	// timer, because a sleeping goroutine per cooldown outlived Stop and,
+	// after a reset, cleared the next cooldown early.
+	cooldownUntil time.Time
+}
+
+// inCooldown reports whether the check is held at now. The caller holds
+// the service lock.
+func (r *CheckResult) inCooldown(now time.Time) bool {
+	return now.Before(r.cooldownUntil)
+}
+
+// snapshot copies r with InCooldown brought up to date.
+func (r *CheckResult) snapshot() *CheckResult {
+	cp := *r
+	cp.InCooldown = r.inCooldown(time.Now())
+	return &cp
 }
 
 func NewHealthCheckService(cfg *config.Config) *HealthCheckService {
@@ -77,8 +95,7 @@ func (s *HealthCheckService) GetResults() map[string]*CheckResult {
 
 	results := make(map[string]*CheckResult, len(s.results))
 	for k, v := range s.results {
-		cp := *v
-		results[k] = &cp
+		results[k] = v.snapshot()
 	}
 	return results
 }
@@ -88,8 +105,7 @@ func (s *HealthCheckService) GetResult(name string) *CheckResult {
 	defer s.mu.RUnlock()
 
 	if r, ok := s.results[name]; ok {
-		cp := *r
-		return &cp
+		return r.snapshot()
 	}
 	return nil
 }
@@ -102,6 +118,7 @@ func (s *HealthCheckService) ResetCounter(name string) {
 		r.FailureCount = 0
 		r.Status = "ok"
 		r.InCooldown = false
+		r.cooldownUntil = time.Time{}
 	}
 }
 
@@ -137,7 +154,7 @@ func (s *HealthCheckService) runCheck(ctx context.Context, check config.HealthCh
 func (s *HealthCheckService) executeCheck(ctx context.Context, check config.HealthCheckEntry, timeout, cooldown time.Duration) {
 	s.mu.RLock()
 	result := s.results[check.Name]
-	if result != nil && result.InCooldown {
+	if result != nil && result.inCooldown(time.Now()) {
 		s.mu.RUnlock()
 		return
 	}
@@ -340,20 +357,12 @@ func (s *HealthCheckService) runAction(ctx context.Context, check config.HealthC
 // cooldown for the given duration.
 func (s *HealthCheckService) startCooldown(checkName string, cooldown time.Duration) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	if r, ok := s.results[checkName]; ok {
 		r.InCooldown = true
 		r.FailureCount = 0
+		r.cooldownUntil = time.Now().Add(cooldown)
 	}
-	s.mu.Unlock()
-
-	go func() {
-		time.Sleep(cooldown)
-		s.mu.Lock()
-		if r, ok := s.results[checkName]; ok {
-			r.InCooldown = false
-		}
-		s.mu.Unlock()
-	}()
 }
 
 func (s *HealthCheckService) actionRestartInterface(ctx context.Context, ifaceID string) error {
