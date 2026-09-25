@@ -1,6 +1,7 @@
 package services
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log"
@@ -143,7 +144,7 @@ func (s *RoutingService) Apply(ctx context.Context) error {
 		}
 
 		if len(p.Domains) > 0 {
-			s.setupDomainSet(ctx, p.Name, p.Domains, tunnel.Fwmark)
+			s.setupDomainSet(ctx, p.Name, p.Domains)
 		}
 	}
 
@@ -190,54 +191,8 @@ func (s *RoutingService) generateFullNftChain(policies []config.RoutingPolicy) s
 		if !p.Enabled {
 			continue
 		}
-
-		tunnel := s.findTunnel(p.Tunnel)
-		if tunnel == nil {
-			continue
-		}
-
-		schedulePrefix := ""
-		if p.Schedule != "" {
-			schedulePrefix = buildScheduleMatch(p.Schedule)
-		}
-
-		for _, mac := range p.SrcMACs {
-			fmt.Fprintf(&sb, "add rule inet filter pbr_policies %sether saddr %s meta mark set %d\n",
-				schedulePrefix, mac, tunnel.Fwmark)
-		}
-		for _, ip := range p.SrcIPs {
-			fmt.Fprintf(&sb, "add rule inet filter pbr_policies %sip saddr %s meta mark set %d\n",
-				schedulePrefix, ip, tunnel.Fwmark)
-		}
-		for _, dst := range p.DstIPs {
-			fmt.Fprintf(&sb, "add rule inet filter pbr_policies %sip daddr %s meta mark set %d\n",
-				schedulePrefix, dst, tunnel.Fwmark)
-		}
-		for _, port := range p.DstPorts {
-			proto := p.Protocol
-			if proto == "" {
-				proto = "tcp"
-			}
-			fmt.Fprintf(&sb, "add rule inet filter pbr_policies %s%s dport %d meta mark set %d\n",
-				schedulePrefix, proto, port, tunnel.Fwmark)
-		}
-
-		if len(p.Domains) > 0 {
-			setName := "pbr_" + sanitizeName(p.Name)
-			fmt.Fprintf(&sb, "add set inet filter %s { type ipv4_addr ; flags timeout ; }\n", setName)
-			fmt.Fprintf(&sb, "add rule inet filter pbr_policies %sip daddr @%s meta mark set %d\n",
-				schedulePrefix, setName, tunnel.Fwmark)
-		}
-
-		if p.KillSwitch {
-			for _, mac := range p.SrcMACs {
-				fmt.Fprintf(&sb, "add rule inet filter pbr_policies ether saddr %s meta mark != %d drop\n",
-					mac, tunnel.Fwmark)
-			}
-			for _, ip := range p.SrcIPs {
-				fmt.Fprintf(&sb, "add rule inet filter pbr_policies ip saddr %s meta mark != %d drop\n",
-					ip, tunnel.Fwmark)
-			}
+		if tunnel := s.findTunnel(p.Tunnel); tunnel != nil {
+			writePolicyRules(&sb, p, tunnel.Fwmark)
 		}
 	}
 
@@ -252,6 +207,49 @@ func (s *RoutingService) generateFullNftChain(policies []config.RoutingPolicy) s
 // from the /tmp the agent's nft reads.
 const pbrTmpPath = "/tmp/lankeeper-pbr.nft"
 
+// writePolicyRules writes the mark rules for one policy: its source
+// MACs and IPs, destination IPs and ports, its domain set, and the
+// kill-switch drops.
+func writePolicyRules(sb *strings.Builder, p config.RoutingPolicy, fwmark int) {
+	schedulePrefix := ""
+	if p.Schedule != "" {
+		schedulePrefix = buildScheduleMatch(p.Schedule)
+	}
+	mark := func(match string) {
+		fmt.Fprintf(sb, "add rule inet filter pbr_policies %s%s meta mark set %d\n", schedulePrefix, match, fwmark)
+	}
+
+	for _, mac := range p.SrcMACs {
+		mark("ether saddr " + mac)
+	}
+	for _, ip := range p.SrcIPs {
+		mark("ip saddr " + ip)
+	}
+	for _, dst := range p.DstIPs {
+		mark("ip daddr " + dst)
+	}
+	proto := cmp.Or(p.Protocol, "tcp")
+	for _, port := range p.DstPorts {
+		mark(fmt.Sprintf("%s dport %d", proto, port))
+	}
+
+	if len(p.Domains) > 0 {
+		setName := "pbr_" + sanitizeName(p.Name)
+		fmt.Fprintf(sb, "add set inet filter %s { type ipv4_addr ; flags timeout ; }\n", setName)
+		mark("ip daddr @" + setName)
+	}
+
+	if !p.KillSwitch {
+		return
+	}
+	for _, mac := range p.SrcMACs {
+		fmt.Fprintf(sb, "add rule inet filter pbr_policies ether saddr %s meta mark != %d drop\n", mac, fwmark)
+	}
+	for _, ip := range p.SrcIPs {
+		fmt.Fprintf(sb, "add rule inet filter pbr_policies ip saddr %s meta mark != %d drop\n", ip, fwmark)
+	}
+}
+
 func (s *RoutingService) applyNftRules(ctx context.Context, rules string) error {
 	if err := netutil.WriteFile(pbrTmpPath, []byte(rules), 0o600); err != nil {
 		return fmt.Errorf("write PBR rules: %w", err)
@@ -260,7 +258,7 @@ func (s *RoutingService) applyNftRules(ctx context.Context, rules string) error 
 	return err
 }
 
-func (s *RoutingService) setupDomainSet(ctx context.Context, policyName string, domains []string, fwmark int) {
+func (s *RoutingService) setupDomainSet(ctx context.Context, policyName string, domains []string) {
 	setName := "pbr_" + sanitizeName(policyName)
 
 	s.mu.Lock()
