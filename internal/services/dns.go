@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"text/template"
@@ -135,6 +136,40 @@ type renderStaticRecord struct {
 
 // RenderConfig returns the rendered unbound.conf as a string. Pure
 // computation — no I/O. Use RenderToDisk to write the result to /etc.
+// clientSubnets lists every network whose clients are handed this
+// router as their resolver: each LAN interface and VLAN, and the
+// WireGuard and OpenVPN servers when they run. unbound refuses any
+// query no access-control line covers.
+func (s *DNSService) clientSubnets() []string {
+	var cidrs []string
+	for _, iface := range s.cfg.Interfaces {
+		if iface.Role == "lan" {
+			cidrs = append(cidrs, iface.Address)
+		}
+	}
+	for _, vlan := range s.cfg.VLANs {
+		cidrs = append(cidrs, vlan.Address)
+	}
+	if s.cfg.VPN.Server.Enabled {
+		cidrs = append(cidrs, s.cfg.VPN.Server.Address)
+	}
+	if s.cfg.OpenVPN.Server.Enabled {
+		cidrs = append(cidrs, s.cfg.OpenVPN.Server.Subnet)
+	}
+
+	var out []string
+	for _, cidr := range cidrs {
+		// Only a parsed network reaches the template, so nothing but a
+		// CIDR can land on an access-control line.
+		_, subnet, err := net.ParseCIDR(strings.TrimSpace(cidr))
+		if err != nil || slices.Contains(out, subnet.String()) {
+			continue
+		}
+		out = append(out, subnet.String())
+	}
+	return out
+}
+
 func (s *DNSService) RenderConfig() (string, error) {
 	funcMap := template.FuncMap{
 		"mul": func(a, b int) int { return a * b },
@@ -163,13 +198,7 @@ func (s *DNSService) RenderConfig() (string, error) {
 
 	data.CacheSize = clampCacheSize(data.CacheSize)
 
-	for _, vlan := range s.cfg.VLANs {
-		for _, iface := range s.cfg.Interfaces {
-			if iface.ID == vlan.Parent && iface.Address != "" {
-				data.AllowSubnets = append(data.AllowSubnets, subnetFromCIDR(iface.Address)+"/24")
-			}
-		}
-	}
+	data.AllowSubnets = s.clientSubnets()
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
