@@ -122,37 +122,9 @@ func parseField(spec string, min, max int) (fieldSet, error) {
 		if atom == "" {
 			continue
 		}
-		// Step form: */k or m-n/k (we only support */k in v1).
-		step := 1
-		if idx := strings.Index(atom, "/"); idx >= 0 {
-			s, err := strconv.Atoi(atom[idx+1:])
-			if err != nil || s < 1 {
-				return 0, fmt.Errorf("bad step %q", atom)
-			}
-			step = s
-			atom = atom[:idx]
-		}
-		var lo, hi int
-		switch {
-		case atom == "*":
-			lo, hi = min, max
-		case strings.Contains(atom, "-"):
-			parts := strings.SplitN(atom, "-", 2)
-			a, e1 := strconv.Atoi(parts[0])
-			b, e2 := strconv.Atoi(parts[1])
-			if e1 != nil || e2 != nil {
-				return 0, fmt.Errorf("bad range %q", atom)
-			}
-			lo, hi = a, b
-		default:
-			n, err := strconv.Atoi(atom)
-			if err != nil {
-				return 0, fmt.Errorf("bad number %q", atom)
-			}
-			lo, hi = n, n
-		}
-		if lo < min || hi > max || lo > hi {
-			return 0, fmt.Errorf("out-of-range field %d-%d (allowed %d-%d)", lo, hi, min, max)
+		lo, hi, step, err := parseAtom(atom, min, max)
+		if err != nil {
+			return 0, err
 		}
 		for i := lo; i <= hi; i += step {
 			out |= 1 << i
@@ -162,6 +134,59 @@ func parseField(spec string, min, max int) (fieldSet, error) {
 		return 0, fmt.Errorf("empty field %q", spec)
 	}
 	return out, nil
+}
+
+// parseAtom parses one comma-separated element of a field into the
+// range it covers and its step, checked against the field's bounds.
+func parseAtom(atom string, min, max int) (lo, hi, step int, err error) {
+	base, step, err := splitStep(atom)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	lo, hi, err = parseRange(base, min, max)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	if lo < min || hi > max || lo > hi {
+		return 0, 0, 0, fmt.Errorf("out-of-range field %d-%d (allowed %d-%d)", lo, hi, min, max)
+	}
+	return lo, hi, step, nil
+}
+
+// splitStep separates a trailing /k step from an element. The step
+// form is */k or m-n/k; an element without one steps by 1.
+func splitStep(atom string) (base string, step int, err error) {
+	base, raw, found := strings.Cut(atom, "/")
+	if !found {
+		return atom, 1, nil
+	}
+	s, err := strconv.Atoi(raw)
+	if err != nil || s < 1 {
+		return "", 0, fmt.Errorf("bad step %q", atom)
+	}
+	return base, s, nil
+}
+
+// parseRange reads *, n-m or n as an inclusive range.
+func parseRange(base string, min, max int) (lo, hi int, err error) {
+	switch {
+	case base == "*":
+		return min, max, nil
+	case strings.Contains(base, "-"):
+		parts := strings.SplitN(base, "-", 2)
+		a, e1 := strconv.Atoi(parts[0])
+		b, e2 := strconv.Atoi(parts[1])
+		if e1 != nil || e2 != nil {
+			return 0, 0, fmt.Errorf("bad range %q", base)
+		}
+		return a, b, nil
+	default:
+		n, err := strconv.Atoi(base)
+		if err != nil {
+			return 0, 0, fmt.Errorf("bad number %q", base)
+		}
+		return n, n, nil
+	}
 }
 
 // Next reports the next time at-or-after `after` that the schedule
@@ -236,13 +261,9 @@ var schedulerRunning bool
 // synchronously inside the loop below, so the goroutine does not exit
 // until the current backup has recorded its history entry.
 func (s *BackupService) StartScheduler(ctx context.Context, cfg *backupSchedulerConfig, wg *sync.WaitGroup) {
-	scheduleMu.Lock()
-	if schedulerRunning {
-		scheduleMu.Unlock()
+	if !claimScheduler() {
 		return
 	}
-	schedulerRunning = true
-	scheduleMu.Unlock()
 
 	if wg != nil {
 		wg.Add(1)
@@ -254,40 +275,65 @@ func (s *BackupService) StartScheduler(ctx context.Context, cfg *backupScheduler
 			// returning Wait never sees the flag still set.
 			defer wg.Done()
 		}
-		t := time.NewTicker(30 * time.Second)
-		defer t.Stop()
-		var nextFire time.Time
-
-		for {
-			select {
-			case <-ctx.Done():
-				scheduleMu.Lock()
-				schedulerRunning = false
-				scheduleMu.Unlock()
-				return
-			case now := <-t.C:
-				snap := cfg.Snapshot()
-				if !snap.Enabled || snap.Schedule == "" {
-					nextFire = time.Time{}
-					continue
-				}
-				sched, err := ParseSchedule(snap.Schedule, snap.Location)
-				if err != nil {
-					log.Printf("backup scheduler: parse %q: %v", snap.Schedule, err)
-					continue
-				}
-				if nextFire.IsZero() || nextFire.Before(snap.LastRun) {
-					nextFire = sched.Next(now)
-				}
-				if !nextFire.IsZero() && !now.Before(nextFire) {
-					if err := s.RunNow(ctx); err != nil {
-						log.Printf("backup scheduler: run: %v", err)
-					}
-					nextFire = sched.Next(now.Add(time.Minute))
-				}
-			}
-		}
+		s.schedulerLoop(ctx, cfg)
 	}()
+}
+
+// claimScheduler marks the scheduler as running and reports whether
+// this caller is the one that started it.
+func claimScheduler() bool {
+	scheduleMu.Lock()
+	defer scheduleMu.Unlock()
+	if schedulerRunning {
+		return false
+	}
+	schedulerRunning = true
+	return true
+}
+
+// schedulerLoop ticks every 30 seconds until ctx ends, then clears the
+// running flag before it returns.
+func (s *BackupService) schedulerLoop(ctx context.Context, cfg *backupSchedulerConfig) {
+	t := time.NewTicker(30 * time.Second)
+	defer t.Stop()
+	var nextFire time.Time
+
+	for {
+		select {
+		case <-ctx.Done():
+			scheduleMu.Lock()
+			schedulerRunning = false
+			scheduleMu.Unlock()
+			return
+		case now := <-t.C:
+			nextFire = s.schedulerTick(ctx, cfg, now, nextFire)
+		}
+	}
+}
+
+// schedulerTick runs the backup when it is due and returns the next
+// fire time. The schedule is re-read on every tick, so a config change
+// takes effect by the next minute boundary.
+func (s *BackupService) schedulerTick(ctx context.Context, cfg *backupSchedulerConfig, now, nextFire time.Time) time.Time {
+	snap := cfg.Snapshot()
+	if !snap.Enabled || snap.Schedule == "" {
+		return time.Time{}
+	}
+	sched, err := ParseSchedule(snap.Schedule, snap.Location)
+	if err != nil {
+		log.Printf("backup scheduler: parse %q: %v", snap.Schedule, err)
+		return nextFire
+	}
+	if nextFire.IsZero() || nextFire.Before(snap.LastRun) {
+		nextFire = sched.Next(now)
+	}
+	if nextFire.IsZero() || now.Before(nextFire) {
+		return nextFire
+	}
+	if err := s.RunNow(ctx); err != nil {
+		log.Printf("backup scheduler: run: %v", err)
+	}
+	return sched.Next(now.Add(time.Minute))
 }
 
 // backupSchedulerConfig is the minimal slice of the live config the

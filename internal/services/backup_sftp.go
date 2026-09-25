@@ -196,26 +196,7 @@ func cleanupSFTP(ctx context.Context, t config.BackupTarget, keep int) ([]string
 		return nil, fmt.Errorf("readdir %s: %w", dir, err)
 	}
 
-	type fileInfo struct {
-		path  string
-		mtime time.Time
-	}
-	var files []fileInfo
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if !strings.HasPrefix(e.Name(), "lankeeper-backup-") {
-			continue
-		}
-		if strings.HasSuffix(e.Name(), ".tmp") {
-			continue
-		}
-		files = append(files, fileInfo{
-			path:  path.Join(dir, e.Name()),
-			mtime: e.ModTime(),
-		})
-	}
+	files := sftpBackups(entries, dir)
 	sort.Slice(files, func(i, j int) bool { return files[i].mtime.After(files[j].mtime) })
 
 	var deleted []string
@@ -226,4 +207,23 @@ func cleanupSFTP(ctx context.Context, t config.BackupTarget, keep int) ([]string
 		deleted = append(deleted, files[i].path)
 	}
 	return deleted, nil
+}
+
+// sftpBackup is one finished archive in the remote directory.
+type sftpBackup struct {
+	path  string
+	mtime time.Time
+}
+
+// sftpBackups keeps the finished lankeeper archives of a remote listing.
+func sftpBackups(entries []os.FileInfo, dir string) []sftpBackup {
+	var files []sftpBackup
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasPrefix(name, "lankeeper-backup-") || strings.HasSuffix(name, ".tmp") {
+			continue
+		}
+		files = append(files, sftpBackup{path: path.Join(dir, name), mtime: e.ModTime()})
+	}
+	return files
 }
