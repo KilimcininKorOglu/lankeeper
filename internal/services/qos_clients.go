@@ -218,8 +218,7 @@ func (s *QoSService) SamplePerClient(ctx context.Context) ([]ClientUsage, error)
 	if err != nil {
 		// Table not yet created — return empty rather than failing
 		// the sampler loop.
-		if strings.Contains(err.Error(), "No such file or directory") ||
-			strings.Contains(err.Error(), "does not exist") {
+		if isMissingTableError(err) {
 			return nil, nil
 		}
 		return nil, err
@@ -233,6 +232,25 @@ func (s *QoSService) SamplePerClient(ctx context.Context) ([]ClientUsage, error)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	usages := s.clientUsagesLocked(counters, s.sampleIntervalLocked(now), now)
+	sort.Slice(usages, func(i, j int) bool { return usages[i].MAC < usages[j].MAC })
+
+	s.storeCountersLocked(usages, counters)
+	s.lastSample = now
+	s.appendHistoryLocked(usages)
+	return usages, nil
+}
+
+// isMissingTableError reports whether nft failed because the QoS table
+// does not exist yet.
+func isMissingTableError(err error) bool {
+	return strings.Contains(err.Error(), "No such file or directory") ||
+		strings.Contains(err.Error(), "does not exist")
+}
+
+// sampleIntervalLocked returns the seconds since the previous sample,
+// at least 1. Callers must already hold s.mu.
+func (s *QoSService) sampleIntervalLocked(now time.Time) float64 {
 	if s.lastSample.IsZero() {
 		s.lastSample = now
 	}
@@ -240,16 +258,21 @@ func (s *QoSService) SamplePerClient(ctx context.Context) ([]ClientUsage, error)
 	if intervalSec <= 0 {
 		intervalSec = 1
 	}
+	return intervalSec
+}
 
+// clientUsagesLocked builds one usage entry per leased client. The rate
+// stays zero for a client without a previous sample. Callers must
+// already hold s.mu.
+func (s *QoSService) clientUsagesLocked(counters map[string]nftCounter, intervalSec float64, now time.Time) []ClientUsage {
 	usages := make([]ClientUsage, 0, len(s.clientLeases))
 	for mac, lease := range s.clientLeases {
 		inName, outName := counterNames(mac)
 		cIn := counters[inName]
 		cOut := counters[outName]
 
-		prev, hadPrev := s.lastCounters[mac]
 		var inBPS, outBPS uint64
-		if hadPrev {
+		if prev, hadPrev := s.lastCounters[mac]; hadPrev {
 			inBPS = bpsDelta(cIn.Bytes, prev.in, intervalSec)
 			outBPS = bpsDelta(cOut.Bytes, prev.out, intervalSec)
 		}
@@ -265,16 +288,16 @@ func (s *QoSService) SamplePerClient(ctx context.Context) ([]ClientUsage, error)
 			Updated:  now,
 		})
 	}
+	return usages
+}
 
-	sort.Slice(usages, func(i, j int) bool { return usages[i].MAC < usages[j].MAC })
-
-	// Refresh the previous-counter cache + sample timestamp.
+// storeCountersLocked replaces the previous-counter cache with this
+// sample's counters. Callers must already hold s.mu.
+func (s *QoSService) storeCountersLocked(usages []ClientUsage, counters map[string]nftCounter) {
 	if s.lastCounters == nil {
 		s.lastCounters = make(map[string]counterPair, len(usages))
 	}
-	for k := range s.lastCounters {
-		delete(s.lastCounters, k)
-	}
+	clear(s.lastCounters)
 	for _, u := range usages {
 		inName, outName := counterNames(u.MAC)
 		s.lastCounters[u.MAC] = counterPair{
@@ -282,9 +305,6 @@ func (s *QoSService) SamplePerClient(ctx context.Context) ([]ClientUsage, error)
 			out: counters[outName].Bytes,
 		}
 	}
-	s.lastSample = now
-	s.appendHistoryLocked(usages)
-	return usages, nil
 }
 
 // bpsDelta is a helper that protects against counter resets (where
@@ -367,42 +387,64 @@ func (s *QoSService) StartClientSampler(
 		if wg != nil {
 			defer wg.Done()
 		}
-		t := time.NewTicker(interval)
-		defer t.Stop()
-
-		// Initial rebuild + first sample so the UI has data on
-		// the first SSE tick instead of waiting interval seconds.
-		if leases, err := leaseProvider(); err == nil {
-			if rerr := s.RebuildClientCounters(ctx, leases); rerr != nil {
-				log.Printf("qos sampler: initial rebuild: %v", rerr)
-			}
-		}
-
-		tick := 0
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				tick++
-				if tick%resyncEvery == 0 {
-					if leases, err := leaseProvider(); err == nil {
-						if rerr := s.RebuildClientCounters(ctx, leases); rerr != nil {
-							log.Printf("qos sampler: periodic rebuild: %v", rerr)
-						}
-					}
-				}
-				usages, err := s.SamplePerClient(ctx)
-				if err != nil {
-					log.Printf("qos sampler: sample: %v", err)
-					continue
-				}
-				if publisher != nil {
-					publisher.Publish("qos-clients", usages)
-				}
-			}
-		}
+		s.runClientSampler(ctx, publisher, leaseProvider, interval, resyncEvery)
 	}()
+}
+
+// runClientSampler is the sampler loop. It returns when ctx is done.
+func (s *QoSService) runClientSampler(
+	ctx context.Context,
+	publisher Publisher,
+	leaseProvider func() ([]Lease, error),
+	interval time.Duration,
+	resyncEvery int,
+) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+
+	// Initial rebuild so the UI has counters on the first SSE tick
+	// instead of waiting resyncEvery ticks.
+	s.rebuildFromLeases(ctx, leaseProvider, "initial")
+
+	tick := 0
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			tick++
+			if tick%resyncEvery == 0 {
+				s.rebuildFromLeases(ctx, leaseProvider, "periodic")
+			}
+			s.sampleAndPublish(ctx, publisher)
+		}
+	}
+}
+
+// rebuildFromLeases re-syncs the counter table from the current leases.
+// Failures are logged: the sampler keeps running on the old table.
+func (s *QoSService) rebuildFromLeases(ctx context.Context, leaseProvider func() ([]Lease, error), stage string) {
+	leases, err := leaseProvider()
+	if err != nil {
+		log.Printf("qos sampler: %s lease read: %v", stage, err)
+		return
+	}
+	if err := s.RebuildClientCounters(ctx, leases); err != nil {
+		log.Printf("qos sampler: %s rebuild: %v", stage, err)
+	}
+}
+
+// sampleAndPublish takes one sample and publishes it when a publisher is
+// set.
+func (s *QoSService) sampleAndPublish(ctx context.Context, publisher Publisher) {
+	usages, err := s.SamplePerClient(ctx)
+	if err != nil {
+		log.Printf("qos sampler: sample: %v", err)
+		return
+	}
+	if publisher != nil {
+		publisher.Publish("qos-clients", usages)
+	}
 }
 
 // Publisher is the minimal slice of *web.SSEBroker that the qos
