@@ -2,6 +2,7 @@ package services
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"log"
@@ -154,7 +155,7 @@ type peerTemplateData struct {
 }
 
 func (s *PPPoEService) renderConfig() error {
-	wanDevice := firstWANDevice(s.cfg.Interfaces)
+	wanDevice := firstRoleDevice(s.cfg.Interfaces, "wan")
 	if wanDevice == "" {
 		return fmt.Errorf("no WAN interface configured")
 	}
@@ -195,22 +196,15 @@ func firstPPPAddresses(addrs []string) (ipv4, ipv6 string) {
 	return ipv4, ipv6
 }
 
-// firstWANDevice returns the device of the first WAN interface, or "".
-func firstWANDevice(ifaces []config.InterfaceConfig) string {
+// firstRoleDevice returns the device of the first interface with the
+// given role, or "".
+func firstRoleDevice(ifaces []config.InterfaceConfig, role string) string {
 	for _, iface := range ifaces {
-		if iface.Role == "wan" {
+		if iface.Role == role {
 			return iface.Device
 		}
 	}
 	return ""
-}
-
-// orDefault returns v, or def when v is zero.
-func orDefault(v, def int) int {
-	if v == 0 {
-		return def
-	}
-	return v
 }
 
 // peerData fills the peer template data, with defaults for the unset
@@ -220,11 +214,11 @@ func (s *PPPoEService) peerData(wanDevice string) peerTemplateData {
 	return peerTemplateData{
 		WANDevice:       wanDevice,
 		Username:        p.Username,
-		MTU:             orDefault(p.MTU, 1492),
-		MRU:             orDefault(p.MRU, 1492),
-		LCPEchoInterval: orDefault(p.LCPEchoInterval, 10),
-		LCPEchoFailure:  orDefault(p.LCPEchoFailure, 3),
-		Holdoff:         orDefault(p.Holdoff, 5),
+		MTU:             cmp.Or(p.MTU, 1492),
+		MRU:             cmp.Or(p.MRU, 1492),
+		LCPEchoInterval: cmp.Or(p.LCPEchoInterval, 10),
+		LCPEchoFailure:  cmp.Or(p.LCPEchoFailure, 3),
+		Holdoff:         cmp.Or(p.Holdoff, 5),
 		IPv6CP:          p.IPv6CP,
 	}
 }

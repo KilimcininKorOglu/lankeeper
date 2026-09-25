@@ -831,12 +831,7 @@ func (s *FirewallService) isolatedVLANs() []nftVLAN {
 // interfaceDevice returns the device of the interface with the given ID,
 // or "" when no interface has it.
 func (s *FirewallService) interfaceDevice(id string) string {
-	for _, iface := range s.cfg.Interfaces {
-		if iface.ID == id {
-			return iface.Device
-		}
-	}
-	return ""
+	return deviceByID(s.cfg.Interfaces, id)
 }
 
 // addUSBTether enables NAT out of the tethered interface, usb0 unless

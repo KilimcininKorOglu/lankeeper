@@ -3,6 +3,7 @@ package services
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"log"
@@ -77,66 +78,8 @@ func (s *DHCPService) RenderConfig() (string, error) {
 		return "", fmt.Errorf("parse dnsmasq template: %w", err)
 	}
 
-	var lanDevice string
-	for _, iface := range s.cfg.Interfaces {
-		if iface.Role == "lan" {
-			lanDevice = iface.Device
-			break
-		}
-	}
-
-	data := dnsmasqTemplateData{
-		LANDevice:    lanDevice,
-		RangeStart:   s.cfg.DHCP.RangeStart,
-		RangeEnd:     s.cfg.DHCP.RangeEnd,
-		LeaseTime:    s.cfg.DHCP.LeaseTime,
-		Gateway:      s.cfg.DHCP.Gateway,
-		DNSServer:    s.cfg.DHCP.DNSServer,
-		Domain:       s.cfg.System.Domain,
-		StaticLeases: s.cfg.DHCP.StaticLeases,
-		IPv6Enabled:  s.cfg.IPv6.Enabled != "off",
-		RAInterval:   s.cfg.IPv6.LAN.RAInterval,
-	}
-
-	if data.LeaseTime == "" {
-		data.LeaseTime = "12h"
-	}
-	if data.Gateway == "" {
-		data.Gateway = "10.10.10.1"
-	}
-	if data.DNSServer == "" {
-		data.DNSServer = data.Gateway
-	}
-	if data.Domain == "" {
-		data.Domain = "lan"
-	}
-	if data.RAInterval == 0 {
-		data.RAInterval = 60
-	}
-
-	if s.cfg.IPv6.LAN.ULA.Enabled {
-		data.ULAPrefix = s.cfg.IPv6.LAN.ULA.Prefix
-	}
-
-	for _, vlan := range s.cfg.VLANs {
-		if vlan.DHCP.Enabled && vlan.Address != "" {
-			var parentDev string
-			for _, iface := range s.cfg.Interfaces {
-				if iface.ID == vlan.Parent {
-					parentDev = iface.Device
-					break
-				}
-			}
-			if parentDev != "" {
-				data.VLANDHCPRanges = append(data.VLANDHCPRanges, vlanDHCPRange{
-					Device:    fmt.Sprintf("%s.%d", parentDev, vlan.VID),
-					Gateway:   subnetFromCIDR(vlan.Address),
-					DNSServer: subnetFromCIDR(vlan.Address),
-					LeaseTime: data.LeaseTime,
-				})
-			}
-		}
-	}
+	data := s.dnsmasqData()
+	data.VLANDHCPRanges = s.vlanDHCPRanges(data.LeaseTime)
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
@@ -144,6 +87,61 @@ func (s *DHCPService) RenderConfig() (string, error) {
 	}
 
 	return buf.String(), nil
+}
+
+// dnsmasqData fills the LAN part of the dnsmasq template data, with
+// defaults for the unset fields.
+func (s *DHCPService) dnsmasqData() dnsmasqTemplateData {
+	gateway := cmp.Or(s.cfg.DHCP.Gateway, "10.10.10.1")
+	data := dnsmasqTemplateData{
+		LANDevice:    firstRoleDevice(s.cfg.Interfaces, "lan"),
+		RangeStart:   s.cfg.DHCP.RangeStart,
+		RangeEnd:     s.cfg.DHCP.RangeEnd,
+		LeaseTime:    cmp.Or(s.cfg.DHCP.LeaseTime, "12h"),
+		Gateway:      gateway,
+		DNSServer:    cmp.Or(s.cfg.DHCP.DNSServer, gateway),
+		Domain:       cmp.Or(s.cfg.System.Domain, "lan"),
+		StaticLeases: s.cfg.DHCP.StaticLeases,
+		IPv6Enabled:  s.cfg.IPv6.Enabled != "off",
+		RAInterval:   cmp.Or(s.cfg.IPv6.LAN.RAInterval, 60),
+	}
+	if s.cfg.IPv6.LAN.ULA.Enabled {
+		data.ULAPrefix = s.cfg.IPv6.LAN.ULA.Prefix
+	}
+	return data
+}
+
+// vlanDHCPRanges lists a DHCP range for every VLAN that serves DHCP,
+// has an address and has a parent interface.
+func (s *DHCPService) vlanDHCPRanges(leaseTime string) []vlanDHCPRange {
+	var ranges []vlanDHCPRange
+	for _, vlan := range s.cfg.VLANs {
+		if !vlan.DHCP.Enabled || vlan.Address == "" {
+			continue
+		}
+		parentDev := deviceByID(s.cfg.Interfaces, vlan.Parent)
+		if parentDev == "" {
+			continue
+		}
+		ranges = append(ranges, vlanDHCPRange{
+			Device:    fmt.Sprintf("%s.%d", parentDev, vlan.VID),
+			Gateway:   subnetFromCIDR(vlan.Address),
+			DNSServer: subnetFromCIDR(vlan.Address),
+			LeaseTime: leaseTime,
+		})
+	}
+	return ranges
+}
+
+// deviceByID returns the device of the interface with the given ID, or
+// "" when no interface has it.
+func deviceByID(ifaces []config.InterfaceConfig, id string) string {
+	for _, iface := range ifaces {
+		if iface.ID == id {
+			return iface.Device
+		}
+	}
+	return ""
 }
 
 type Lease struct {
@@ -400,14 +398,11 @@ func (s *DHCPService) RebuildDNSRecords(ctx context.Context, domain string) erro
 	}
 
 	// Active leases: ephemeral runtime injection (no persistence).
-	leases, _ := s.GetLeases()
-	resolveDomain := domain
-	if resolveDomain == "" {
-		resolveDomain = s.cfg.System.Domain
+	leases, err := s.GetLeases()
+	if err != nil {
+		log.Printf("dns refresh: read leases: %v", err)
 	}
-	if resolveDomain == "" {
-		resolveDomain = "lan"
-	}
+	resolveDomain := cmp.Or(domain, s.cfg.System.Domain, "lan")
 	if _, err := netutil.Run(ctx, "unbound-control", "flush_zone", resolveDomain); err != nil {
 		log.Printf("dns refresh: flush_zone %s: %v", resolveDomain, err)
 	}
@@ -416,24 +411,32 @@ func (s *DHCPService) RebuildDNSRecords(ctx context.Context, domain string) erro
 		if l.Hostname == "" || !l.Active {
 			continue
 		}
-		fqdn := l.Hostname + "." + resolveDomain
-		if _, err := netutil.Run(ctx, "unbound-control", "local_data", fqdn+". 300 IN A "+l.IP); err != nil {
-			log.Printf("dns refresh: local_data fqdn %s: %v", fqdn, err)
-		}
-		if _, err := netutil.Run(ctx, "unbound-control", "local_data", l.Hostname+". 300 IN A "+l.IP); err != nil {
-			log.Printf("dns refresh: local_data hostname %s: %v", l.Hostname, err)
-		}
-		parts := strings.Split(l.IP, ".")
-		if len(parts) == 4 {
-			ptr := parts[3] + "." + parts[2] + "." + parts[1] + "." + parts[0] + ".in-addr.arpa."
-			if _, err := netutil.Run(ctx, "unbound-control", "local_data", ptr+" 300 IN PTR "+fqdn+"."); err != nil {
-				log.Printf("dns refresh: local_data ptr %s: %v", ptr, err)
-			}
-		}
+		injectLeaseRecords(ctx, l, resolveDomain)
 		count++
 	}
 	log.Printf("DNS active-lease entries refreshed for %s: %d", resolveDomain, count)
 	return nil
+}
+
+// injectLeaseRecords adds the runtime A records for the lease's FQDN and
+// bare hostname, and the PTR record for an IPv4 address. A failure is
+// logged and the next record is still tried.
+func injectLeaseRecords(ctx context.Context, l Lease, domain string) {
+	fqdn := l.Hostname + "." + domain
+	if _, err := netutil.Run(ctx, "unbound-control", "local_data", fqdn+". 300 IN A "+l.IP); err != nil {
+		log.Printf("dns refresh: local_data fqdn %s: %v", fqdn, err)
+	}
+	if _, err := netutil.Run(ctx, "unbound-control", "local_data", l.Hostname+". 300 IN A "+l.IP); err != nil {
+		log.Printf("dns refresh: local_data hostname %s: %v", l.Hostname, err)
+	}
+	parts := strings.Split(l.IP, ".")
+	if len(parts) != 4 {
+		return
+	}
+	ptr := parts[3] + "." + parts[2] + "." + parts[1] + "." + parts[0] + ".in-addr.arpa."
+	if _, err := netutil.Run(ctx, "unbound-control", "local_data", ptr+" 300 IN PTR "+fqdn+"."); err != nil {
+		log.Printf("dns refresh: local_data ptr %s: %v", ptr, err)
+	}
 }
 
 type DeviceInfo struct {
