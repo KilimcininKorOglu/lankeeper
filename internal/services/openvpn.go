@@ -428,12 +428,18 @@ func (s *OpenVPNService) writeCCD(entry config.OVPNClientEntry) error {
 // ccdContent renders the client-config directives: the fixed address,
 // and for a site-to-site client the pushed LAN routes and its own
 // remote subnets.
+//
+// The server runs topology subnet, where ifconfig-push takes the
+// client address and the netmask of the server subnet. Under OpenVPN's
+// default net30 the second argument is the peer endpoint instead, so an
+// address and a mask pushed there configured an unusable interface.
 func (s *OpenVPNService) ccdContent(entry config.OVPNClientEntry) string {
 	var sb strings.Builder
 
 	if entry.FixedIP != "" {
-		if ip, mask := cidrToIPMask(entry.FixedIP + "/24"); ip != "" {
-			fmt.Fprintf(&sb, "ifconfig-push %s %s\n", entry.FixedIP, mask)
+		_, mask := cidrToIPMask(s.cfg.OpenVPN.Server.Subnet)
+		if ip := net.ParseIP(entry.FixedIP).To4(); ip != nil && mask != "" {
+			fmt.Fprintf(&sb, "ifconfig-push %s %s\n", ip, mask)
 		}
 	}
 	if !entry.IsSiteToSite {

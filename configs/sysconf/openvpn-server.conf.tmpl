@@ -10,6 +10,7 @@ dh /etc/openvpn/pki/dh.pem
 tls-auth /etc/openvpn/pki/ta.key 0
 {{- end }}
 
+topology subnet
 server {{ .SubnetIP }} {{ .SubnetMask }}
 {{- if .Subnet6 }}
 server-ipv6 {{ .Subnet6 }}
