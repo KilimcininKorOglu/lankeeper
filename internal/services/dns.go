@@ -289,16 +289,8 @@ func downloadBlocklist(ctx context.Context, url string) ([]string, error) {
 	body := newLimitedBody(resp.Body)
 	scanner := bufio.NewScanner(body)
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) >= 2 && (fields[0] == "0.0.0.0" || fields[0] == "127.0.0.1") {
-			domain := fields[1]
-			if domain != "localhost" && domain != "0.0.0.0" {
-				domains = append(domains, domain)
-			}
+		if domain, ok := parseHostsLine(scanner.Text()); ok {
+			domains = append(domains, domain)
 		}
 	}
 
@@ -309,6 +301,24 @@ func downloadBlocklist(ctx context.Context, url string) ([]string, error) {
 		return nil, errFetchTooLarge
 	}
 	return domains, nil
+}
+
+// parseHostsLine returns the blocked domain from one hosts-format line
+// that maps a name to 0.0.0.0 or 127.0.0.1.
+func parseHostsLine(line string) (string, bool) {
+	line = strings.TrimSpace(line)
+	if line == "" || strings.HasPrefix(line, "#") {
+		return "", false
+	}
+	fields := strings.Fields(line)
+	if len(fields) < 2 || (fields[0] != "0.0.0.0" && fields[0] != "127.0.0.1") {
+		return "", false
+	}
+	domain := fields[1]
+	if domain == "localhost" || domain == "0.0.0.0" {
+		return "", false
+	}
+	return domain, true
 }
 
 var queryLogRegex = regexp.MustCompile(`\[(\d+)\]\s+\S+\s+info:\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)`)
