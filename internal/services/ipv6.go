@@ -520,57 +520,77 @@ func (s *IPv6Service) RenderToDisk(ctx context.Context) error {
 	if off || (!pdRequested && mode != "6in4") {
 		// IPv6 disabled, or no plane is active. Drop stubs so stale
 		// config doesn't linger.
-		if err := netutil.WriteFile(dhcp6cConfPath, []byte("# IPv6 PD disabled by LANKeeper config.\n"), 0o644); err != nil {
-			return fmt.Errorf("write disabled stub: %w", err)
-		}
-		if err := netutil.WriteFile(dnsmasqRAConfPath, []byte("# IPv6 RA disabled by LANKeeper config.\n"), 0o644); err != nil {
-			return fmt.Errorf("write disabled RA stub: %w", err)
-		}
-		return nil
+		return writeIPv6DisabledStubs()
 	}
 
-	if err := netutil.MkdirAll(filepath.Dir(ipv6StatePath), 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", filepath.Dir(ipv6StatePath), err)
+	for _, dir := range []string{filepath.Dir(ipv6StatePath), filepath.Dir(dnsmasqRAConfPath)} {
+		if err := netutil.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("mkdir %s: %w", dir, err)
+		}
 	}
-	if err := netutil.MkdirAll(filepath.Dir(dnsmasqRAConfPath), 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", filepath.Dir(dnsmasqRAConfPath), err)
+	if err := s.writeDHCP6CFiles(pdRequested); err != nil {
+		return err
 	}
+	return s.writeRAFile()
+}
 
-	// PD plane: render dhcp6c.conf + hook script.
+// writeDHCP6CFiles writes the PD plane when a prefix is requested. In
+// 6in4 mode dhcp6c never runs, so a stub tells anyone inspecting
+// /etc/wide-dhcpv6/ why.
+func (s *IPv6Service) writeDHCP6CFiles(pdRequested bool) error {
 	if pdRequested {
-		conf, err := s.RenderConfig()
-		if err != nil {
-			return err
-		}
-		script, err := s.RenderScript()
-		if err != nil {
-			return err
-		}
-		if err := netutil.MkdirAll(filepath.Dir(dhcp6cConfPath), 0o755); err != nil {
-			return fmt.Errorf("mkdir %s: %w", filepath.Dir(dhcp6cConfPath), err)
-		}
-		if err := netutil.WriteFile(dhcp6cConfPath, []byte(conf), 0o644); err != nil {
-			return fmt.Errorf("write dhcp6c.conf: %w", err)
-		}
-		if err := netutil.WriteFile(dhcp6cScriptPath, []byte(script), 0o755); err != nil {
-			return fmt.Errorf("write dhcp6c-script: %w", err)
-		}
-	} else if mode == "6in4" {
-		// In 6in4 mode dhcp6c never runs; leave a stub so anyone
-		// inspecting /etc/wide-dhcpv6/ sees why.
-		if err := netutil.WriteFile(dhcp6cConfPath,
-			[]byte("# IPv6 mode is 6in4; dhcp6c is not used.\n"), 0o644); err != nil {
-			return fmt.Errorf("write 6in4 stub: %w", err)
-		}
+		return s.writePDFiles()
 	}
+	if err := netutil.WriteFile(dhcp6cConfPath,
+		[]byte("# IPv6 mode is 6in4; dhcp6c is not used.\n"), 0o644); err != nil {
+		return fmt.Errorf("write 6in4 stub: %w", err)
+	}
+	return nil
+}
 
-	// RA plane (PD or 6in4): always render.
+// writeRAFile renders the RA drop-in, which both PD and 6in4 use.
+func (s *IPv6Service) writeRAFile() error {
 	raConf, err := s.RenderRAConfig()
 	if err != nil {
 		return err
 	}
 	if err := netutil.WriteFile(dnsmasqRAConfPath, []byte(raConf), 0o644); err != nil {
 		return fmt.Errorf("write dnsmasq RA drop-in: %w", err)
+	}
+	return nil
+}
+
+// writeIPv6DisabledStubs replaces the dhcp6c config and the RA drop-in
+// with comments, so no stale config lingers once IPv6 is off.
+func writeIPv6DisabledStubs() error {
+	if err := netutil.WriteFile(dhcp6cConfPath, []byte("# IPv6 PD disabled by LANKeeper config.\n"), 0o644); err != nil {
+		return fmt.Errorf("write disabled stub: %w", err)
+	}
+	if err := netutil.WriteFile(dnsmasqRAConfPath, []byte("# IPv6 RA disabled by LANKeeper config.\n"), 0o644); err != nil {
+		return fmt.Errorf("write disabled RA stub: %w", err)
+	}
+	return nil
+}
+
+// writePDFiles renders and writes the PD plane: dhcp6c.conf and its
+// hook script.
+func (s *IPv6Service) writePDFiles() error {
+	conf, err := s.RenderConfig()
+	if err != nil {
+		return err
+	}
+	script, err := s.RenderScript()
+	if err != nil {
+		return err
+	}
+	if err := netutil.MkdirAll(filepath.Dir(dhcp6cConfPath), 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(dhcp6cConfPath), err)
+	}
+	if err := netutil.WriteFile(dhcp6cConfPath, []byte(conf), 0o644); err != nil {
+		return fmt.Errorf("write dhcp6c.conf: %w", err)
+	}
+	if err := netutil.WriteFile(dhcp6cScriptPath, []byte(script), 0o755); err != nil {
+		return fmt.Errorf("write dhcp6c-script: %w", err)
 	}
 	return nil
 }
@@ -995,13 +1015,8 @@ func (s *IPv6Service) runLeaseWatcher(ctx context.Context, watcher *fsnotify.Wat
 	// and reloads daemons through the agent, so it outlived whatever set
 	// the agent up. Dispatching from the tracked goroutine makes
 	// watcherWG.Wait() mean what it says.
-	var debounce *time.Timer
-	var debounceC <-chan time.Time
-	defer func() {
-		if debounce != nil {
-			debounce.Stop()
-		}
-	}()
+	var debounce leaseDebouncer
+	defer debounce.stop()
 
 	for {
 		select {
@@ -1009,34 +1024,56 @@ func (s *IPv6Service) runLeaseWatcher(ctx context.Context, watcher *fsnotify.Wat
 			return
 		case <-ctx.Done():
 			return
-		case <-debounceC:
-			debounceC = nil
+		case <-debounce.c:
+			debounce.c = nil
 			s.dispatchLeaseLocked(ctx)
 		case ev, ok := <-watcher.Events:
 			if !ok {
 				return
 			}
-			if filepath.Base(ev.Name) != stateName {
-				continue
+			if isLeaseEvent(ev, stateName) {
+				debounce.arm()
 			}
-			if ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Rename|fsnotify.Chmod) == 0 {
-				continue
-			}
-			// Go 1.23 onwards, a stopped or reset timer never delivers a
-			// stale value, so no drain is needed here.
-			if debounce == nil {
-				debounce = time.NewTimer(leaseDebounceWindow)
-			} else {
-				debounce.Stop()
-				debounce.Reset(leaseDebounceWindow)
-			}
-			debounceC = debounce.C
 		case err, ok := <-watcher.Errors:
 			if !ok {
 				return
 			}
 			log.Printf("ipv6: lease watcher error: %v", err)
 		}
+	}
+}
+
+// isLeaseEvent reports whether an fsnotify event changes the lease
+// state file.
+func isLeaseEvent(ev fsnotify.Event, stateName string) bool {
+	return filepath.Base(ev.Name) == stateName &&
+		ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Rename|fsnotify.Chmod) != 0
+}
+
+// leaseDebouncer is the lease watcher's debounce timer. It is owned by
+// the watcher goroutine, and c is nil while no dispatch is pending.
+type leaseDebouncer struct {
+	timer *time.Timer
+	c     <-chan time.Time
+}
+
+// arm starts the debounce window, or restarts it when one is pending.
+// Go 1.23 onwards, a stopped or reset timer never delivers a stale
+// value, so no drain is needed.
+func (d *leaseDebouncer) arm() {
+	if d.timer == nil {
+		d.timer = time.NewTimer(leaseDebounceWindow)
+	} else {
+		d.timer.Stop()
+		d.timer.Reset(leaseDebounceWindow)
+	}
+	d.c = d.timer.C
+}
+
+// stop cancels a pending dispatch.
+func (d *leaseDebouncer) stop() {
+	if d.timer != nil {
+		d.timer.Stop()
 	}
 }
 
