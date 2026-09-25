@@ -158,7 +158,9 @@ type ghAsset struct {
 	BrowserDownloadURL string `json:"browser_download_url"`
 }
 
-func (s *UpdateService) CheckForUpdate(ctx context.Context) (*UpdateInfo, error) {
+// fetchLatestRelease asks the GitHub API for the latest release and
+// refuses one whose tag is malformed.
+func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*ghRelease, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", s.repoOwner, s.repoName)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -191,6 +193,14 @@ func (s *UpdateService) CheckForUpdate(ctx context.Context) (*UpdateInfo, error)
 	if err := validateReleaseTag(release.TagName); err != nil {
 		return nil, err
 	}
+	return &release, nil
+}
+
+func (s *UpdateService) CheckForUpdate(ctx context.Context) (*UpdateInfo, error) {
+	release, err := s.fetchLatestRelease(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	info := &UpdateInfo{
 		CurrentVersion: s.currentVersion,
@@ -200,8 +210,17 @@ func (s *UpdateService) CheckForUpdate(ctx context.Context) (*UpdateInfo, error)
 		PublishedAt:    release.Published.Format("2006-01-02"),
 	}
 
+	s.selectAssets(info, release.Assets)
+	info.Available = CompareSemver(release.TagName, s.currentVersion) > 0
+
+	return info, nil
+}
+
+// selectAssets records the archive for this architecture and the
+// checksum file. When several assets match, the last one wins.
+func (s *UpdateService) selectAssets(info *UpdateInfo, assets []ghAsset) {
 	assetNeedle := "linux-" + s.architecture
-	for _, asset := range release.Assets {
+	for _, asset := range assets {
 		if strings.Contains(asset.Name, assetNeedle) && strings.HasSuffix(asset.Name, ".tar.gz") {
 			info.AssetName = asset.Name
 			info.DownloadURL = asset.BrowserDownloadURL
@@ -211,10 +230,6 @@ func (s *UpdateService) CheckForUpdate(ctx context.Context) (*UpdateInfo, error)
 			info.ChecksumURL = asset.BrowserDownloadURL
 		}
 	}
-
-	info.Available = CompareSemver(release.TagName, s.currentVersion) > 0
-
-	return info, nil
 }
 
 func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error {
@@ -227,24 +242,7 @@ func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error
 
 	log.Printf("starting update from %s to %s", s.currentVersion, info.LatestVersion)
 
-	// The snapshot holds every secret on the device in the clear, so the
-	// directory is created through the agent at 0750 rather than by this
-	// unprivileged process at 0755, and the archive is removed once the
-	// update is settled. It is deliberately not passphrase-encrypted:
-	// the backup passphrase is optional, and an update must not depend
-	// on the operator having configured one.
-	var configSnapshot string
-	if s.backup != nil {
-		backupPath := fmt.Sprintf("/var/lib/lankeeper/backups/pre-update-%s.tar.gz", info.LatestVersion)
-		if err := netutil.MkdirAll(filepath.Dir(backupPath), 0o750); err != nil {
-			log.Printf("pre-update backup: mkdir: %v", err)
-		}
-		if err := s.backup.Export(ctx, backupPath, ""); err != nil {
-			log.Printf("pre-update backup failed (continuing): %v", err)
-		} else {
-			configSnapshot = backupPath
-		}
-	}
+	configSnapshot := s.snapshotConfig(ctx, info.LatestVersion)
 
 	tmpArchive := filepath.Join("/tmp", safeUpdateFileName(info.AssetName))
 	if err := s.downloadFile(ctx, info.DownloadURL, tmpArchive, info.AssetSize); err != nil {
@@ -263,33 +261,8 @@ func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error
 	defer func() { _ = os.Remove(tmpBinary) }()
 
 	backupBinary := s.binaryPath + ".bak"
-	if _, err := netutil.Run(ctx, "cp", "-f", s.binaryPath, backupBinary); err != nil {
-		return fmt.Errorf("backup binary: %w", err)
-	}
-
-	if _, err := netutil.Run(ctx, "cp", "-f", tmpBinary, s.binaryPath); err != nil {
-		// Best-effort rollback; if the restore also fails the operator
-		// has the .bak file to recover by hand.
-		if _, rbErr := netutil.Run(ctx, "cp", "-f", backupBinary, s.binaryPath); rbErr != nil {
-			log.Printf("update: rollback failed: %v", rbErr)
-		}
-		return fmt.Errorf("install binary: %w", err)
-	}
-
-	if _, err := netutil.Run(ctx, "chmod", "+x", s.binaryPath); err != nil {
-		if _, rbErr := netutil.Run(ctx, "cp", "-f", backupBinary, s.binaryPath); rbErr != nil {
-			log.Printf("update: rollback failed: %v", rbErr)
-		}
-		return fmt.Errorf("chmod: %w", err)
-	}
-
-	out, err := s.runBinaryVersion(ctx)
-	if err != nil || !strings.Contains(out, strings.TrimPrefix(info.LatestVersion, "v")) {
-		log.Printf("version check failed after install: %v (output: %s)", err, out)
-		if _, rbErr := netutil.Run(ctx, "cp", "-f", backupBinary, s.binaryPath); rbErr != nil {
-			log.Printf("update: rollback failed: %v", rbErr)
-		}
-		return fmt.Errorf("version verification failed")
+	if err := s.installBinary(ctx, tmpBinary, backupBinary, info.LatestVersion); err != nil {
+		return err
 	}
 
 	state := updateState{
@@ -300,9 +273,7 @@ func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error
 		AppliedAt:       time.Now().UTC(),
 	}
 	if err := s.saveUpdateState(state); err != nil {
-		if _, rbErr := netutil.Run(ctx, "cp", "-f", backupBinary, s.binaryPath); rbErr != nil {
-			log.Printf("update: rollback failed: %v", rbErr)
-		}
+		s.restoreBinary(ctx, backupBinary)
 		return fmt.Errorf("save update state: %w", err)
 	}
 
@@ -330,38 +301,112 @@ func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error
 	return nil
 }
 
+// snapshotConfig exports the config before an update and returns the
+// archive path, or "" when there is no backup service or the export
+// failed. A failure is logged and the update continues.
+//
+// The snapshot holds every secret on the device in the clear, so the
+// directory is created through the agent at 0750 rather than by this
+// unprivileged process at 0755, and the archive is removed once the
+// update is settled. It is deliberately not passphrase-encrypted: the
+// backup passphrase is optional, and an update must not depend on the
+// operator having configured one.
+func (s *UpdateService) snapshotConfig(ctx context.Context, version string) string {
+	if s.backup == nil {
+		return ""
+	}
+	backupPath := fmt.Sprintf("/var/lib/lankeeper/backups/pre-update-%s.tar.gz", version)
+	if err := netutil.MkdirAll(filepath.Dir(backupPath), 0o750); err != nil {
+		log.Printf("pre-update backup: mkdir: %v", err)
+	}
+	if err := s.backup.Export(ctx, backupPath, ""); err != nil {
+		log.Printf("pre-update backup failed (continuing): %v", err)
+		return ""
+	}
+	return backupPath
+}
+
+// installBinary saves the running binary to backupBinary, copies the new
+// one over it and checks that it reports version. Every failure after
+// the backup restores the previous binary.
+func (s *UpdateService) installBinary(ctx context.Context, newBinary, backupBinary, version string) error {
+	if _, err := netutil.Run(ctx, "cp", "-f", s.binaryPath, backupBinary); err != nil {
+		return fmt.Errorf("backup binary: %w", err)
+	}
+	if _, err := netutil.Run(ctx, "cp", "-f", newBinary, s.binaryPath); err != nil {
+		s.restoreBinary(ctx, backupBinary)
+		return fmt.Errorf("install binary: %w", err)
+	}
+	if _, err := netutil.Run(ctx, "chmod", "+x", s.binaryPath); err != nil {
+		s.restoreBinary(ctx, backupBinary)
+		return fmt.Errorf("chmod: %w", err)
+	}
+	out, err := s.runBinaryVersion(ctx)
+	if err != nil || !strings.Contains(out, strings.TrimPrefix(version, "v")) {
+		log.Printf("version check failed after install: %v (output: %s)", err, out)
+		s.restoreBinary(ctx, backupBinary)
+		return fmt.Errorf("version verification failed")
+	}
+	return nil
+}
+
+// restoreBinary copies the backup over the installed binary. It is best
+// effort: if the restore also fails, the operator has the .bak file to
+// recover by hand.
+func (s *UpdateService) restoreBinary(ctx context.Context, backupBinary string) {
+	if _, err := netutil.Run(ctx, "cp", "-f", backupBinary, s.binaryPath); err != nil {
+		log.Printf("update: rollback failed: %v", err)
+	}
+}
+
 func (s *UpdateService) ConfirmUpdate(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.watchdogCancel != nil {
-		s.watchdogCancel()
-		s.watchdogCancel = nil
-	}
+	s.stopUpdateWatchdog()
 
 	if s.backupBinary != "" {
 		if _, err := netutil.Run(ctx, "rm", "-f", s.backupBinary); err != nil {
 			log.Printf("update: remove backup binary: %v", err)
 		}
 	}
-	// The snapshot carries every secret on the device in the clear and
-	// is only useful while the update can still be undone.
-	if s.configSnapshot != "" {
-		if _, err := netutil.Run(ctx, "rm", "-f", s.configSnapshot); err != nil {
-			log.Printf("update: remove pre-update snapshot: %v", err)
-		}
-	}
+	s.removeConfigSnapshot(ctx)
 	if err := s.clearUpdateState(); err != nil {
 		log.Printf("clear update state failed: %v", err)
 	}
 
 	log.Printf("update to %s confirmed", s.pendingVersion)
+	s.resetPendingUpdate()
+
+	return nil
+}
+
+// stopUpdateWatchdog cancels the rollback timer if one is armed.
+func (s *UpdateService) stopUpdateWatchdog() {
+	if s.watchdogCancel != nil {
+		s.watchdogCancel()
+		s.watchdogCancel = nil
+	}
+}
+
+// removeConfigSnapshot deletes the pre-update config archive. It carries
+// every secret on the device in the clear and is only useful while the
+// update can still be undone.
+func (s *UpdateService) removeConfigSnapshot(ctx context.Context) {
+	if s.configSnapshot == "" {
+		return
+	}
+	if _, err := netutil.Run(ctx, "rm", "-f", s.configSnapshot); err != nil {
+		log.Printf("update: remove pre-update snapshot: %v", err)
+	}
+}
+
+// resetPendingUpdate forgets the settled update.
+func (s *UpdateService) resetPendingUpdate() {
 	s.pendingVersion = ""
 	s.previousVersion = ""
 	s.backupBinary = ""
 	s.configSnapshot = ""
-
-	return nil
 }
 
 // ErrNoPendingUpdate is returned when a rollback is requested and there
@@ -387,10 +432,7 @@ func (s *UpdateService) Rollback(ctx context.Context) error {
 		return ErrNoPendingUpdate
 	}
 
-	if s.watchdogCancel != nil {
-		s.watchdogCancel()
-		s.watchdogCancel = nil
-	}
+	s.stopUpdateWatchdog()
 
 	backupBinary := s.backupBinary
 	if _, err := netutil.Run(ctx, "cp", "-f", backupBinary, s.binaryPath); err != nil {
@@ -402,14 +444,7 @@ func (s *UpdateService) Rollback(ctx context.Context) error {
 	if _, err := netutil.Run(ctx, "rm", "-f", backupBinary); err != nil {
 		log.Printf("update: remove backup binary after rollback: %v", err)
 	}
-
-	// The snapshot carries every secret on the device in the clear and
-	// is only useful while the update can still be undone.
-	if s.configSnapshot != "" {
-		if _, err := netutil.Run(ctx, "rm", "-f", s.configSnapshot); err != nil {
-			log.Printf("update: remove pre-update snapshot: %v", err)
-		}
-	}
+	s.removeConfigSnapshot(ctx)
 
 	log.Printf("update rolled back from %s", s.pendingVersion)
 	if s.previousVersion != "" {
@@ -418,10 +453,7 @@ func (s *UpdateService) Rollback(ctx context.Context) error {
 	if err := s.clearUpdateState(); err != nil {
 		log.Printf("clear update state failed: %v", err)
 	}
-	s.pendingVersion = ""
-	s.previousVersion = ""
-	s.backupBinary = ""
-	s.configSnapshot = ""
+	s.resetPendingUpdate()
 
 	if _, err := netutil.Run(ctx, "systemctl", "restart", "lankeeper.target"); err != nil {
 		log.Printf("update: systemctl restart after rollback: %v", err)
@@ -634,38 +666,44 @@ func (s *UpdateService) extractBinary(archivePath, destPath string) error {
 		}
 
 		if filepath.Base(header.Name) == "lankeeper" && header.Typeflag == tar.TypeReg {
-			// The header size is written by whoever built the archive,
-			// so it is checked but not trusted: the copy below is capped
-			// independently in case the header understates the entry.
-			if header.Size > maxUpdateBinaryBytes {
-				return fmt.Errorf("%w: archive entry declares %d bytes, limit is %d",
-					errUpdateTooLarge, header.Size, int64(maxUpdateBinaryBytes))
-			}
-			// destPath is the extraction target this service composed.
-			// #nosec G304
-			out, err := os.Create(destPath)
-			if err != nil {
-				return err
-			}
-			if _, err := copyCapped(out, tr, maxUpdateBinaryBytes); err != nil {
-				_ = out.Close()
-				_ = os.Remove(destPath)
-				return err
-			}
-			if err := out.Close(); err != nil {
-				return fmt.Errorf("close binary: %w", err)
-			}
-			// 0755 is required: this is the replacement binary and it has
-			// to be executable.
-			// #nosec G302
-			if err := os.Chmod(destPath, 0o755); err != nil {
-				return fmt.Errorf("chmod binary: %w", err)
-			}
-			return nil
+			return writeUpdateBinary(tr, header.Size, destPath)
 		}
 	}
 
 	return fmt.Errorf("binary 'lankeeper' not found in archive")
+}
+
+// writeUpdateBinary copies the current tar entry to destPath and makes it
+// executable. declaredSize is the entry's header size.
+func writeUpdateBinary(tr io.Reader, declaredSize int64, destPath string) error {
+	// The header size is written by whoever built the archive, so it is
+	// checked but not trusted: the copy below is capped independently in
+	// case the header understates the entry.
+	if declaredSize > maxUpdateBinaryBytes {
+		return fmt.Errorf("%w: archive entry declares %d bytes, limit is %d",
+			errUpdateTooLarge, declaredSize, int64(maxUpdateBinaryBytes))
+	}
+	// destPath is the extraction target this service composed.
+	// #nosec G304
+	out, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
+	if _, err := copyCapped(out, tr, maxUpdateBinaryBytes); err != nil {
+		_ = out.Close()
+		_ = os.Remove(destPath)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return fmt.Errorf("close binary: %w", err)
+	}
+	// 0755 is required: this is the replacement binary and it has to be
+	// executable.
+	// #nosec G302
+	if err := os.Chmod(destPath, 0o755); err != nil {
+		return fmt.Errorf("chmod binary: %w", err)
+	}
+	return nil
 }
 
 func CompareSemver(a, b string) int {
@@ -694,53 +732,21 @@ func (s *UpdateService) verifyChecksum(ctx context.Context, info *UpdateInfo, ar
 		return errors.New("release has no SHA256SUMS or checksums.txt asset, refusing to install an unverified binary")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", info.ChecksumURL, nil)
+	body, err := fetchChecksumFile(ctx, info.ChecksumURL)
 	if err != nil {
-		return fmt.Errorf("create checksum request: %w", err)
-	}
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("download checksum file: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("checksum file returned HTTP %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	if err != nil {
-		return fmt.Errorf("read checksum file: %w", err)
+		return err
 	}
 
 	archiveName := filepath.Base(archivePath)
-	var expectedHash string
-	for line := range strings.SplitSeq(string(body), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 2 && strings.Contains(fields[1], archiveName) {
-			expectedHash = strings.ToLower(fields[0])
-			break
-		}
-	}
-
+	expectedHash := expectedChecksum(body, archiveName)
 	if expectedHash == "" {
 		return fmt.Errorf("no checksum found for %s in release checksum file", archiveName)
 	}
 
-	// archivePath is the archive this service just downloaded.
-	// #nosec G304
-	f, err := os.Open(archivePath)
+	actualHash, err := fileSHA256(archivePath)
 	if err != nil {
-		return fmt.Errorf("open archive for checksum: %w", err)
+		return err
 	}
-	defer func() { _ = f.Close() }()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return fmt.Errorf("hash archive: %w", err)
-	}
-	actualHash := hex.EncodeToString(h.Sum(nil))
 
 	if actualHash != expectedHash {
 		return fmt.Errorf("SHA-256 mismatch: expected %s, got %s", expectedHash, actualHash)
@@ -748,6 +754,60 @@ func (s *UpdateService) verifyChecksum(ctx context.Context, info *UpdateInfo, ar
 
 	log.Printf("update: SHA-256 verified for %s", archiveName)
 	return nil
+}
+
+// fetchChecksumFile downloads the release checksum file, reading at most
+// 64 KiB of it.
+func fetchChecksumFile(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create checksum request: %w", err)
+	}
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("download checksum file: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("checksum file returned HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if err != nil {
+		return nil, fmt.Errorf("read checksum file: %w", err)
+	}
+	return body, nil
+}
+
+// expectedChecksum returns the lower-cased hash listed for archiveName,
+// or "" when no line names it. The first matching line wins.
+func expectedChecksum(body []byte, archiveName string) string {
+	for line := range strings.SplitSeq(string(body), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && strings.Contains(fields[1], archiveName) {
+			return strings.ToLower(fields[0])
+		}
+	}
+	return ""
+}
+
+// fileSHA256 returns the hex SHA-256 of the file at path.
+func fileSHA256(path string) (string, error) {
+	// path is the archive this service just downloaded.
+	// #nosec G304
+	f, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open archive for checksum: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", fmt.Errorf("hash archive: %w", err)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func parseSemver(v string) [3]int {
