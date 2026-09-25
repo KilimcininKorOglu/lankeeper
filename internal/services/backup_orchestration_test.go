@@ -97,19 +97,7 @@ func TestBackupOrchestratorRunsAndRotates(t *testing.T) {
 	netutil.SetAgentClient(agent)
 	t.Cleanup(func() { netutil.SetAgentClient(nil) })
 
-	cfgDir := t.TempDir()
-	backupDir := filepath.Join(cfgDir, "backups")
-	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(backupDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Seed something for tar to find.
-	if err := os.WriteFile(filepath.Join(cfgDir, "router.yaml"), []byte("system:\n  hostname: t\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	cfgDir, backupDir := seedBackupDirs(t)
 
 	services.SetBackupRootForTesting(backupDir + "/")
 	t.Cleanup(func() { services.SetBackupRootForTesting("/var/lib/lankeeper/backups/") })
@@ -132,30 +120,14 @@ func TestBackupOrchestratorRunsAndRotates(t *testing.T) {
 	orch := services.NewBackupOrchestrator(svc, cfg)
 	_ = orch.SnapshotProvider()
 
-	// First run.
-	if err := svc.RunNow(context.Background()); err != nil {
-		t.Fatalf("RunNow #1: %v", err)
-	}
-	// Second run.
-	if err := svc.RunNow(context.Background()); err != nil {
-		t.Fatalf("RunNow #2: %v", err)
-	}
-	// Third run - retention=2 should drop the oldest.
-	if err := svc.RunNow(context.Background()); err != nil {
-		t.Fatalf("RunNow #3: %v", err)
-	}
-
-	entries, err := os.ReadDir(backupDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	count := 0
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "lankeeper-backup-") && !strings.HasSuffix(e.Name(), ".tmp") {
-			count++
+	// Three runs: with retention=2 the third drops the oldest.
+	for i := 1; i <= 3; i++ {
+		if err := svc.RunNow(context.Background()); err != nil {
+			t.Fatalf("RunNow #%d: %v", i, err)
 		}
 	}
-	if count > 2 {
+
+	if count := countFinishedBackups(t, backupDir); count > 2 {
 		t.Errorf("after retention=2: %d files, want <=2", count)
 	}
 
@@ -168,6 +140,37 @@ func TestBackupOrchestratorRunsAndRotates(t *testing.T) {
 	if cfg.Backup.LastRun.IsZero() {
 		t.Error("LastRun not set")
 	}
+}
+
+// seedBackupDirs creates a config directory holding a router.yaml for
+// tar to find, and a backups directory inside it.
+func seedBackupDirs(t *testing.T) (cfgDir, backupDir string) {
+	t.Helper()
+	cfgDir = t.TempDir()
+	backupDir = filepath.Join(cfgDir, "backups")
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "router.yaml"), []byte("system:\n  hostname: t\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return cfgDir, backupDir
+}
+
+// countFinishedBackups counts the finished lankeeper archives in dir.
+func countFinishedBackups(t *testing.T, dir string) int {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "lankeeper-backup-") && !strings.HasSuffix(e.Name(), ".tmp") {
+			count++
+		}
+	}
+	return count
 }
 
 // assertRunRecordedFailure checks the operator-visible trace a failed

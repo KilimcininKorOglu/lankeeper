@@ -47,28 +47,38 @@ func (a *exportAgent) Call(_ context.Context, method string, params any) (json.R
 
 	switch p.Cmd {
 	case "tar":
-		if len(p.Args) >= 2 && p.Args[0] == "czf" {
-			if err := os.WriteFile(p.Args[1], []byte("archive"), a.tarMode); err != nil {
-				return nil, err
-			}
-			// WriteFile applies the umask, so set the mode explicitly.
-			if err := os.Chmod(p.Args[1], a.tarMode); err != nil {
-				return nil, err
-			}
-		}
+		err = a.fakeTar(p.Args)
 	case "chmod":
-		if len(p.Args) != 2 {
-			return nil, fmt.Errorf("chmod: unexpected args %v", p.Args)
-		}
-		var mode uint32
-		if _, err := fmt.Sscanf(p.Args[0], "%o", &mode); err != nil {
-			return nil, fmt.Errorf("chmod: bad mode %q", p.Args[0])
-		}
-		if err := os.Chmod(p.Args[1], os.FileMode(mode)); err != nil {
-			return nil, err
-		}
+		err = fakeChmod(p.Args)
+	}
+	if err != nil {
+		return nil, err
 	}
 	return []byte(`{"stdout":"","stderr":"","exitCode":0}`), nil
+}
+
+// fakeTar creates the archive a czf invocation names, with tarMode.
+func (a *exportAgent) fakeTar(args []string) error {
+	if len(args) < 2 || args[0] != "czf" {
+		return nil
+	}
+	if err := os.WriteFile(args[1], []byte("archive"), a.tarMode); err != nil {
+		return err
+	}
+	// WriteFile applies the umask, so set the mode explicitly.
+	return os.Chmod(args[1], a.tarMode)
+}
+
+// fakeChmod applies an octal "chmod MODE PATH" to the real file.
+func fakeChmod(args []string) error {
+	if len(args) != 2 {
+		return fmt.Errorf("chmod: unexpected args %v", args)
+	}
+	var mode uint32
+	if _, err := fmt.Sscanf(args[0], "%o", &mode); err != nil {
+		return fmt.Errorf("chmod: bad mode %q", args[0])
+	}
+	return os.Chmod(args[1], os.FileMode(mode))
 }
 
 func (a *exportAgent) snapshot() []string {

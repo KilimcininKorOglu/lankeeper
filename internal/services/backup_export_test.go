@@ -26,11 +26,7 @@ func TestBuildExportArgsIncludesExistingDirs(t *testing.T) {
 	cfgDir := filepath.Join(root, "lankeeper")
 	ovpn := filepath.Join(root, "openvpn")
 	unbound := filepath.Join(root, "unbound")
-	for _, d := range []string{cfgDir, ovpn, unbound} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			t.Fatalf("mkdir %s: %v", d, err)
-		}
-	}
+	mkdirAllForTest(t, cfgDir, ovpn, unbound)
 
 	args := buildExportArgs("/tmp/out.tar.gz", cfgDir, []string{unbound, ovpn})
 
@@ -44,11 +40,17 @@ func TestBuildExportArgsIncludesExistingDirs(t *testing.T) {
 	}
 	// Each directory must be preceded by its own -C, otherwise tar
 	// resolves it against the wrong working directory.
-	for i, a := range args {
-		if a == "openvpn" {
-			if i < 2 || args[i-2] != "-C" || args[i-1] != root {
-				t.Errorf("openvpn not preceded by -C %s: %v", root, args)
-			}
+	i := slices.Index(args, "openvpn")
+	if i < 2 || args[i-2] != "-C" || args[i-1] != root {
+		t.Errorf("openvpn not preceded by -C %s: %v", root, args)
+	}
+}
+
+func mkdirAllForTest(t *testing.T, dirs ...string) {
+	t.Helper()
+	for _, d := range dirs {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", d, err)
 		}
 	}
 }

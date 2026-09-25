@@ -172,17 +172,7 @@ func TestEncryptedExportImportRoundTrip(t *testing.T) {
 		t.Fatalf("export: %v", err)
 	}
 
-	// An encrypted archive must not be readable as a plain gzip stream.
-	raw, err := os.ReadFile(archive)
-	if err != nil {
-		t.Fatalf("read archive: %v", err)
-	}
-	if bytes.Contains(raw, []byte("keep-me")) {
-		t.Error("the passphrase-protected archive contains the config in cleartext")
-	}
-	if _, err := gzip.NewReader(bytes.NewReader(raw)); err == nil {
-		t.Error("the encrypted archive still parses as gzip, so it was not encrypted")
-	}
+	assertArchiveIsEncrypted(t, archive, "keep-me")
 
 	// Wipe the config and restore it from the archive.
 	if err := os.Remove(filepath.Join(cfgDir, "router.yaml")); err != nil {
@@ -198,6 +188,22 @@ func TestEncryptedExportImportRoundTrip(t *testing.T) {
 	}
 	if string(restored) != secret {
 		t.Errorf("restored config = %q, want %q", restored, secret)
+	}
+}
+
+// assertArchiveIsEncrypted fails when the archive holds plaintext in
+// the clear or still parses as a plain gzip stream.
+func assertArchiveIsEncrypted(t *testing.T, archive, plaintext string) {
+	t.Helper()
+	raw, err := os.ReadFile(archive)
+	if err != nil {
+		t.Fatalf("read archive: %v", err)
+	}
+	if bytes.Contains(raw, []byte(plaintext)) {
+		t.Error("the passphrase-protected archive contains the config in cleartext")
+	}
+	if _, err := gzip.NewReader(bytes.NewReader(raw)); err == nil {
+		t.Error("the encrypted archive still parses as gzip, so it was not encrypted")
 	}
 }
 
