@@ -21,8 +21,16 @@ func NewStorageHandler(renderer *tmpl.Renderer, storage *services.StorageService
 func (h *StorageHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 	lang := i18n.LangFromContext(r.Context())
 
-	raid, _ := h.storage.GetRAIDStatus(r.Context())
-	usage, _ := h.storage.GetDiskUsage(r.Context())
+	// Both cards are optional: a router without an array has no RAID
+	// status, so a failure hides the card and is logged, not answered.
+	raid, err := h.storage.GetRAIDStatus(r.Context())
+	if err != nil {
+		log.Printf("storage: raid status: %v", err)
+	}
+	usage, err := h.storage.GetDiskUsage(r.Context())
+	if err != nil {
+		log.Printf("storage: disk usage: %v", err)
+	}
 
 	data := &tmpl.PageData{
 		Lang: lang,
