@@ -6,9 +6,11 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 	"github.com/KilimcininKorOglu/lankeeper/internal/services"
 )
@@ -37,42 +39,55 @@ func TestSixInFourPPPoEReconnectFullChain(t *testing.T) {
 	netutil.SetAgentClient(agent)
 	t.Cleanup(func() { netutil.SetAgentClient(nil) })
 
-	// HE.net /nic/update mock — count hits and capture last endpoint.
-	var hits int
-	var lastQuery string
-	hesrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
-		lastQuery = r.URL.RawQuery
-		// HE.net replies "good <ipv4>" on success.
-		_, _ = w.Write([]byte("good 203.0.113.42"))
-	}))
-	t.Cleanup(hesrv.Close)
-	heRT := &rewriteRT{target: hesrv.URL, inner: http.DefaultTransport}
-
-	cfg := newIPv6TestConfig(t)
-	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
-	cfg.IPv6.Enabled = "auto"
-	cfg.IPv6.Mode = "6in4"
-	cfg.IPv6.WAN.RequestPrefix = false
-	cfg.IPv6.Tunnel.ServerIPv4 = "216.66.80.30"
-	cfg.IPv6.Tunnel.ClientIPv6 = "2001:470:1f0a:abc::2"
-	cfg.IPv6.Tunnel.RoutedPrefix = "2001:470:abcd::/64"
-	cfg.IPv6.Tunnel.TunnelID = "12345"
-	cfg.IPv6.Tunnel.Username = "kilimci"
-	cfg.IPv6.Tunnel.UpdateKey = "supersecret"
-	cfg.IPv6.Tunnel.AutoUpdate = true
-	cfg.IPv6.Tunnel.Device = "lkt6in4"
-	cfg.PPPoE.Username = "subscriber@isp"
+	he := newHENicUpdateStub(t)
+	cfg := sixInFourTestConfig(t)
 
 	tunnel := services.NewSixInFourService(cfg)
-	tunnel.SetHTTPClientForTest(&http.Client{Transport: heRT, Timeout: 5 * time.Second})
+	tunnel.SetHTTPClientForTest(he.client)
 	tunnel.SetStatePathForTest(filepath.Join(t.TempDir(), "ipv6-tunnel.json"))
 	tunnel.SetLocalIPv4ForTest("203.0.113.42")
 
 	ipv6 := newIPv6TestService(t, cfg)
 
-	// Mirror the on-connect callback wired in web/server.go for 6in4.
-	onConnect := func(ctx context.Context, currentIPv4 string) error {
+	onConnect := sixInFourOnConnect(cfg, tunnel, ipv6)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// First reconnect — full chain runs.
+	if err := onConnect(ctx, "203.0.113.42"); err != nil {
+		t.Fatalf("onConnect: %v", err)
+	}
+
+	hits, lastQuery := he.snapshot()
+	if hits != 1 {
+		t.Errorf("expected exactly 1 HE.net /nic/update call, got %d", hits)
+	}
+	for _, want := range []string{"hostname=12345", "myip=203.0.113.42"} {
+		if !strings.Contains(lastQuery, want) {
+			t.Errorf("HE.net query missing %q, got %q", want, lastQuery)
+		}
+	}
+
+	assertTunnelBroughtUp(t, agent)
+	assertRARewritten(t, agent)
+
+	// Second reconnect with the SAME IPv4 — UpdateRemoteIPv4 must
+	// dedupe to zero HTTP hits, but the tunnel+RA chain still runs
+	// because PPPoE may have rotated session IDs even when the IPv4
+	// happens to recycle.
+	if err := onConnect(ctx, "203.0.113.42"); err != nil {
+		t.Fatalf("onConnect dedup: %v", err)
+	}
+	if again, _ := he.snapshot(); again != hits {
+		t.Errorf("expected dedup to suppress duplicate /nic/update, hits %d -> %d", hits, again)
+	}
+}
+
+// sixInFourOnConnect mirrors the on-connect callback web/server.go wires
+// for 6in4.
+func sixInFourOnConnect(cfg *config.Config, tunnel *services.SixInFourService, ipv6 *services.IPv6Service) func(context.Context, string) error {
+	return func(ctx context.Context, currentIPv4 string) error {
 		if cfg.IPv6.Tunnel.AutoUpdate && currentIPv4 != "" {
 			if _, err := tunnel.UpdateRemoteIPv4(ctx, currentIPv4); err != nil {
 				return err
@@ -83,60 +98,91 @@ func TestSixInFourPPPoEReconnectFullChain(t *testing.T) {
 		}
 		return ipv6.ApplyConfig(ctx)
 	}
+}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+// heNicUpdateStub stands in for HE.net /nic/update. It counts hits and
+// keeps the last query, and answers "good" as HE.net does on success.
+type heNicUpdateStub struct {
+	mu        sync.Mutex
+	hits      int
+	lastQuery string
+	client    *http.Client
+}
 
-	// First reconnect — full chain runs.
-	if err := onConnect(ctx, "203.0.113.42"); err != nil {
-		t.Fatalf("onConnect: %v", err)
+func newHENicUpdateStub(t *testing.T) *heNicUpdateStub {
+	t.Helper()
+	stub := &heNicUpdateStub{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		stub.mu.Lock()
+		stub.hits++
+		stub.lastQuery = r.URL.RawQuery
+		stub.mu.Unlock()
+		_, _ = w.Write([]byte("good 203.0.113.42"))
+	}))
+	t.Cleanup(srv.Close)
+	stub.client = &http.Client{
+		Transport: &rewriteRT{target: srv.URL, inner: http.DefaultTransport},
+		Timeout:   5 * time.Second,
 	}
+	return stub
+}
 
-	if hits != 1 {
-		t.Errorf("expected exactly 1 HE.net /nic/update call, got %d", hits)
-	}
-	for _, want := range []string{"hostname=12345", "myip=203.0.113.42"} {
-		if !strings.Contains(lastQuery, want) {
-			t.Errorf("HE.net query missing %q, got %q", want, lastQuery)
+// snapshot returns the hit count and the last query.
+func (h *heNicUpdateStub) snapshot() (int, string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.hits, h.lastQuery
+}
+
+// sixInFourTestConfig is a 6in4 config with HE.net credentials and
+// auto-update on.
+func sixInFourTestConfig(t *testing.T) *config.Config {
+	t.Helper()
+	cfg := newIPv6TestConfig(t)
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
+	cfg.IPv6.Enabled = "auto"
+	cfg.IPv6.Mode = "6in4"
+	cfg.IPv6.WAN.RequestPrefix = false
+	tun := &cfg.IPv6.Tunnel
+	tun.ServerIPv4 = "216.66.80.30"
+	tun.ClientIPv6 = "2001:470:1f0a:abc::2"
+	tun.RoutedPrefix = "2001:470:abcd::/64"
+	tun.TunnelID = "12345"
+	tun.Username = "kilimci"
+	tun.UpdateKey = "supersecret"
+	tun.AutoUpdate = true
+	tun.Device = "lkt6in4"
+	cfg.PPPoE.Username = "subscriber@isp"
+	return cfg
+}
+
+// assertTunnelBroughtUp checks the tunnel lifecycle: del cleanup, add
+// mode sit, link set up mtu, addr add ClientIPv6, default route ::/0.
+func assertTunnelBroughtUp(t *testing.T, agent *fakeAgent) {
+	t.Helper()
+	for _, want := range []string{
+		"tunnel del lkt6in4",
+		"tunnel add lkt6in4 mode sit remote 216.66.80.30 local 203.0.113.42 ttl 255",
+		"link set lkt6in4 up mtu 1452",
+		"addr add 2001:470:1f0a:abc::2",
+		"-6 route add ::/0",
+	} {
+		if !ipExecMatched(agent, want) {
+			t.Errorf("expected ip invocation containing %q; ip log:\n%s", want, dumpIP(agent))
 		}
 	}
+}
 
-	// Tunnel lifecycle: del cleanup, add mode sit, link set up mtu,
-	// addr add ClientIPv6, default route ::/0.
-	wantIP := []struct{ contains string }{
-		{"tunnel del lkt6in4"},
-		{"tunnel add lkt6in4 mode sit remote 216.66.80.30 local 203.0.113.42 ttl 255"},
-		{"link set lkt6in4 up mtu 1452"},
-		{"addr add 2001:470:1f0a:abc::2"},
-		{"-6 route add ::/0"},
-	}
-	for _, w := range wantIP {
-		if !ipExecMatched(agent, w.contains) {
-			t.Errorf("expected ip invocation containing %q; ip log:\n%s",
-				w.contains, dumpIP(agent))
-		}
-	}
-
-	// dnsmasq RA drop-in rewritten for the 6in4 plane and dnsmasq
-	// reloaded so the RoutedPrefix-derived /64 reaches LAN clients.
+// assertRARewritten checks that the dnsmasq RA drop-in was rewritten
+// for the 6in4 plane and dnsmasq reloaded, so the RoutedPrefix-derived
+// /64 reaches LAN clients.
+func assertRARewritten(t *testing.T, agent *fakeAgent) {
+	t.Helper()
 	if !agent.wroteFile("/etc/dnsmasq.d/lankeeper-ipv6-ra.conf") {
 		t.Errorf("expected RA drop-in rewrite; write log:\n%+v", agent.writeLog)
 	}
 	if agent.execCount("systemctl") < 1 {
 		t.Errorf("expected dnsmasq systemctl reload-or-restart; exec log:\n%+v", agent.execLog)
-	}
-
-	// Second reconnect with the SAME IPv4 — UpdateRemoteIPv4 must
-	// dedupe to zero HTTP hits, but the tunnel+RA chain still runs
-	// because PPPoE may have rotated session IDs even when the IPv4
-	// happens to recycle.
-	hitsBefore := hits
-	if err := onConnect(ctx, "203.0.113.42"); err != nil {
-		t.Fatalf("onConnect dedup: %v", err)
-	}
-	if hits != hitsBefore {
-		t.Errorf("expected dedup to suppress duplicate /nic/update, hits %d -> %d",
-			hitsBefore, hits)
 	}
 }
 
