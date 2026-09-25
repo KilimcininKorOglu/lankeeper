@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"slices"
 	"strings"
@@ -93,36 +94,45 @@ func (s *NTPService) GetStatus(ctx context.Context) (*NTPStatus, error) {
 
 	out, err := netutil.RunSimple(ctx, "chronyc", "tracking")
 	if err != nil {
+		// The page shows an unsynced clock rather than an error, but the
+		// cause has to reach the log.
+		log.Printf("ntp: chronyc tracking: %v", err)
 		return status, nil
 	}
 
 	for line := range strings.SplitSeq(out, "\n") {
-		if strings.HasPrefix(line, "Reference ID") {
-			if idx := strings.Index(line, "("); idx != -1 {
-				end := strings.Index(line[idx:], ")")
-				if end != -1 {
-					status.RefSource = line[idx+1 : idx+end]
-				}
-			}
-		}
-		if strings.HasPrefix(line, "Stratum") {
-			_, _ = fmt.Sscanf(line, "Stratum : %d", &status.Stratum)
-		}
-		if strings.HasPrefix(line, "System time") {
-			parts := strings.Fields(line)
-			if len(parts) >= 5 {
-				status.Offset = parts[3] + " " + parts[4]
-			}
-		}
-		if strings.HasPrefix(line, "Leap status") && strings.Contains(line, "Normal") {
-			status.Synced = true
-		}
+		status.applyTrackingLine(line)
 	}
 
-	sources, _ := s.getSources(ctx)
+	sources, err := s.getSources(ctx)
+	if err != nil {
+		log.Printf("ntp: chronyc sources: %v", err)
+	}
 	status.Sources = sources
 
 	return status, nil
+}
+
+// applyTrackingLine reads one `chronyc tracking` line into the status.
+func (status *NTPStatus) applyTrackingLine(line string) {
+	switch {
+	case strings.HasPrefix(line, "Reference ID"):
+		if _, after, ok := strings.Cut(line, "("); ok {
+			if before, _, ok := strings.Cut(after, ")"); ok {
+				status.RefSource = before
+			}
+		}
+	case strings.HasPrefix(line, "Stratum"):
+		_, _ = fmt.Sscanf(line, "Stratum : %d", &status.Stratum)
+	case strings.HasPrefix(line, "System time"):
+		if parts := strings.Fields(line); len(parts) >= 5 {
+			status.Offset = parts[3] + " " + parts[4]
+		}
+	case strings.HasPrefix(line, "Leap status"):
+		if strings.Contains(line, "Normal") {
+			status.Synced = true
+		}
+	}
 }
 
 func (s *NTPService) getSources(ctx context.Context) ([]NTPSource, error) {
