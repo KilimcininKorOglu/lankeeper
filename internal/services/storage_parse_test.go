@@ -156,7 +156,7 @@ func TestDiscoverDisksReadsEveryDisk(t *testing.T) {
 	}
 }
 
-const mdadmDetail =`/dev/md0:
+const mdadmDetail = `/dev/md0:
            Version : 1.2
         Raid Level : raid1
         Array Size : 976630464 (931.39 GiB 1000.07 GB)
