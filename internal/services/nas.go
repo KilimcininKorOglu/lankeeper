@@ -2,6 +2,7 @@ package services
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -316,47 +317,11 @@ func downloadAndParseM3U(ctx context.Context, url string) ([]M3UItem, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	var items []M3UItem
-	var currentGroup, currentTitle string
-
+	var p m3uParser
 	body := newLimitedBody(resp.Body)
 	scanner := bufio.NewScanner(body)
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		if strings.HasPrefix(line, "#EXTINF:") {
-			info := line[len("#EXTINF:"):]
-
-			if _, after, ok := strings.Cut(info, "group-title=\""); ok {
-				rest := after
-				if before, _, ok := strings.Cut(rest, "\""); ok {
-					currentGroup = before
-				}
-			}
-
-			if idx := strings.LastIndex(info, ","); idx != -1 {
-				currentTitle = strings.TrimSpace(info[idx+1:])
-			}
-			continue
-		}
-
-		if line != "" && !strings.HasPrefix(line, "#") {
-			if currentTitle == "" {
-				currentTitle = "Unknown"
-			}
-			if currentGroup == "" {
-				currentGroup = "Ungrouped"
-			}
-
-			items = append(items, M3UItem{
-				Group: currentGroup,
-				Title: currentTitle,
-				URL:   line,
-			})
-
-			currentGroup = ""
-			currentTitle = ""
-		}
+		p.feed(scanner.Text())
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -365,52 +330,53 @@ func downloadAndParseM3U(ctx context.Context, url string) ([]M3UItem, error) {
 	if body.overflowed() {
 		return nil, errFetchTooLarge
 	}
-	return items, nil
+	return p.items, nil
 }
 
 func ParseM3UData(data string) []M3UItem {
-	var items []M3UItem
-	var currentGroup, currentTitle string
-
+	var p m3uParser
 	for line := range strings.SplitSeq(data, "\n") {
-		line = strings.TrimSpace(line)
+		p.feed(line)
+	}
+	return p.items
+}
 
-		if strings.HasPrefix(line, "#EXTINF:") {
-			info := line[len("#EXTINF:"):]
+// m3uParser collects playlist entries one line at a time. An #EXTINF
+// line sets the group and title for the next URL line.
+type m3uParser struct {
+	items        []M3UItem
+	group, title string
+}
 
-			if _, after, ok := strings.Cut(info, "group-title=\""); ok {
-				rest := after
-				if before, _, ok := strings.Cut(rest, "\""); ok {
-					currentGroup = before
-				}
-			}
+// feed consumes one playlist line.
+func (p *m3uParser) feed(line string) {
+	line = strings.TrimSpace(line)
+	if info, ok := strings.CutPrefix(line, "#EXTINF:"); ok {
+		p.readInfo(info)
+		return
+	}
+	if line == "" || strings.HasPrefix(line, "#") {
+		return
+	}
+	p.items = append(p.items, M3UItem{
+		Group: cmp.Or(p.group, "Ungrouped"),
+		Title: cmp.Or(p.title, "Unknown"),
+		URL:   line,
+	})
+	p.group, p.title = "", ""
+}
 
-			if idx := strings.LastIndex(info, ","); idx != -1 {
-				currentTitle = strings.TrimSpace(info[idx+1:])
-			}
-			continue
-		}
-
-		if line != "" && !strings.HasPrefix(line, "#") {
-			if currentTitle == "" {
-				currentTitle = "Unknown"
-			}
-			if currentGroup == "" {
-				currentGroup = "Ungrouped"
-			}
-
-			items = append(items, M3UItem{
-				Group: currentGroup,
-				Title: currentTitle,
-				URL:   line,
-			})
-
-			currentGroup = ""
-			currentTitle = ""
+// readInfo takes the group-title attribute and the display title from
+// an #EXTINF line.
+func (p *m3uParser) readInfo(info string) {
+	if _, after, ok := strings.Cut(info, "group-title=\""); ok {
+		if before, _, ok := strings.Cut(after, "\""); ok {
+			p.group = before
 		}
 	}
-
-	return items
+	if idx := strings.LastIndex(info, ","); idx != -1 {
+		p.title = strings.TrimSpace(info[idx+1:])
+	}
 }
 
 func filterM3UItems(items []M3UItem, includeGroups, excludeGroups []string) []M3UItem {
