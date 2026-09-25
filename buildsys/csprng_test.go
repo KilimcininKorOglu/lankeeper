@@ -1,6 +1,7 @@
 package buildsys_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -40,27 +41,33 @@ func TestNoCSPRNGReadDiscardsItsError(t *testing.T) {
 				return nil
 			}
 
-			raw, readErr := os.ReadFile(path)
-			if readErr != nil {
-				return readErr
+			findings, readErr := uncheckedRandReads(path)
+			for _, f := range findings {
+				t.Error(f)
 			}
-
-			for i, line := range strings.Split(string(raw), "\n") {
-				if !randReadCall.MatchString(line) {
-					continue
-				}
-				if checkedRandRead.MatchString(line) {
-					continue
-				}
-				t.Errorf("%s:%d discards the CSPRNG read result: %s",
-					path, i+1, strings.TrimSpace(line))
-			}
-			return nil
+			return readErr
 		})
 		if err != nil {
 			t.Fatalf("walk %s: %v", root, err)
 		}
 	}
+}
+
+// uncheckedRandReads lists every line of the file that calls the CSPRNG
+// without capturing its return.
+func uncheckedRandReads(path string) ([]string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var findings []string
+	for i, line := range strings.Split(string(raw), "\n") {
+		if randReadCall.MatchString(line) && !checkedRandRead.MatchString(line) {
+			findings = append(findings, fmt.Sprintf("%s:%d discards the CSPRNG read result: %s",
+				path, i+1, strings.TrimSpace(line)))
+		}
+	}
+	return findings, nil
 }
 
 // TestTheScanWouldCatchAnUncheckedRead guards the test itself: a pattern

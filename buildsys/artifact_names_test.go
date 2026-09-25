@@ -45,7 +45,15 @@ func TestTheReadmeNamesTheArtifactsTheMakefileBuilds(t *testing.T) {
 	}
 	mk, doc := string(makefile), string(readme)
 
-	// The unversioned binaries, which is the half that was wrong.
+	checkBinaryNames(t, mk, doc)
+	checkISONames(t, mk, doc)
+	checkTarballNames(t, mk, doc)
+}
+
+// checkBinaryNames covers the unversioned binaries, which is the half
+// that was wrong.
+func checkBinaryNames(t *testing.T, mk, doc string) {
+	t.Helper()
 	for _, v := range []string{"AMD64_BINARY", "ARM64_BINARY"} {
 		name := readmeName(makeVar(t, mk, v))
 		arch := strings.TrimPrefix(name, "lankeeper-linux-")
@@ -57,8 +65,12 @@ func TestTheReadmeNamesTheArtifactsTheMakefileBuilds(t *testing.T) {
 			t.Errorf("%s carries a version after all; this test's premise is stale", v)
 		}
 	}
+}
 
-	// The versioned ISOs, which were already right and must stay right.
+// checkISONames covers the versioned ISOs, which were already right and
+// must stay right.
+func checkISONames(t *testing.T, mk, doc string) {
+	t.Helper()
 	for _, v := range []string{"AMD64_ISO", "ARM64_ISO"} {
 		name := readmeName(makeVar(t, mk, v))
 		if !strings.Contains(name, "vX.Y.Z") {
@@ -68,9 +80,13 @@ func TestTheReadmeNamesTheArtifactsTheMakefileBuilds(t *testing.T) {
 	if !strings.Contains(doc, "lankeeper-vX.Y.Z-installer-{amd64,arm64}.iso") {
 		t.Error("the README does not document the installer ISO name")
 	}
+}
 
-	// The tarball name is built inline in the release recipe rather than
-	// held in a variable, so it is matched against the recipe text.
+// checkTarballNames covers the release tarballs. Their name is built
+// inline in the release recipe rather than held in a variable, so it is
+// matched against the recipe text.
+func checkTarballNames(t *testing.T, mk, doc string) {
+	t.Helper()
 	if !strings.Contains(mk, "dist/$(BINARY)-$(VERSION)-linux-amd64.tar.gz") {
 		t.Error("the tarball name changed; the README claim needs rechecking")
 	}
