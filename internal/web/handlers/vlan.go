@@ -58,6 +58,10 @@ func (h *VLANHandler) HandleAdd(w http.ResponseWriter, r *http.Request) {
 		clientError(w, r, http.StatusBadRequest, key)
 		return
 	}
+	if err := h.network.ValidateVLAN(vlan); err != nil {
+		fail(w, r, http.StatusBadRequest, err)
+		return
+	}
 
 	h.cfg.VLANs = append(h.cfg.VLANs, vlan)
 	if err := h.cfg.SaveToFile(); err != nil {

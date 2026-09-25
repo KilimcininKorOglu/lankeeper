@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
+	"regexp"
 	"strings"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
@@ -239,6 +241,97 @@ func (s *NetworkService) RestoreMACClones(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// ErrInvalidVLAN wraps every reason ValidateVLAN refuses an entry.
+var ErrInvalidVLAN = errors.New("invalid VLAN")
+
+// leaseTimePattern is dnsmasq's lease time syntax: a number with an
+// optional unit, or "infinite".
+var leaseTimePattern = regexp.MustCompile(`^([0-9]+[smhdw]?|infinite)$`)
+
+// ValidateVLAN checks a new VLAN entry against the config it joins.
+//
+// The DHCP range, lease time and device name reach dnsmasq.conf through
+// text/template, which escapes nothing, so a newline in any of them adds
+// a dnsmasq option; dhcp-script is one, and dnsmasq runs it as root.
+// config.Load also refuses a VLAN without a parent, so a bad entry that
+// was saved would stop the service from starting.
+func (s *NetworkService) ValidateVLAN(v config.VLANConfig) error {
+	for _, check := range []func(config.VLANConfig) error{
+		s.validateVLANIdentity, validateVLANFields, validateVLANDHCP,
+	} {
+		if err := check(v); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidVLAN, err)
+		}
+	}
+	return nil
+}
+
+// validateVLANIdentity checks the ID, the parent and the VLAN ID, and
+// that neither the ID nor the parent and VLAN ID pair is taken.
+func (s *NetworkService) validateVLANIdentity(v config.VLANConfig) error {
+	if err := netutil.ValidateInterfaceName(v.ID); err != nil {
+		return fmt.Errorf("id: %w", err)
+	}
+	if s.interfaceIndex(v.Parent) < 0 {
+		return fmt.Errorf("parent %q is not a configured interface", v.Parent)
+	}
+	if err := netutil.ValidateVLANID(v.VID); err != nil {
+		return err
+	}
+	for _, existing := range s.cfg.VLANs {
+		if existing.ID == v.ID {
+			return fmt.Errorf("id %q is already in use", v.ID)
+		}
+		if existing.Parent == v.Parent && existing.VID == v.VID {
+			return fmt.Errorf("VLAN %d already exists on %s", v.VID, v.Parent)
+		}
+	}
+	return nil
+}
+
+// validateVLANFields checks the label, role, type, address and MTU.
+func validateVLANFields(v config.VLANConfig) error {
+	if err := netutil.ValidateRuleName(v.Label); err != nil {
+		return fmt.Errorf("label: %w", err)
+	}
+	if !interfaceRoles[v.Role] {
+		return fmt.Errorf("role %q", v.Role)
+	}
+	if !interfaceTypes[v.Type] {
+		return fmt.Errorf("type %q", v.Type)
+	}
+	if v.Address != "" {
+		if err := netutil.ValidateCIDR(v.Address); err != nil {
+			return fmt.Errorf("address: %w", err)
+		}
+	}
+	if v.MTU != 0 {
+		return netutil.ValidateMTU(v.MTU)
+	}
+	return nil
+}
+
+// validateVLANDHCP checks the DHCP range lies inside the VLAN's own
+// subnet and the lease time is one dnsmasq accepts.
+func validateVLANDHCP(v config.VLANConfig) error {
+	if !v.DHCP.Enabled {
+		return nil
+	}
+	_, subnet, err := net.ParseCIDR(v.Address)
+	if err != nil {
+		return errors.New("DHCP needs the VLAN address")
+	}
+	for _, ip := range []string{v.DHCP.RangeStart, v.DHCP.RangeEnd} {
+		if ip != "" && (net.ParseIP(ip) == nil || !subnet.Contains(net.ParseIP(ip))) {
+			return fmt.Errorf("DHCP range address %q is not in %s", ip, subnet)
+		}
+	}
+	if v.DHCP.LeaseTime != "" && !leaseTimePattern.MatchString(v.DHCP.LeaseTime) {
+		return fmt.Errorf("lease time %q", v.DHCP.LeaseTime)
+	}
+	return nil
 }
 
 func (s *NetworkService) CreateVLAN(ctx context.Context, parentDevice string, vid int, address string, mtu int) error {
