@@ -30,6 +30,10 @@ var (
 	// outboundProbeClient is for liveness probes, which must fail fast
 	// so a dead target does not stall the health check loop.
 	outboundProbeClient = newGuardedClient(5 * time.Second)
+
+	// outboundUpdateClient is for OTA release archives, which can take
+	// minutes over a slow uplink.
+	outboundUpdateClient = newGuardedClient(10 * time.Minute)
 )
 
 // newGuardedClient builds an HTTP client that refuses internal

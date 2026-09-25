@@ -17,14 +17,15 @@ import (
 // address check, which safefetch_test.go covers.
 func publicLoopbackClient(t *testing.T) {
 	t.Helper()
-	orig := outboundFetchClient
-	outboundFetchClient = &http.Client{
+	origFetch, origUpdate := outboundFetchClient, outboundUpdateClient
+	client := &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
 			DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
 		},
 	}
-	t.Cleanup(func() { outboundFetchClient = orig })
+	outboundFetchClient, outboundUpdateClient = client, client
+	t.Cleanup(func() { outboundFetchClient, outboundUpdateClient = origFetch, origUpdate })
 }
 
 // endlessServer streams the same line forever, which is the shape that

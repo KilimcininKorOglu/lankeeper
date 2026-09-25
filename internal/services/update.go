@@ -158,11 +158,17 @@ type ghAsset struct {
 	BrowserDownloadURL string `json:"browser_download_url"`
 }
 
+// updateMetadataTimeout bounds the release API and checksum requests,
+// which are small, below the bulk-download client's own timeout.
+const updateMetadataTimeout = 15 * time.Second
+
 // fetchLatestRelease asks the GitHub API for the latest release and
 // refuses one whose tag is malformed.
 func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*ghRelease, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", s.repoOwner, s.repoName)
 
+	ctx, cancel := context.WithTimeout(ctx, updateMetadataTimeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -170,8 +176,7 @@ func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*ghRelease, err
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "lankeeper/"+s.currentVersion)
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := outboundFetchClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch releases: %w", err)
 	}
@@ -627,8 +632,7 @@ func (s *UpdateService) downloadFile(ctx context.Context, url, dest string, decl
 	}
 	req.Header.Set("User-Agent", "lankeeper/"+s.currentVersion)
 
-	client := &http.Client{Timeout: 10 * time.Minute}
-	resp, err := client.Do(req)
+	resp, err := outboundUpdateClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -778,12 +782,13 @@ func (s *UpdateService) verifyChecksum(ctx context.Context, info *UpdateInfo, ar
 // fetchChecksumFile downloads the release checksum file, reading at most
 // 64 KiB of it.
 func fetchChecksumFile(ctx context.Context, url string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, updateMetadataTimeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create checksum request: %w", err)
 	}
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := outboundFetchClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("download checksum file: %w", err)
 	}
