@@ -192,53 +192,20 @@ func (s *MetricsService) Snapshot(ctx context.Context) MetricsSnapshot {
 // so a single failed sub-system can't take the whole scrape down.
 func (s *MetricsService) collect(ctx context.Context) MetricsSnapshot {
 	snap := MetricsSnapshot{}
-	if s.update != nil {
-		v := s.update.GetVersionInfo()
-		snap.BuildVersion = v.Version
-		snap.BuildCommit = v.Commit
-	}
-	if s.monitor != nil {
-		cur := s.monitor.GetCurrent()
-		snap.UptimeSeconds = cur.Uptime.Seconds()
-		snap.CPUPercent = cur.CPUPercent
-		snap.MemoryTotal = cur.RAMTotal
-		snap.MemoryUsed = cur.RAMUsed
-		snap.Temperature = cur.Temperature
-		snap.Interfaces = ifaceMetricsFromMonitor(cur.Interfaces)
-	}
+	s.collectHost(&snap)
 	if s.dhcp != nil {
 		if leases, err := s.dhcp.GetLeases(); err == nil {
 			snap.DHCPLeases = len(leases)
 		}
 	}
-	if s.dns != nil {
-		if stats, err := s.dns.GetStats(ctx); err == nil && stats != nil {
-			// Clamped rather than converted straight through.
-			// The counts come from `unbound-control stats_noreset`
-			// via Sscanf, which leaves the field untouched on a
-			// malformed value and would happily scan a negative
-			// one. uint64(-1) is 1.8e19, which Prometheus would
-			// take as a real counter value and rate() would turn
-			// into a spike no operator could explain.
-			snap.DNSQueriesTotal = uint64(max(stats.TotalQueries, 0))
-			snap.DNSCacheHitsTotal = uint64(max(stats.CacheHits, 0))
-			snap.DNSCacheMissesTotal = uint64(max(stats.CacheMisses, 0))
-			snap.DNSBlockedTotal = uint64(max(stats.BlockedCount, 0))
-		}
-	}
+	s.collectDNS(ctx, &snap)
 	if s.qos != nil {
 		snap.Clients = s.collectClientMetrics()
 	}
 	if s.vpn != nil {
 		snap.WGPeers, snap.S2SPeers = s.collectVPNMetrics(ctx)
 	}
-	if s.backup != nil {
-		snap.BackupLastRunUnix = s.cfg.Backup.LastRun.Unix()
-		if s.cfg.Backup.LastStatus == "ok" {
-			snap.BackupLastStatusOK = 1
-		}
-		snap.BackupHistorySize = len(s.cfg.Backup.History)
-	}
+	s.collectBackup(&snap)
 	if s.openvpn != nil {
 		snap.OpenVPNPeers = s.openvpn.ActiveSessions(ctx)
 	}
@@ -246,6 +213,58 @@ func (s *MetricsService) collect(ctx context.Context) MetricsSnapshot {
 	snap.IPv6Active, snap.IPv6Mode = ipv6StateFromCfg(s.cfg)
 	snap.FirewallActive = firewallActive(ctx)
 	return snap
+}
+
+// collectHost fills the build info and the monitor's host readings.
+func (s *MetricsService) collectHost(snap *MetricsSnapshot) {
+	if s.update != nil {
+		v := s.update.GetVersionInfo()
+		snap.BuildVersion = v.Version
+		snap.BuildCommit = v.Commit
+	}
+	if s.monitor == nil {
+		return
+	}
+	cur := s.monitor.GetCurrent()
+	snap.UptimeSeconds = cur.Uptime.Seconds()
+	snap.CPUPercent = cur.CPUPercent
+	snap.MemoryTotal = cur.RAMTotal
+	snap.MemoryUsed = cur.RAMUsed
+	snap.Temperature = cur.Temperature
+	snap.Interfaces = ifaceMetricsFromMonitor(cur.Interfaces)
+}
+
+// collectDNS fills the Unbound counters.
+func (s *MetricsService) collectDNS(ctx context.Context, snap *MetricsSnapshot) {
+	if s.dns == nil {
+		return
+	}
+	stats, err := s.dns.GetStats(ctx)
+	if err != nil || stats == nil {
+		return
+	}
+	// Clamped rather than converted straight through. The counts come
+	// from `unbound-control stats_noreset` via Sscanf, which leaves the
+	// field untouched on a malformed value and would happily scan a
+	// negative one. uint64(-1) is 1.8e19, which Prometheus would take as
+	// a real counter value and rate() would turn into a spike no
+	// operator could explain.
+	snap.DNSQueriesTotal = uint64(max(stats.TotalQueries, 0))
+	snap.DNSCacheHitsTotal = uint64(max(stats.CacheHits, 0))
+	snap.DNSCacheMissesTotal = uint64(max(stats.CacheMisses, 0))
+	snap.DNSBlockedTotal = uint64(max(stats.BlockedCount, 0))
+}
+
+// collectBackup fills the backup state from the config.
+func (s *MetricsService) collectBackup(snap *MetricsSnapshot) {
+	if s.backup == nil {
+		return
+	}
+	snap.BackupLastRunUnix = s.cfg.Backup.LastRun.Unix()
+	if s.cfg.Backup.LastStatus == "ok" {
+		snap.BackupLastStatusOK = 1
+	}
+	snap.BackupHistorySize = len(s.cfg.Backup.History)
 }
 
 // ifaceMetricsFromMonitor flattens the monitor's per-iface map into
