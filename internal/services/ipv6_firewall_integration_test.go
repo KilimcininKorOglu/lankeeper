@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -114,6 +115,18 @@ func readPassthrough(params any) (json.RawMessage, error) {
 	return json.Marshal(struct {
 		Content string `json:"content"`
 	}{Content: string(body)})
+}
+
+// countExec counts the exec.run calls of cmd whose arguments start with
+// prefix.
+func (f *fakeAgent) countExec(cmd string, prefix ...string) int {
+	n := 0
+	for _, c := range f.execCallsCopy() {
+		if c.Cmd == cmd && len(c.Args) >= len(prefix) && slices.Equal(c.Args[:len(prefix)], prefix) {
+			n++
+		}
+	}
+	return n
 }
 
 // lastWrite returns the body of the last file.write whose path ends in

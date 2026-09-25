@@ -41,61 +41,64 @@ func (f *mkcertFakeAgent) Call(_ context.Context, method string, params any) (js
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	raw, _ := json.Marshal(params)
 	switch method {
 	case "exec.run":
 		var p struct {
 			Cmd  string   `json:"cmd"`
 			Args []string `json:"args"`
 		}
-		_ = json.Unmarshal(raw, &p)
-		switch p.Cmd {
-		case "mkcert":
-			if f.issueFails {
-				return nil, errors.New("mkcert: exit status 1")
-			}
-			certPath, keyPath := p.Args[1], p.Args[3]
-			f.sans = append([]string(nil), p.Args[4:]...)
-			if f.garbage {
-				_ = os.WriteFile(certPath, []byte("mkcert: not a certificate\n"), 0o644)
-				_ = os.WriteFile(keyPath, []byte("nor is this\n"), 0o600)
-				return []byte(`{"stdout":"","stderr":"","exitCode":0}`), nil
-			}
-			certPEM, keyPEM := issueTestPair(f.sans)
-			_ = os.WriteFile(certPath, certPEM, 0o644)
-			_ = os.WriteFile(keyPath, keyPEM, 0o600)
-			return []byte(`{"stdout":"","stderr":"","exitCode":0}`), nil
-		case "rm":
-			for _, a := range p.Args {
-				if a == "-f" {
-					continue
-				}
-				f.removed = append(f.removed, a)
-				_ = os.Remove(a)
-			}
-			return []byte(`{"stdout":"","stderr":"","exitCode":0}`), nil
+		if err := decodeParams(params, &p); err != nil {
+			return nil, err
 		}
-		return []byte(`{"stdout":"","stderr":"","exitCode":0}`), nil
+		return f.exec(p.Cmd, p.Args)
 	case "file.mkdir":
 		var p struct {
 			Path string `json:"path"`
 		}
-		_ = json.Unmarshal(raw, &p)
+		if err := decodeParams(params, &p); err != nil {
+			return nil, err
+		}
 		_ = os.MkdirAll(p.Path, 0o755)
 		return []byte(`{}`), nil
 	case "file.read":
-		var p struct {
-			Path string `json:"path"`
-		}
-		_ = json.Unmarshal(raw, &p)
-		data, err := os.ReadFile(p.Path) // #nosec G304 -- test fixture path
-		if err != nil {
-			return nil, err
-		}
-		out, _ := json.Marshal(map[string]string{"content": string(data)})
-		return out, nil
+		return readPassthrough(params)
 	}
 	return []byte(`{}`), nil
+}
+
+// exec answers mkcert and rm the way the real binaries act on the
+// filesystem, and every other command with an empty success.
+func (f *mkcertFakeAgent) exec(cmd string, args []string) (json.RawMessage, error) {
+	switch cmd {
+	case "mkcert":
+		if f.issueFails {
+			return nil, errors.New("mkcert: exit status 1")
+		}
+		f.issue(args[1], args[3], args[4:])
+	case "rm":
+		for _, a := range args {
+			if a == "-f" {
+				continue
+			}
+			f.removed = append(f.removed, a)
+			_ = os.Remove(a)
+		}
+	}
+	return []byte(`{"stdout":"","stderr":"","exitCode":0}`), nil
+}
+
+// issue writes the pair mkcert would write, or unparsable output when
+// garbage is set.
+func (f *mkcertFakeAgent) issue(certPath, keyPath string, sans []string) {
+	f.sans = append([]string(nil), sans...)
+	if f.garbage {
+		_ = os.WriteFile(certPath, []byte("mkcert: not a certificate\n"), 0o644)
+		_ = os.WriteFile(keyPath, []byte("nor is this\n"), 0o600)
+		return
+	}
+	certPEM, keyPEM := issueTestPair(f.sans)
+	_ = os.WriteFile(certPath, certPEM, 0o644)
+	_ = os.WriteFile(keyPath, keyPEM, 0o600)
 }
 
 // issueTestPair builds a real certificate so the install path parses

@@ -72,13 +72,7 @@ func TestVPNServerUpRejectsDoubleStart(t *testing.T) {
 
 	// Count wg-quick up invocations through the agent log. Exactly
 	// one is the contract.
-	count := 0
-	for _, c := range agent.execCallsCopy() {
-		if c.Cmd == "wg-quick" && len(c.Args) >= 2 && c.Args[0] == "up" && c.Args[1] == "wgs0" {
-			count++
-		}
-	}
-	if count != 1 {
+	if count := agent.countExec("wg-quick", "up", "wgs0"); count != 1 {
 		t.Fatalf("expected 1 wg-quick up invocation, got %d", count)
 	}
 
@@ -122,13 +116,7 @@ func TestOpenVPNServerStartRejectsDoubleStart(t *testing.T) {
 		t.Fatalf("second ServerStart: expected ErrOpenVPNAlreadyRunning, got %v", err)
 	}
 
-	count := 0
-	for _, c := range agent.execCallsCopy() {
-		if c.Cmd == "systemctl" && len(c.Args) >= 2 && c.Args[0] == "start" && c.Args[1] == "openvpn@server" {
-			count++
-		}
-	}
-	if count != 1 {
+	if count := agent.countExec("systemctl", "start", "openvpn@server"); count != 1 {
 		t.Fatalf("expected 1 systemctl start, got %d", count)
 	}
 }
