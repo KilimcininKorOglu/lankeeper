@@ -524,42 +524,21 @@ func renderOpenPortRules(op config.OpenPort) ([]string, error) {
 		return nil, err
 	}
 
-	var protocols []string
-	switch op.Protocol {
-	case "tcp", "udp":
-		protocols = []string{op.Protocol}
-	case "both":
-		protocols = []string{"tcp", "udp"}
-	default:
-		return nil, fmt.Errorf("unsupported protocol %q", op.Protocol)
+	protocols, err := openPortProtocols(op.Protocol)
+	if err != nil {
+		return nil, err
 	}
-
-	var prefix string
-	if src := strings.TrimSpace(op.Source); src != "" {
-		if err := validateAddressOrCIDR(src); err != nil {
-			return nil, fmt.Errorf("source: %w", err)
-		}
-		prefix = addressFamilyMatcher(src) + " saddr " + src + " "
+	prefix, err := openPortSourcePrefix(op.Source)
+	if err != nil {
+		return nil, err
 	}
-
-	var comment string
-	if name := strings.TrimSpace(op.Name); name != "" {
-		if err := netutil.ValidateRuleName(name); err != nil {
-			return nil, err
-		}
-		comment = " # " + name
+	comment, err := openPortComment(op.Name)
+	if err != nil {
+		return nil, err
 	}
-
-	// Placed after `ct state new` so the budget covers new connections
-	// rather than every packet of an established one. A packet over the
-	// rate simply fails to match this rule and falls through to the
-	// chain's closing drop, so no explicit drop line is needed.
-	var limit string
-	if rate := strings.TrimSpace(op.RateLimit); rate != "" {
-		if err := ValidateOpenPortRateLimit(rate); err != nil {
-			return nil, fmt.Errorf("rate limit: %w", err)
-		}
-		limit = "limit rate " + rate + " "
+	limit, err := openPortLimit(op.RateLimit)
+	if err != nil {
+		return nil, err
 	}
 
 	lines := make([]string, 0, len(protocols))
@@ -568,6 +547,63 @@ func renderOpenPortRules(op config.OpenPort) ([]string, error) {
 			prefix, proto, op.Port, limit, comment))
 	}
 	return lines, nil
+}
+
+// openPortProtocols expands an open-port protocol into the protocols it
+// renders as.
+func openPortProtocols(protocol string) ([]string, error) {
+	switch protocol {
+	case "tcp", "udp":
+		return []string{protocol}, nil
+	case "both":
+		return []string{"tcp", "udp"}, nil
+	default:
+		return nil, fmt.Errorf("unsupported protocol %q", protocol)
+	}
+}
+
+// openPortSourcePrefix returns the source match, with its trailing
+// space, or "" when no source is set.
+func openPortSourcePrefix(source string) (string, error) {
+	src := strings.TrimSpace(source)
+	if src == "" {
+		return "", nil
+	}
+	if err := validateAddressOrCIDR(src); err != nil {
+		return "", fmt.Errorf("source: %w", err)
+	}
+	return addressFamilyMatcher(src) + " saddr " + src + " ", nil
+}
+
+// openPortComment returns the trailing name comment, or "" when no name
+// is set.
+func openPortComment(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", nil
+	}
+	if err := netutil.ValidateRuleName(name); err != nil {
+		return "", err
+	}
+	return " # " + name, nil
+}
+
+// openPortLimit returns the rate-limit clause, with its trailing space,
+// or "" when no rate is set.
+//
+// It is placed after `ct state new` so the budget covers new connections
+// rather than every packet of an established one. A packet over the rate
+// simply fails to match this rule and falls through to the chain's
+// closing drop, so no explicit drop line is needed.
+func openPortLimit(rateLimit string) (string, error) {
+	rate := strings.TrimSpace(rateLimit)
+	if rate == "" {
+		return "", nil
+	}
+	if err := ValidateOpenPortRateLimit(rate); err != nil {
+		return "", fmt.Errorf("rate limit: %w", err)
+	}
+	return "limit rate " + rate + " ", nil
 }
 
 // addressFamilyMatcher picks the nftables address matcher for an IP or
@@ -590,42 +626,9 @@ func renderCustomRule(r config.FirewallRule) (string, error) {
 		return "", err
 	}
 
-	var conditions []string
-
-	if r.Interface != "" {
-		if err := netutil.ValidateInterfaceName(r.Interface); err != nil {
-			return "", err
-		}
-		if r.Direction == "in" {
-			conditions = append(conditions, fmt.Sprintf("iifname %q", r.Interface))
-		} else {
-			conditions = append(conditions, fmt.Sprintf("oifname %q", r.Interface))
-		}
-	}
-	if r.SrcIP != "" {
-		if err := validateAddressOrCIDR(r.SrcIP); err != nil {
-			return "", fmt.Errorf("source: %w", err)
-		}
-		conditions = append(conditions, fmt.Sprintf("%s saddr %s", addressFamilyMatcher(r.SrcIP), r.SrcIP))
-	}
-	if r.DstIP != "" {
-		if err := validateAddressOrCIDR(r.DstIP); err != nil {
-			return "", fmt.Errorf("destination: %w", err)
-		}
-		conditions = append(conditions, fmt.Sprintf("%s daddr %s", addressFamilyMatcher(r.DstIP), r.DstIP))
-	}
-	if r.Protocol != "" {
-		if r.Protocol != "tcp" && r.Protocol != "udp" && r.Protocol != "icmp" {
-			return "", fmt.Errorf("unsupported protocol %q", r.Protocol)
-		}
-		if r.Port > 0 {
-			if err := netutil.ValidatePort(r.Port); err != nil {
-				return "", err
-			}
-			conditions = append(conditions, fmt.Sprintf("%s dport %d", r.Protocol, r.Port))
-		} else {
-			conditions = append(conditions, fmt.Sprintf("meta l4proto %s", r.Protocol))
-		}
+	conditions, err := customRuleConditions(r)
+	if err != nil {
+		return "", err
 	}
 
 	action := r.Action
@@ -645,6 +648,81 @@ func renderCustomRule(r config.FirewallRule) (string, error) {
 		line += " # " + r.Name
 	}
 	return line, nil
+}
+
+// customRuleConditions renders the match expressions of a custom rule in
+// order: interface, source, destination, protocol and port. Every value
+// is validated first, because nft fails the whole file on one bad line.
+func customRuleConditions(r config.FirewallRule) ([]string, error) {
+	iface, err := interfaceCondition(r)
+	if err != nil {
+		return nil, err
+	}
+	src, err := addressCondition("source", "saddr", r.SrcIP)
+	if err != nil {
+		return nil, err
+	}
+	dst, err := addressCondition("destination", "daddr", r.DstIP)
+	if err != nil {
+		return nil, err
+	}
+	proto, err := protocolCondition(r)
+	if err != nil {
+		return nil, err
+	}
+
+	var conditions []string
+	for _, cond := range []string{iface, src, dst, proto} {
+		if cond != "" {
+			conditions = append(conditions, cond)
+		}
+	}
+	return conditions, nil
+}
+
+// interfaceCondition matches the rule's interface on the side its
+// direction names, or returns "" when no interface is set.
+func interfaceCondition(r config.FirewallRule) (string, error) {
+	if r.Interface == "" {
+		return "", nil
+	}
+	if err := netutil.ValidateInterfaceName(r.Interface); err != nil {
+		return "", err
+	}
+	if r.Direction == "in" {
+		return fmt.Sprintf("iifname %q", r.Interface), nil
+	}
+	return fmt.Sprintf("oifname %q", r.Interface), nil
+}
+
+// addressCondition matches addr with the matcher of its own family, or
+// returns "" when addr is empty. label names the field in an error.
+func addressCondition(label, selector, addr string) (string, error) {
+	if addr == "" {
+		return "", nil
+	}
+	if err := validateAddressOrCIDR(addr); err != nil {
+		return "", fmt.Errorf("%s: %w", label, err)
+	}
+	return fmt.Sprintf("%s %s %s", addressFamilyMatcher(addr), selector, addr), nil
+}
+
+// protocolCondition matches the protocol, with the destination port when
+// one is set, or returns "" when no protocol is set.
+func protocolCondition(r config.FirewallRule) (string, error) {
+	if r.Protocol == "" {
+		return "", nil
+	}
+	if r.Protocol != "tcp" && r.Protocol != "udp" && r.Protocol != "icmp" {
+		return "", fmt.Errorf("unsupported protocol %q", r.Protocol)
+	}
+	if r.Port <= 0 {
+		return fmt.Sprintf("meta l4proto %s", r.Protocol), nil
+	}
+	if err := netutil.ValidatePort(r.Port); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s dport %d", r.Protocol, r.Port), nil
 }
 
 func validateAddressOrCIDR(s string) error {
@@ -682,62 +760,101 @@ func (s *FirewallService) buildTemplateData() *nftTemplateData {
 	data.CustomOutputRules = custom.Output
 	data.OpenPortRules = s.buildOpenPortRules()
 
-	// 6in4 wiring: when the operator selected mode "6in4" and provided
-	// at least the ServerIPv4 + a tunnel device, expose the sit
-	// interface as an IPv6-only WAN so LAN can forward to it, and
-	// punch the protocol-41 ingress rule for the encapsulated traffic.
-	if s.cfg.IPv6.Mode == "6in4" && s.cfg.IPv6.Enabled != "off" {
-		dev := strings.TrimSpace(s.cfg.IPv6.Tunnel.Device)
-		if dev == "" {
-			dev = "lkt6in4"
-		}
-		data.IPv6WANInterfaces = append(data.IPv6WANInterfaces, nftIface{Device: dev})
-		if srv := strings.TrimSpace(s.cfg.IPv6.Tunnel.ServerIPv4); srv != "" {
-			data.SixInFourEnabled = true
-			data.SixInFourServer = srv
-		}
-	}
+	s.addSixInFour(data)
+	s.addInterfaces(data)
+	data.IsolatedVLANs = s.isolatedVLANs()
+	s.addUSBTether(data)
+	s.addVPNInterfaces(data)
+	return data
+}
 
+// addSixInFour wires the 6in4 tunnel. When the operator selected mode
+// "6in4" and provided at least the ServerIPv4 and a tunnel device, the
+// sit interface is exposed as an IPv6-only WAN so LAN can forward to it,
+// and the protocol-41 ingress rule is punched for the encapsulated
+// traffic.
+func (s *FirewallService) addSixInFour(data *nftTemplateData) {
+	if s.cfg.IPv6.Mode != "6in4" || s.cfg.IPv6.Enabled == "off" {
+		return
+	}
+	dev := strings.TrimSpace(s.cfg.IPv6.Tunnel.Device)
+	if dev == "" {
+		dev = "lkt6in4"
+	}
+	data.IPv6WANInterfaces = append(data.IPv6WANInterfaces, nftIface{Device: dev})
+	if srv := strings.TrimSpace(s.cfg.IPv6.Tunnel.ServerIPv4); srv != "" {
+		data.SixInFourEnabled = true
+		data.SixInFourServer = srv
+	}
+}
+
+// addInterfaces sorts the interfaces into WAN and LAN lists and records
+// the first of each role as the primary device.
+func (s *FirewallService) addInterfaces(data *nftTemplateData) {
 	for _, iface := range s.cfg.Interfaces {
 		switch iface.Role {
 		case "wan":
 			data.WANInterfaces = append(data.WANInterfaces, nftIface{Device: iface.Device})
-			if data.WANDevice == "" {
-				data.WANDevice = iface.Device
-			}
 		case "lan":
 			data.LANInterfaces = append(data.LANInterfaces, nftIface{Device: iface.Device})
-			if data.LANDevice == "" {
-				data.LANDevice = iface.Device
-			}
 		}
 	}
+	data.WANDevice = firstDevice(data.WANInterfaces)
+	data.LANDevice = firstDevice(data.LANInterfaces)
+}
 
+// firstDevice returns the first non-empty device name, or "".
+func firstDevice(ifaces []nftIface) string {
+	for _, iface := range ifaces {
+		if iface.Device != "" {
+			return iface.Device
+		}
+	}
+	return ""
+}
+
+// isolatedVLANs lists the device of every isolated VLAN whose parent
+// interface exists.
+func (s *FirewallService) isolatedVLANs() []nftVLAN {
+	var vlans []nftVLAN
 	for _, vlan := range s.cfg.VLANs {
-		if vlan.Isolated {
-			var parentDev string
-			for _, iface := range s.cfg.Interfaces {
-				if iface.ID == vlan.Parent {
-					parentDev = iface.Device
-					break
-				}
-			}
-			if parentDev != "" {
-				data.IsolatedVLANs = append(data.IsolatedVLANs, nftVLAN{
-					Device: fmt.Sprintf("%s.%d", parentDev, vlan.VID),
-				})
-			}
+		if !vlan.Isolated {
+			continue
+		}
+		if parentDev := s.interfaceDevice(vlan.Parent); parentDev != "" {
+			vlans = append(vlans, nftVLAN{Device: fmt.Sprintf("%s.%d", parentDev, vlan.VID)})
 		}
 	}
+	return vlans
+}
 
-	if s.cfg.USBTether.Enabled && s.cfg.USBTether.NAT {
-		data.USBNATEnabled = true
-		data.USBInterface = s.cfg.USBTether.Interface
-		if data.USBInterface == "" {
-			data.USBInterface = "usb0"
+// interfaceDevice returns the device of the interface with the given ID,
+// or "" when no interface has it.
+func (s *FirewallService) interfaceDevice(id string) string {
+	for _, iface := range s.cfg.Interfaces {
+		if iface.ID == id {
+			return iface.Device
 		}
 	}
+	return ""
+}
 
+// addUSBTether enables NAT out of the tethered interface, usb0 unless
+// another is configured.
+func (s *FirewallService) addUSBTether(data *nftTemplateData) {
+	if !s.cfg.USBTether.Enabled || !s.cfg.USBTether.NAT {
+		return
+	}
+	data.USBNATEnabled = true
+	data.USBInterface = s.cfg.USBTether.Interface
+	if data.USBInterface == "" {
+		data.USBInterface = "usb0"
+	}
+}
+
+// addVPNInterfaces lists the WireGuard server and client interfaces and
+// the OpenVPN server device, tun0 unless another is configured.
+func (s *FirewallService) addVPNInterfaces(data *nftTemplateData) {
 	if s.cfg.VPN.Server.Enabled {
 		data.WGServerEnabled = true
 		data.WGServerIface = "wgs0"
@@ -745,7 +862,6 @@ func (s *FirewallService) buildTemplateData() *nftTemplateData {
 	for i := range s.cfg.VPN.Clients {
 		data.WGClientIfaces = append(data.WGClientIfaces, fmt.Sprintf("wg%d", i))
 	}
-
 	if s.cfg.OpenVPN.Server.Enabled {
 		data.OVPNServerEnabled = true
 		data.OVPNServerIface = s.cfg.OpenVPN.Server.Device
@@ -753,8 +869,6 @@ func (s *FirewallService) buildTemplateData() *nftTemplateData {
 			data.OVPNServerIface = "tun0"
 		}
 	}
-
-	return data
 }
 
 func (s *FirewallService) renderToFile() (string, error) {
