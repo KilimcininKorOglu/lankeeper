@@ -420,21 +420,14 @@ func (s *VPNService) GeneratePeerConfig(peer *config.WGServerPeer, peerPrivKey s
 
 // peerAllowedIPs is what the peer routes into the tunnel: everything for
 // a road-warrior peer, and the LAN and tunnel subnets for a
-// site-to-site peer.
+// site-to-site peer. That peer is a non-LANKeeper device with its own
+// tunnel address in the server subnet, so unlike a wizard link it
+// routes the tunnel subnet as well.
 func (s *VPNService) peerAllowedIPs(peer *config.WGServerPeer) string {
 	if !peer.IsSiteToSite {
 		return "0.0.0.0/0, ::/0"
 	}
-	var localSubnets []string
-	for _, iface := range s.cfg.Interfaces {
-		if iface.Role == "lan" && iface.Address != "" {
-			localSubnets = append(localSubnets, s.addressToSubnet(iface.Address))
-		}
-	}
-	if addr := s.cfg.VPN.Server.Address; addr != "" {
-		localSubnets = append(localSubnets, s.addressToSubnet(addr))
-	}
-	return strings.Join(localSubnets, ", ")
+	return strings.Join(s.reservedSubnets(), ", ")
 }
 
 // addressToSubnet turns an interface address such as 10.20.30.1/16 into

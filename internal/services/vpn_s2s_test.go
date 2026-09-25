@@ -82,7 +82,6 @@ func validInvite(t *testing.T) *S2SInvite {
 		Endpoint:        "203.0.113.5:51820",
 		PublicKey:       testWGKey(t),
 		PresharedKey:    testWGKey(t),
-		TunnelIP:        "10.10.11.2/32",
 		RemoteSubnets:   []string{"10.10.10.0/24"},
 		ExpectedSubnets: []string{"192.168.5.0/24"},
 		ExpiresAt:       time.Now().Add(time.Hour),
@@ -151,6 +150,7 @@ func TestParseInviteRejectsConfigInjection(t *testing.T) {
 		"endpoint port": func(i *S2SInvite) { i.Endpoint = "1.2.3.4:0" },
 		"subnet":        func(i *S2SInvite) { i.RemoteSubnets = []string{"10.0.0.0/24\nPostUp = id"} },
 		"expected":      func(i *S2SInvite) { i.ExpectedSubnets = []string{"nope"} },
+		"no subnets":    func(i *S2SInvite) { i.RemoteSubnets = nil },
 	} {
 		inv := validInvite(t)
 		mutate(inv)
@@ -167,6 +167,11 @@ func TestSubnetsConflictDetectsOverlap(t *testing.T) {
 	}
 	if _, ok := svc.subnetsConflict([]string{"192.168.5.0/24"}); ok {
 		t.Error("disjoint subnet should not conflict")
+	}
+	// The tunnel subnet is not announced, but a peer still may not
+	// claim it: the road-warrior peers live there.
+	if _, ok := svc.subnetsConflict([]string{"10.10.11.0/24"}); !ok {
+		t.Error("the WireGuard server subnet should be reported as conflict")
 	}
 }
 
@@ -202,8 +207,9 @@ func TestGatewayOfSubnet(t *testing.T) {
 	}
 }
 
-// newS2SPeerPair builds two routers that share nothing: separate config
-// files, separate server keys, and different LAN and tunnel subnets.
+// newS2SPeerPair builds two routers that share nothing but the shipped
+// defaults: separate config files and server keys, different LANs, and
+// the same 10.10.11.1/24 tunnel subnet every LANKeeper starts with.
 func newS2SPeerPair(t *testing.T) (a, b *VPNService) {
 	t.Helper()
 	a = newS2STestService(t)
@@ -211,8 +217,96 @@ func newS2SPeerPair(t *testing.T) (a, b *VPNService) {
 	b.cfg.Interfaces = []config.InterfaceConfig{
 		{ID: "lan0", Device: "eth1", Role: "lan", Address: "192.168.5.1/24"},
 	}
-	b.cfg.VPN.Server.Address = "10.10.12.1/24"
 	return a, b
+}
+
+// TestS2SLinkRoutesOnlyTheFarLANs is the regression test for the
+// addressing. The tunnel subnet was announced as a LAN, so two routers
+// on the shipped 10.10.11.0/24 refused each other as overlapping, and a
+// tunnel address taken from the originator's pool ended up in the
+// joining side's AllowedIPs, where its own wgs0 never held it. Each side
+// now routes exactly the other's LANs.
+func TestS2SLinkRoutesOnlyTheFarLANs(t *testing.T) {
+	useGenpskAgent(t)
+	a, b := newS2SPeerPair(t)
+	ctx := context.Background()
+
+	tok, pending, err := a.CreateS2SInvite(ctx, "siteB", "", "203.0.113.5:51820", []string{"192.168.5.0/24"})
+	if err != nil {
+		t.Fatalf("CreateS2SInvite: %v", err)
+	}
+	_, _, joined, err := b.ConsumeInvite(ctx, tok)
+	if err != nil {
+		t.Fatalf("ConsumeInvite with both routers on the default tunnel subnet: %v", err)
+	}
+	if pending.AllowedIPs != "192.168.5.0/24" {
+		t.Errorf("A routes %q to B, want only B's LAN", pending.AllowedIPs)
+	}
+	if joined.AllowedIPs != "10.10.10.0/24" {
+		t.Errorf("B routes %q to A, want only A's LAN", joined.AllowedIPs)
+	}
+}
+
+// TestConsumeRefusesAnInviteExpectingOtherLANs catches a typo on the
+// originating side before it becomes a link that comes up and drops
+// everything: A would accept traffic only from the LANs it expected.
+func TestConsumeRefusesAnInviteExpectingOtherLANs(t *testing.T) {
+	useGenpskAgent(t)
+	a, b := newS2SPeerPair(t)
+	ctx := context.Background()
+
+	tok, _, err := a.CreateS2SInvite(ctx, "siteB", "", "203.0.113.5:51820", []string{"192.168.9.0/24"})
+	if err != nil {
+		t.Fatalf("CreateS2SInvite: %v", err)
+	}
+	if _, _, _, err := b.ConsumeInvite(ctx, tok); !errors.Is(err, ErrPeerSubnetMismatch) {
+		t.Fatalf("got %v, want ErrPeerSubnetMismatch", err)
+	}
+	if n := len(b.cfg.VPN.Server.Peers); n != 0 {
+		t.Errorf("a refused invite left %d peers behind", n)
+	}
+}
+
+// s2sPingAgent records the ping argv and answers success.
+type s2sPingAgent struct{ args []string }
+
+func (a *s2sPingAgent) Call(_ context.Context, method string, params any) (json.RawMessage, error) {
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return nil, err
+	}
+	var p struct {
+		Cmd  string   `json:"cmd"`
+		Args []string `json:"args"`
+	}
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, err
+	}
+	if method == "exec.run" && p.Cmd == "ping" {
+		a.args = p.Args
+	}
+	return []byte(`{"stdout":"","stderr":"","exitCode":0}`), nil
+}
+
+// TestS2SReachabilityPingsFromTheLAN pins the probe's source. The far
+// side's WireGuard accepts tunnel traffic only from this router's LANs,
+// so a probe sourced from the wgs0 address was dropped there however
+// healthy the link was.
+func TestS2SReachabilityPingsFromTheLAN(t *testing.T) {
+	agent := &s2sPingAgent{}
+	netutil.SetAgentClient(agent)
+	t.Cleanup(func() { netutil.SetAgentClient(nil) })
+
+	svc := newS2STestService(t)
+	svc.cfg.VPN.Server.Peers = []config.WGServerPeer{
+		{Name: "siteB", PublicKey: testWGKey(t), AllowedIPs: "192.168.5.0/24", RemoteSubnets: []string{"192.168.5.0/24"}, IsSiteToSite: true},
+	}
+	if err := svc.S2SReachability(context.Background(), "siteB"); err != nil {
+		t.Fatalf("S2SReachability: %v", err)
+	}
+	if got := strings.Join(agent.args, " "); got != "-c 1 -W 2 -I 10.10.10.1 192.168.5.1" {
+		t.Errorf("ping %s, want the probe sent from the LAN address", got)
+	}
 }
 
 // TestS2SHandshakeAcrossTwoRouters is the regression test. Both tokens

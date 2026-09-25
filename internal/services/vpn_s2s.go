@@ -71,7 +71,6 @@ type S2SInvite struct {
 	Endpoint        string    `json:"endpoint"`
 	PublicKey       string    `json:"publicKey"`
 	PresharedKey    string    `json:"presharedKey,omitempty"`
-	TunnelIP        string    `json:"tunnelIP"`
 	RemoteSubnets   []string  `json:"remoteSubnets"`
 	ExpectedSubnets []string  `json:"expectedSubnets,omitempty"`
 	CreatedAt       time.Time `json:"createdAt"`
@@ -104,6 +103,7 @@ var (
 	ErrPeerNotPending      = errors.New("s2s peer is not in pending state")
 	ErrPeerSubnetConflict  = errors.New("s2s peer subnet conflicts with a local subnet")
 	ErrPeerNameInUse       = errors.New("a peer with that name already exists")
+	ErrPeerSubnetMismatch  = errors.New("s2s invite expects LAN subnets this router does not have")
 	ErrS2SServerKeyMissing = errors.New("the WireGuard server has no key pair; set up the server before a site-to-site link")
 )
 
@@ -183,6 +183,11 @@ func validateInvite(inv *S2SInvite) error {
 	}
 	if err := validateS2SEndpoint(inv.Endpoint); err != nil {
 		return err
+	}
+	// Either list empty would render a peer with no AllowedIPs, which
+	// routes nothing and which wg-quick refuses to parse.
+	if len(inv.RemoteSubnets) == 0 || len(inv.ExpectedSubnets) == 0 {
+		return errors.New("the invite names no LAN subnets")
 	}
 	return validateSubnetList(append(slices.Clone(inv.RemoteSubnets), inv.ExpectedSubnets...))
 }
@@ -288,10 +293,14 @@ func verifyAck(body, mac []byte, psk string) error {
 	return nil
 }
 
-// localSubnets returns the LAN-side CIDRs this router is willing to
-// announce over a site-to-site tunnel: every interface with
-// Role == "lan" plus the WireGuard server address itself.
-func (s *VPNService) localSubnets() []string {
+// lanSubnets returns the networks of every interface with Role "lan".
+// These are what a site-to-site link announces and routes.
+//
+// The WireGuard server subnet is not among them. Every LANKeeper ships
+// with the same one, so announcing it made two default routers conflict
+// on the first join, and the far side could not route it anyway while
+// its own road-warrior peers used the same addresses.
+func (s *VPNService) lanSubnets() []string {
 	var out []string
 	for _, iface := range s.cfg.Interfaces {
 		if iface.Role != "lan" || iface.Address == "" {
@@ -299,10 +308,34 @@ func (s *VPNService) localSubnets() []string {
 		}
 		out = append(out, s.addressToSubnet(iface.Address))
 	}
+	return out
+}
+
+// reservedSubnets is every network this router already routes locally:
+// its LANs plus the WireGuard server subnet. A peer may claim none of
+// them.
+func (s *VPNService) reservedSubnets() []string {
+	out := s.lanSubnets()
 	if addr := s.cfg.VPN.Server.Address; addr != "" {
 		out = append(out, s.addressToSubnet(addr))
 	}
 	return out
+}
+
+// sameSubnets reports whether two CIDR lists name the same set of
+// networks, ignoring order and host bits.
+func sameSubnets(a, b []string) bool {
+	canon := func(list []string) []string {
+		out := make([]string, 0, len(list))
+		for _, cidr := range list {
+			if _, n, err := net.ParseCIDR(strings.TrimSpace(cidr)); err == nil {
+				out = append(out, n.String())
+			}
+		}
+		slices.Sort(out)
+		return slices.Compact(out)
+	}
+	return slices.Equal(canon(a), canon(b))
 }
 
 // nextTunnelIP picks the lowest free host address in the server's
@@ -351,11 +384,11 @@ func nextIP(ip net.IP) net.IP {
 	return out
 }
 
-// subnetsConflict reports whether `remote` overlaps any of the
-// local LAN subnets. Conflict means a S2S tunnel cannot route
+// subnetsConflict reports whether `remote` overlaps any network this
+// router routes locally. Conflict means a S2S tunnel cannot route
 // without NAT and we surface the error to the operator early.
 func (s *VPNService) subnetsConflict(remote []string) (string, bool) {
-	locals := s.localSubnets()
+	locals := s.reservedSubnets()
 	for _, r := range remote {
 		_, rNet, err := net.ParseCIDR(strings.TrimSpace(r))
 		if err != nil {
@@ -394,23 +427,16 @@ func (s *VPNService) CreateS2SInvite(
 	if err != nil {
 		return "", nil, fmt.Errorf("psk: %w", err)
 	}
-	tunnelIP, err := s.nextTunnelIP()
-	if err != nil {
-		return "", nil, err
-	}
-
-	allowed := tunnelIP
-	if len(expectedRemote) > 0 {
-		allowed = tunnelIP + ", " + strings.Join(expectedRemote, ", ")
-	}
 
 	now := time.Now().UTC().Truncate(time.Second)
 	expires := now.Add(inviteDefaultTTL)
 
+	// A site-to-site peer gets no tunnel address: the link carries LAN
+	// to LAN traffic only, so it routes exactly the far side's LANs.
 	pending := config.WGServerPeer{
 		Name:            peerName,
 		PresharedKey:    psk,
-		AllowedIPs:      allowed,
+		AllowedIPs:      strings.Join(expectedRemote, ", "),
 		Keepalive:       25,
 		RemoteSubnets:   append([]string(nil), expectedRemote...),
 		IsSiteToSite:    true,
@@ -439,8 +465,7 @@ func (s *VPNService) CreateS2SInvite(
 		Endpoint:        endpoint,
 		PublicKey:       s.cfg.VPN.Server.PublicKey,
 		PresharedKey:    psk,
-		TunnelIP:        tunnelIP,
-		RemoteSubnets:   s.localSubnets(),
+		RemoteSubnets:   s.lanSubnets(),
 		ExpectedSubnets: append([]string(nil), expectedRemote...),
 		CreatedAt:       now,
 		ExpiresAt:       expires,
@@ -469,6 +494,9 @@ func (s *VPNService) validateInviteRequest(peerName, endpoint string, expectedRe
 	if s.cfg.VPN.Server.PublicKey == "" {
 		return ErrS2SServerKeyMissing
 	}
+	if len(expectedRemote) == 0 || len(s.lanSubnets()) == 0 {
+		return errors.New("a site-to-site link needs a LAN subnet on each side")
+	}
 	if conflict, ok := s.subnetsConflict(expectedRemote); ok {
 		return fmt.Errorf("%w: %s", ErrPeerSubnetConflict, conflict)
 	}
@@ -496,25 +524,17 @@ func (s *VPNService) ConsumeInvite(
 	if pub == "" {
 		return "", "", nil, ErrS2SServerKeyMissing
 	}
-
-	// The joining side's "remote subnets" are the originator's
-	// local LAN subnets (RemoteSubnets in the invite payload).
-	if conflict, ok := s.subnetsConflict(inv.RemoteSubnets); ok {
-		return "", "", nil, fmt.Errorf("%w: %s", ErrPeerSubnetConflict, conflict)
+	if err := s.checkInviteSubnets(inv); err != nil {
+		return "", "", nil, err
 	}
 
-	// Register the originating router as a peer on the joining
-	// side. AllowedIPs = invite.TunnelIP + invite.RemoteSubnets.
-	allowed := inv.TunnelIP
-	if len(inv.RemoteSubnets) > 0 {
-		allowed = inv.TunnelIP + ", " + strings.Join(inv.RemoteSubnets, ", ")
-	}
-
+	// Register the originating router as a peer on the joining side,
+	// routing exactly the originator's LANs.
 	peer := config.WGServerPeer{
 		Name:          inv.Name,
 		PublicKey:     inv.PublicKey,
 		PresharedKey:  inv.PresharedKey,
-		AllowedIPs:    allowed,
+		AllowedIPs:    strings.Join(inv.RemoteSubnets, ", "),
 		Keepalive:     25,
 		Endpoint:      inv.Endpoint,
 		RemoteSubnets: append([]string(nil), inv.RemoteSubnets...),
@@ -546,6 +566,23 @@ func (s *VPNService) ConsumeInvite(
 	}
 	saved := peer
 	return ackToken, pub, &saved, nil
+}
+
+// checkInviteSubnets refuses an invite whose subnets cannot route. The
+// originator expects this router to announce ExpectedSubnets and will
+// accept traffic only from them, so any difference from this router's
+// real LANs is a link that comes up and silently drops traffic. The
+// originator's own LANs (RemoteSubnets) must not overlap anything this
+// router already routes.
+func (s *VPNService) checkInviteSubnets(inv *S2SInvite) error {
+	if local := s.lanSubnets(); !sameSubnets(inv.ExpectedSubnets, local) {
+		return fmt.Errorf("%w: the invite expects %s, this router's LANs are %s",
+			ErrPeerSubnetMismatch, strings.Join(inv.ExpectedSubnets, ", "), strings.Join(local, ", "))
+	}
+	if conflict, ok := s.subnetsConflict(inv.RemoteSubnets); ok {
+		return fmt.Errorf("%w: %s", ErrPeerSubnetConflict, conflict)
+	}
+	return nil
 }
 
 // FinalizeInvite is invoked on the originating side once the
@@ -757,9 +794,9 @@ func (s *VPNService) S2SHealth(ctx context.Context, peerName string) (*S2SHealth
 	return info, nil
 }
 
-// S2SReachability fires a single ICMP echo to the .1 address of
-// the first remote subnet via the wgs0 interface. Bounded to a 2s
-// total budget so the UI doesn't hang.
+// S2SReachability fires a single ICMP echo from this router's LAN
+// address to the .1 address of the first remote subnet. Bounded to a
+// 3s total budget so the UI doesn't hang.
 func (s *VPNService) S2SReachability(ctx context.Context, peerName string) error {
 	peer := s.findS2SPeer(peerName)
 	if peer == nil {
@@ -772,13 +809,34 @@ func (s *VPNService) S2SReachability(ctx context.Context, peerName string) error
 	if err != nil {
 		return err
 	}
+	source, err := s.lanSourceIP()
+	if err != nil {
+		return err
+	}
 	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	_, err = netutil.RunSimple(pingCtx, "ping", "-c", "1", "-W", "2", "-I", "wgs0", target)
+	_, err = netutil.RunSimple(pingCtx, "ping", "-c", "1", "-W", "2", "-I", source, target)
 	if err != nil {
-		return fmt.Errorf("ping %s via wgs0: %w", target, err)
+		return fmt.Errorf("ping %s from %s: %w", target, source, err)
 	}
 	return nil
+}
+
+// lanSourceIP returns the address of the first LAN interface. The far
+// side accepts tunnel traffic only from this router's LANs, so a probe
+// sent from the wgs0 address would be dropped by WireGuard there.
+func (s *VPNService) lanSourceIP() (string, error) {
+	for _, iface := range s.cfg.Interfaces {
+		if iface.Role != "lan" || iface.Address == "" {
+			continue
+		}
+		ip, _, err := net.ParseCIDR(strings.TrimSpace(iface.Address))
+		if err != nil {
+			return "", fmt.Errorf("parse LAN address %q: %w", iface.Address, err)
+		}
+		return ip.String(), nil
+	}
+	return "", errors.New("no LAN interface address to send the probe from")
 }
 
 // findS2SPeer returns the named site-to-site peer (active or
