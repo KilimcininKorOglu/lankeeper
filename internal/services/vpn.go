@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -442,16 +443,19 @@ func (s *VPNService) peerAllowedIPs(peer *config.WGServerPeer) string {
 	return strings.Join(localSubnets, ", ")
 }
 
+// addressToSubnet turns an interface address such as 10.20.30.1/16 into
+// its network, 10.20.0.0/16. An IPv4 address without a mask is taken as
+// a /24. A value that does not parse is returned unchanged.
 func (s *VPNService) addressToSubnet(addr string) string {
-	if idx := strings.LastIndex(addr, "."); idx != -1 {
-		slashIdx := strings.Index(addr, "/")
-		mask := "/24"
-		if slashIdx != -1 {
-			mask = addr[slashIdx:]
-		}
-		return addr[:idx] + ".0" + mask
+	addr = strings.TrimSpace(addr)
+	if !strings.Contains(addr, "/") && strings.Contains(addr, ".") {
+		addr += "/24"
 	}
-	return addr
+	_, ipNet, err := net.ParseCIDR(addr)
+	if err != nil {
+		return addr
+	}
+	return ipNet.String()
 }
 
 func (s *VPNService) findClient(name string) (int, *config.WGClientTunnel) {

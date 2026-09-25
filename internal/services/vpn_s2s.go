@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -312,25 +313,50 @@ func (s *VPNService) localSubnets() []string {
 	return out
 }
 
-// nextTunnelIP picks the lowest unused /32 inside 10.10.11.0/24
-// for a freshly issued peer. Skips the server address (.1) and any
-// already-allocated peer.
+// nextTunnelIP picks the lowest free host address in the server's
+// tunnel subnet for a freshly issued peer. It skips the network and
+// broadcast addresses, the server's own address and every allocated
+// peer.
 func (s *VPNService) nextTunnelIP() (string, error) {
-	used := map[string]struct{}{
-		"10.10.11.1": {},
+	serverIP, pool, err := net.ParseCIDR(strings.TrimSpace(s.cfg.VPN.Server.Address))
+	if err != nil {
+		return "", fmt.Errorf("parse WireGuard server address %q: %w", s.cfg.VPN.Server.Address, err)
 	}
-	for _, p := range s.cfg.VPN.Server.Peers {
-		ip, _, _ := strings.Cut(p.AllowedIPs, "/")
-		ip = strings.SplitN(strings.TrimSpace(ip), ",", 2)[0]
-		used[strings.TrimSpace(ip)] = struct{}{}
-	}
-	for n := 2; n < 255; n++ {
-		candidate := fmt.Sprintf("10.10.11.%d", n)
-		if _, taken := used[candidate]; !taken {
-			return candidate + "/32", nil
+	used := s.usedTunnelIPs()
+	used[serverIP.String()] = struct{}{}
+	for ip := nextIP(pool.IP); pool.Contains(ip); ip = nextIP(ip) {
+		if !pool.Contains(nextIP(ip)) {
+			break // the broadcast address
+		}
+		if _, taken := used[ip.String()]; !taken {
+			return ip.String() + "/32", nil
 		}
 	}
-	return "", errors.New("no free tunnel IPs in 10.10.11.0/24")
+	return "", fmt.Errorf("no free tunnel IPs in %s", pool)
+}
+
+// usedTunnelIPs collects the tunnel address of every peer, which is
+// the first entry of its AllowedIPs.
+func (s *VPNService) usedTunnelIPs() map[string]struct{} {
+	used := map[string]struct{}{}
+	for _, p := range s.cfg.VPN.Server.Peers {
+		first, _, _ := strings.Cut(p.AllowedIPs, ",")
+		ip, _, _ := strings.Cut(strings.TrimSpace(first), "/")
+		used[ip] = struct{}{}
+	}
+	return used
+}
+
+// nextIP returns the address after ip.
+func nextIP(ip net.IP) net.IP {
+	out := slices.Clone(ip)
+	for i := len(out) - 1; i >= 0; i-- {
+		out[i]++
+		if out[i] != 0 {
+			break
+		}
+	}
+	return out
 }
 
 // subnetsConflict reports whether `remote` overlaps any of the
