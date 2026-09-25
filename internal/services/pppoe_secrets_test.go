@@ -1,11 +1,39 @@
 package services
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 )
+
+// TestPPPoERefusesCredentialsThatLeaveTheirField is the regression test.
+// The username was rendered into `user "..."` unescaped, so a newline in
+// it added a pppd option such as connect, which pppd runs as root, and
+// nothing was written before the check could refuse it.
+func TestPPPoERefusesCredentialsThatLeaveTheirField(t *testing.T) {
+	agent := &fstabAgent{content: shippedChapSecrets}
+	useFstabAgent(t, agent)
+
+	for _, c := range []struct{ user, pass string }{
+		{"isp\"\nconnect \"/bin/sh -c id", "pass"},
+		{`isp\user`, "pass"},
+		{"isp-user", "pa\nss"},
+	} {
+		svc := pppoeSecretsService(c.user, c.pass)
+		svc.cfg.Interfaces = []config.InterfaceConfig{{ID: "wan", Device: "eth0", Role: "wan"}}
+		if err := svc.renderConfig(); !errors.Is(err, ErrInvalidPPPoECredentials) {
+			t.Errorf("user %q pass %q: err = %v, want ErrInvalidPPPoECredentials", c.user, c.pass, err)
+		}
+	}
+	if agent.writes != 0 {
+		t.Errorf("refused credentials reached %d file writes", agent.writes)
+	}
+	if err := validatePPPoECredentials("user@isp.example", `p"a\ss wörd`); err != nil {
+		t.Errorf("an ordinary username and password were refused: %v", err)
+	}
+}
 
 const shippedChapSecrets = "# Secrets for authentication using CHAP\n" +
 	"# client\tserver\tsecret\t\t\tIP addresses\n" +

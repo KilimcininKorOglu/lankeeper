@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"text/template"
+	"unicode"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
@@ -154,7 +156,30 @@ type peerTemplateData struct {
 	IPv6CP          bool
 }
 
+// ErrInvalidPPPoECredentials reports a username or password that cannot
+// be written into the pppd peer and secrets files as a single value.
+var ErrInvalidPPPoECredentials = errors.New("invalid pppoe credentials")
+
+// validatePPPoECredentials refuses what would let a value leave its
+// quoted field. The username reaches `user "..."` in the peer file
+// unescaped, where a newline starts a new pppd option (connect, plugin)
+// that pppd runs as root, and a quote or backslash ends or escapes the
+// field. Both values reach the secrets files through %q, which is safe
+// for pppd only while they hold no control characters.
+func validatePPPoECredentials(user, pass string) error {
+	if strings.ContainsAny(user, `"\`) || strings.ContainsFunc(user, unicode.IsControl) {
+		return fmt.Errorf("%w: username", ErrInvalidPPPoECredentials)
+	}
+	if strings.ContainsFunc(pass, unicode.IsControl) {
+		return fmt.Errorf("%w: password", ErrInvalidPPPoECredentials)
+	}
+	return nil
+}
+
 func (s *PPPoEService) renderConfig() error {
+	if err := validatePPPoECredentials(s.cfg.PPPoE.Username, s.cfg.PPPoE.Password); err != nil {
+		return err
+	}
 	wanDevice := firstRoleDevice(s.cfg.Interfaces, "wan")
 	if wanDevice == "" {
 		return fmt.Errorf("no WAN interface configured")
