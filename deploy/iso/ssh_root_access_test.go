@@ -256,47 +256,10 @@ func TestThePromptTextSurvivesPrintf(t *testing.T) {
 // template missing its Type or Description loads as a question cdebconf
 // will never display, and the installer would silently skip asking.
 func TestTheRenderedTemplatesAreWellFormed(t *testing.T) {
-	raw, err := os.ReadFile("preseed.cfg")
-	if err != nil {
-		t.Fatalf("read preseed.cfg: %v", err)
-	}
-	body := string(raw)
-
-	start := strings.Index(body, "printf 'Template:")
-	if start < 0 {
-		t.Fatal("the template printf is gone")
-	}
-	end := strings.Index(body[start:], "> /tmp/hr.tmpl")
-	if end < 0 {
-		t.Fatal("could not find the end of the template printf")
-	}
-	// Drop the trailing redirection and run the printf on its own.
-	stmt := strings.TrimSpace(body[start : start+end])
-
-	out, err := exec.Command("bash", "-c", stmt).Output()
-	if err != nil {
-		t.Fatalf("the template printf does not run: %v", err)
-	}
-
-	blocks := strings.Split(strings.TrimSpace(string(out)), "\n\n")
+	blocks := strings.Split(strings.TrimSpace(renderTemplatePrintf(t)), "\n\n")
 	seen := make(map[string]map[string]bool, len(blocks))
 	for _, block := range blocks {
-		fields := make(map[string]bool)
-		var name string
-		for line := range strings.SplitSeq(block, "\n") {
-			if strings.HasPrefix(line, " ") {
-				continue // continuation of the extended description
-			}
-			key, value, found := strings.Cut(line, ": ")
-			if !found {
-				t.Errorf("not a template field: %q", line)
-				continue
-			}
-			fields[key] = true
-			if key == "Template" {
-				name = value
-			}
-		}
+		name, fields := parseTemplateBlock(t, block)
 		if name == "" {
 			t.Errorf("a template block has no name:\n%s", block)
 			continue
@@ -314,4 +277,54 @@ func TestTheRenderedTemplatesAreWellFormed(t *testing.T) {
 	if !q["Default"] {
 		t.Error("the SSH question has no Default, so the safer answer is not preselected")
 	}
+}
+
+// renderTemplatePrintf runs the template printf from preseed.cfg on its
+// own, without the trailing redirection, and returns what it prints.
+func renderTemplatePrintf(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile("preseed.cfg")
+	if err != nil {
+		t.Fatalf("read preseed.cfg: %v", err)
+	}
+	body := string(raw)
+
+	start := strings.Index(body, "printf 'Template:")
+	if start < 0 {
+		t.Fatal("the template printf is gone")
+	}
+	end := strings.Index(body[start:], "> /tmp/hr.tmpl")
+	if end < 0 {
+		t.Fatal("could not find the end of the template printf")
+	}
+	stmt := strings.TrimSpace(body[start : start+end])
+
+	out, err := exec.Command("bash", "-c", stmt).Output()
+	if err != nil {
+		t.Fatalf("the template printf does not run: %v", err)
+	}
+	return string(out)
+}
+
+// parseTemplateBlock returns a debconf template's name and the set of
+// fields it carries. Indented lines continue the extended description.
+func parseTemplateBlock(t *testing.T, block string) (string, map[string]bool) {
+	t.Helper()
+	fields := make(map[string]bool)
+	var name string
+	for line := range strings.SplitSeq(block, "\n") {
+		if strings.HasPrefix(line, " ") {
+			continue
+		}
+		key, value, found := strings.Cut(line, ": ")
+		if !found {
+			t.Errorf("not a template field: %q", line)
+			continue
+		}
+		fields[key] = true
+		if key == "Template" {
+			name = value
+		}
+	}
+	return name, fields
 }
