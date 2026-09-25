@@ -258,7 +258,7 @@ func TestBackupOrchestratorRequiresTargets(t *testing.T) {
 func TestBackupOrchestratorRecordsFailureToDisk(t *testing.T) {
 	cfgDir := t.TempDir()
 	cfgPath := filepath.Join(cfgDir, "router.yaml")
-	cfg := &config.Config{}
+	cfg := config.DefaultConfig()
 	cfg.SetFilePath(cfgPath)
 	cfg.Backup = config.BackupConfig{
 		Enabled:   true,

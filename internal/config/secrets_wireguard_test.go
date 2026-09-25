@@ -19,7 +19,7 @@ func wgSecretsConfig(t *testing.T) (*config.Config, string) {
 	t.Setenv("LANKEEPER_CONFIG_KEY", filepath.Join(dir, "config.key"))
 
 	path := filepath.Join(dir, "router.yaml")
-	cfg := &config.Config{}
+	cfg := config.DefaultConfig()
 	cfg.SetFilePath(path)
 	cfg.VPN.Server.PrivateKey = "SERVER-PRIVATE-KEY"
 	cfg.VPN.Server.PublicKey = "SERVER-PUBLIC-KEY"
@@ -147,7 +147,7 @@ func TestPeerWithoutAStoredKeyStillLoads(t *testing.T) {
 	t.Setenv("LANKEEPER_CONFIG_KEY", filepath.Join(dir, "config.key"))
 	path := filepath.Join(dir, "router.yaml")
 
-	cfg := &config.Config{}
+	cfg := config.DefaultConfig()
 	cfg.SetFilePath(path)
 	cfg.VPN.Server.Peers = []config.WGServerPeer{
 		{Name: "legacy", PublicKey: "PEER-PUB", AllowedIPs: "10.10.11.2/32"},

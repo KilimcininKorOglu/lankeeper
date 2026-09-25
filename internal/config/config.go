@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -679,6 +680,14 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg.decryptSecretsInPlace()
+
+	// Refuse a config the services cannot act on. Every service reads
+	// these fields without checking them again, so a bad value would
+	// otherwise surface later as a daemon that fails to start or a
+	// feature that silently does nothing.
+	if errs := cfg.Validate(); len(errs) > 0 {
+		return nil, fmt.Errorf("invalid config %s: %w", path, errors.Join(errs...))
+	}
 
 	cfg.filePath = path
 	return cfg, nil

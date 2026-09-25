@@ -20,7 +20,7 @@ func secretsEnv(t *testing.T) (cfgPath, keyPath string) {
 }
 
 func backupConfigWithSecrets(path string) *config.Config {
-	cfg := &config.Config{}
+	cfg := config.DefaultConfig()
 	cfg.SetFilePath(path)
 	cfg.Backup.Enabled = true
 	cfg.Backup.Schedule = "@daily"
@@ -103,6 +103,9 @@ func TestLoadDecryptsBackupSecrets(t *testing.T) {
 func TestLoadAcceptsLegacyCleartextThenEncrypts(t *testing.T) {
 	cfgPath, _ := secretsEnv(t)
 	legacy := "" +
+		"system:\n" +
+		"  hostname: router\n" +
+		"  webPort: 8443\n" +
 		"backup:\n" +
 		"  enabled: true\n" +
 		"  passphrase: legacy-passphrase\n" +
@@ -222,7 +225,7 @@ func TestKeyFileIsOwnerReadableOnly(t *testing.T) {
 // configures a backup from growing a key file it has no use for.
 func TestSaveWithoutSecretsCreatesNoKey(t *testing.T) {
 	cfgPath, keyPath := secretsEnv(t)
-	cfg := &config.Config{}
+	cfg := config.DefaultConfig()
 	cfg.SetFilePath(cfgPath)
 	cfg.System.Hostname = "router"
 
@@ -240,7 +243,7 @@ func TestSaveWithoutSecretsCreatesNoKey(t *testing.T) {
 func TestDNSChallengeTokenRoundTripsEncrypted(t *testing.T) {
 	path, _ := secretsEnv(t)
 
-	cfg := &config.Config{}
+	cfg := config.DefaultConfig()
 	cfg.SetFilePath(path)
 	cfg.System.TLS.ACME.DNSChallenge.Provider = "cloudflare"
 	cfg.System.TLS.ACME.DNSChallenge.APIToken = "cf-live-token"
@@ -280,7 +283,7 @@ func TestDNSChallengeTokenRoundTripsEncrypted(t *testing.T) {
 func TestUnreadableDNSChallengeTokenIsClearedNotFatal(t *testing.T) {
 	path, keyPath := secretsEnv(t)
 
-	cfg := &config.Config{}
+	cfg := config.DefaultConfig()
 	cfg.SetFilePath(path)
 	cfg.System.TLS.ACME.DNSChallenge.APIToken = "cf-live-token"
 	if err := cfg.SaveToFile(); err != nil {

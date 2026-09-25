@@ -3,10 +3,29 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 )
+
+// TestLoadRefusesAnInvalidConfig is the regression test. Validate
+// existed but nothing called it, so a config naming a QoS profile or an
+// interface role no service understands loaded without complaint and
+// failed later, far from its cause.
+func TestLoadRefusesAnInvalidConfig(t *testing.T) {
+	t.Setenv("LANKEEPER_CONFIG_KEY", filepath.Join(t.TempDir(), "config.key"))
+	path := filepath.Join(t.TempDir(), "router.yaml")
+	cfg := config.DefaultConfig()
+	cfg.QoS.Profile = "gaming"
+	if err := config.Save(path, cfg); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	_, err := config.Load(path)
+	if err == nil || !strings.Contains(err.Error(), "qos.profile") {
+		t.Fatalf("Load = %v, want an error naming qos.profile", err)
+	}
+}
 
 func TestLoadSaveRoundTrip(t *testing.T) {
 	dir := t.TempDir()
