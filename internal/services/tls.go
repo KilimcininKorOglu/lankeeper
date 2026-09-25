@@ -203,45 +203,13 @@ func (s *TLSService) issueSelfSigned(_ context.Context, cn string, sans []string
 // client. The CA is created on first issuance either way, and the
 // operator installs it on their own devices from the download below.
 func (s *TLSService) EnableMkcert(ctx context.Context, sans []string) (*config.TLSCertInfo, error) {
-	if len(sans) == 0 {
-		return nil, ErrNoSANs
-	}
-	if len(sans) > maxSANs {
-		return nil, ErrTooManySANs
-	}
-	for _, san := range sans {
-		if err := ValidateSAN(san); err != nil {
-			return nil, err
-		}
+	if err := validateSANs(sans); err != nil {
+		return nil, err
 	}
 
-	caRoot := filepath.Join(s.dataDir, "mkcert")
-	if err := netutil.MkdirAll(caRoot, 0o755); err != nil {
-		return nil, fmt.Errorf("create mkcert root: %w", err)
-	}
-	stageCert := filepath.Join(caRoot, "staged.crt")
-	stageKey := filepath.Join(caRoot, "staged.key")
-
-	args := append([]string{"-cert-file", stageCert, "-key-file", stageKey}, sans...)
-	if _, err := netutil.Run(ctx, "mkcert", args...); err != nil {
-		return nil, fmt.Errorf("issue mkcert certificate: %w", err)
-	}
-	// The staged pair is removed whatever happens next. Leaving a
-	// readable private key behind on a failure is the worst outcome of
-	// this function, and it is the one nothing else would notice.
-	defer func() {
-		if _, err := netutil.Run(context.WithoutCancel(ctx), "rm", "-f", stageCert, stageKey); err != nil {
-			log.Printf("tls: remove staged mkcert pair: %v", err)
-		}
-	}()
-
-	certPEM, err := netutil.ReadFile(stageCert)
+	certPEM, keyPEM, err := s.issueMkcertPair(ctx, sans)
 	if err != nil {
-		return nil, fmt.Errorf("read issued certificate: %w", err)
-	}
-	keyPEM, err := netutil.ReadFile(stageKey)
-	if err != nil {
-		return nil, fmt.Errorf("read issued key: %w", err)
+		return nil, err
 	}
 
 	next := s.cfg.System.TLS
@@ -262,6 +230,58 @@ func (s *TLSService) EnableMkcert(ctx context.Context, sans []string) (*config.T
 		return nil, fmt.Errorf("persist tls settings: %w", err)
 	}
 	return info, nil
+}
+
+// validateSANs checks the count and every name before any reaches
+// mkcert's argument list.
+func validateSANs(sans []string) error {
+	if len(sans) == 0 {
+		return ErrNoSANs
+	}
+	if len(sans) > maxSANs {
+		return ErrTooManySANs
+	}
+	for _, san := range sans {
+		if err := ValidateSAN(san); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// issueMkcertPair has mkcert write a pair into the staging files under
+// the CA root and returns both PEM blocks. The staged files are removed
+// on every path out.
+func (s *TLSService) issueMkcertPair(ctx context.Context, sans []string) (certPEM, keyPEM []byte, err error) {
+	caRoot := filepath.Join(s.dataDir, "mkcert")
+	if err := netutil.MkdirAll(caRoot, 0o755); err != nil {
+		return nil, nil, fmt.Errorf("create mkcert root: %w", err)
+	}
+	stageCert := filepath.Join(caRoot, "staged.crt")
+	stageKey := filepath.Join(caRoot, "staged.key")
+
+	args := append([]string{"-cert-file", stageCert, "-key-file", stageKey}, sans...)
+	if _, err := netutil.Run(ctx, "mkcert", args...); err != nil {
+		return nil, nil, fmt.Errorf("issue mkcert certificate: %w", err)
+	}
+	// The staged pair is removed whatever happens next. Leaving a
+	// readable private key behind on a failure is the worst outcome of
+	// this function, and it is the one nothing else would notice.
+	defer func() {
+		if _, err := netutil.Run(context.WithoutCancel(ctx), "rm", "-f", stageCert, stageKey); err != nil {
+			log.Printf("tls: remove staged mkcert pair: %v", err)
+		}
+	}()
+
+	certPEM, err = netutil.ReadFile(stageCert)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read issued certificate: %w", err)
+	}
+	keyPEM, err = netutil.ReadFile(stageKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read issued key: %w", err)
+	}
+	return certPEM, keyPEM, nil
 }
 
 // MkcertCA returns the local CA certificate for the operator to install
