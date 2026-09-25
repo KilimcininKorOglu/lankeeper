@@ -116,6 +116,20 @@ func readPassthrough(params any) (json.RawMessage, error) {
 	}{Content: string(body)})
 }
 
+// lastWrite returns the body of the last file.write whose path ends in
+// suffix, or "".
+func (f *fakeAgent) lastWrite(suffix string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	body := ""
+	for _, w := range f.writeLog {
+		if strings.HasSuffix(w.Path, suffix) {
+			body = w.Body
+		}
+	}
+	return body
+}
+
 // nftModes reports whether an `nft -c -f` validate and an `nft -f`
 // apply were run.
 func (f *fakeAgent) nftModes() (validate, apply bool) {

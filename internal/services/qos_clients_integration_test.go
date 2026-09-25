@@ -46,41 +46,33 @@ func TestRebuildClientCountersEmitsExpectedNftCalls(t *testing.T) {
 		t.Fatalf("expected qos nft script under /tmp/, writes: %+v", agent.writeLog)
 	}
 
-	var script string
-	for _, w := range agent.writeLog {
-		if strings.HasSuffix(w.Path, "lankeeper-qos.nft") {
-			script = w.Body
+	script := agent.lastWrite("lankeeper-qos.nft")
+	for _, want := range []string{"delete table inet lankeeper_qos", "table inet lankeeper_qos"} {
+		if !strings.Contains(script, want) {
+			t.Errorf("script must carry %q so a reapply flushes and redeclares the table, got:\n%s", want, script)
 		}
 	}
-	if !strings.Contains(script, "delete table inet lankeeper_qos") {
-		t.Errorf("script must flush the table for idempotent reapply, got:\n%s", script)
-	}
-	if !strings.Contains(script, "table inet lankeeper_qos") {
-		t.Errorf("script must declare the table, got:\n%s", script)
-	}
 	// Two unique MACs → two saddr + two daddr rules + four counters.
-	if got := strings.Count(script, "ether saddr "); got != 2 {
-		t.Errorf("expected 2 saddr rules (one per unique MAC), got %d in:\n%s", got, script)
-	}
-	if got := strings.Count(script, "ether daddr "); got != 2 {
-		t.Errorf("expected 2 daddr rules (one per unique MAC), got %d in:\n%s", got, script)
-	}
-	if got := strings.Count(script, "counter cli_"); got != 4 {
-		t.Errorf("expected 4 counter declarations (in+out per MAC), got %d in:\n%s", got, script)
+	for want, n := range map[string]int{"ether saddr ": 2, "ether daddr ": 2, "counter cli_": 4} {
+		if got := strings.Count(script, want); got != n {
+			t.Errorf("expected %d %q entries (duplicate MACs collapse), got %d in:\n%s", n, want, got, script)
+		}
 	}
 
-	// nft -f should be the single exec.run we issued.
-	if got := agent.execCount("nft"); got != 1 {
-		t.Errorf("expected exactly one nft invocation, got %d (calls: %+v)",
-			got, agent.execCallsCopy())
-	}
+	assertSingleNftLoad(t, agent, "lankeeper-qos.nft")
+}
+
+// assertSingleNftLoad checks that the only exec.run was one `nft -f` of
+// the script whose path ends in suffix.
+func assertSingleNftLoad(t *testing.T, agent *fakeAgent, suffix string) {
+	t.Helper()
 	calls := agent.execCallsCopy()
-	if len(calls) == 0 {
-		t.Fatal("no exec calls recorded")
+	if len(calls) != 1 || calls[0].Cmd != "nft" {
+		t.Fatalf("expected exactly one nft invocation, got %+v", calls)
 	}
-	gotArgs := strings.Join(calls[0].Args, " ")
-	if !strings.Contains(gotArgs, "-f") || !strings.Contains(gotArgs, "lankeeper-qos.nft") {
-		t.Errorf("expected `nft -f /tmp/lankeeper-qos.nft`, got: %v", calls[0].Args)
+	args := calls[0].Args
+	if len(args) != 2 || args[0] != "-f" || !strings.HasSuffix(args[1], suffix) {
+		t.Errorf("expected `nft -f .../%s`, got: %v", suffix, args)
 	}
 }
 
@@ -99,12 +91,7 @@ func TestRebuildClientCountersEmptyLeasesFlushes(t *testing.T) {
 		t.Fatalf("RebuildClientCounters(nil): %v", err)
 	}
 
-	var script string
-	for _, w := range agent.writeLog {
-		if strings.HasSuffix(w.Path, "lankeeper-qos.nft") {
-			script = w.Body
-		}
-	}
+	script := agent.lastWrite("lankeeper-qos.nft")
 	if !strings.Contains(script, "delete table inet lankeeper_qos") {
 		t.Errorf("empty rebuild must still flush, got:\n%s", script)
 	}
