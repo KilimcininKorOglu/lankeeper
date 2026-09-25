@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -265,62 +266,94 @@ func httpProbe(ctx context.Context, url string, expectStatus int) error {
 
 func (s *HealthCheckService) executeActions(ctx context.Context, check config.HealthCheckEntry, cooldown time.Duration) {
 	for _, action := range check.Actions {
-		delay, _ := time.ParseDuration(action.Delay)
-		if delay > 0 {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(delay):
-			}
+		if !waitActionDelay(ctx, check.Name, action.Delay) {
+			return
 		}
 
 		log.Printf("health check %s: executing action %s", check.Name, action.Type)
+		s.recordAction(check.Name, action.Type)
 
-		s.mu.Lock()
-		if r, ok := s.results[check.Name]; ok {
-			r.LastAction = action.Type
-			r.LastActionAt = time.Now()
-		}
-		s.mu.Unlock()
-
-		var err error
-		switch action.Type {
-		case "restartInterface":
-			err = s.actionRestartInterface(ctx, check.Interface)
-		case "restartPppoe":
-			err = s.actionRestartPPPoE(ctx)
-		case "failoverUsb":
-			err = s.actionFailoverUSB(ctx)
-		case "rebootSystem":
-			err = s.actionReboot(ctx)
-		default:
-			log.Printf("health check %s: unknown action %s", check.Name, action.Type)
-			continue
-		}
-
-		if err != nil {
+		if err := s.runAction(ctx, check, action.Type); err != nil {
 			log.Printf("health check %s: action %s failed: %v", check.Name, action.Type, err)
 			continue
 		}
 
-		s.mu.Lock()
-		if r, ok := s.results[check.Name]; ok {
-			r.InCooldown = true
-			r.FailureCount = 0
-		}
-		s.mu.Unlock()
-
-		go func() {
-			time.Sleep(cooldown)
-			s.mu.Lock()
-			if r, ok := s.results[check.Name]; ok {
-				r.InCooldown = false
-			}
-			s.mu.Unlock()
-		}()
-
+		s.startCooldown(check.Name, cooldown)
 		return
 	}
+}
+
+// errUnknownHealthAction is returned for an action type no handler
+// implements.
+var errUnknownHealthAction = errors.New("unknown action")
+
+// waitActionDelay waits for the action's configured delay. It returns
+// false when ctx ends first. An unparsable delay is logged and treated
+// as none.
+func waitActionDelay(ctx context.Context, checkName, delaySpec string) bool {
+	if delaySpec == "" {
+		return true
+	}
+	delay, err := time.ParseDuration(delaySpec)
+	if err != nil {
+		log.Printf("health check %s: invalid action delay %q: %v", checkName, delaySpec, err)
+		return true
+	}
+	if delay <= 0 {
+		return true
+	}
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(delay):
+		return true
+	}
+}
+
+// recordAction stores the action type and time on the check's result.
+func (s *HealthCheckService) recordAction(checkName, actionType string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r, ok := s.results[checkName]; ok {
+		r.LastAction = actionType
+		r.LastActionAt = time.Now()
+	}
+}
+
+// runAction runs one recovery action.
+func (s *HealthCheckService) runAction(ctx context.Context, check config.HealthCheckEntry, actionType string) error {
+	switch actionType {
+	case "restartInterface":
+		return s.actionRestartInterface(ctx, check.Interface)
+	case "restartPppoe":
+		return s.actionRestartPPPoE(ctx)
+	case "failoverUsb":
+		return s.actionFailoverUSB(ctx)
+	case "rebootSystem":
+		return s.actionReboot(ctx)
+	default:
+		return fmt.Errorf("%w %s", errUnknownHealthAction, actionType)
+	}
+}
+
+// startCooldown resets the failure count and holds the check in
+// cooldown for the given duration.
+func (s *HealthCheckService) startCooldown(checkName string, cooldown time.Duration) {
+	s.mu.Lock()
+	if r, ok := s.results[checkName]; ok {
+		r.InCooldown = true
+		r.FailureCount = 0
+	}
+	s.mu.Unlock()
+
+	go func() {
+		time.Sleep(cooldown)
+		s.mu.Lock()
+		if r, ok := s.results[checkName]; ok {
+			r.InCooldown = false
+		}
+		s.mu.Unlock()
+	}()
 }
 
 func (s *HealthCheckService) actionRestartInterface(ctx context.Context, ifaceID string) error {
