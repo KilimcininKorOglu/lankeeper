@@ -499,6 +499,8 @@
     "dns.doh.probe": "Test",
     "dns.disableAutoPTR": "Otomatik PTR'ı kapat",
     "dns.disableAutoPTRHint": "Bu kayıt için ters DNS (in-addr.arpa) üretilmesin; upstream'e düşsün",
+    "dns.probeFailed": "Başarısız",
+    "dns.probeOK": "Başarılı",
     "openvpn.pkiNotReady": "PKI başlatılmamış",
     "openvpn.initPki": "PKI Oluştur",
     "pppoe.captureTitle": "PPPoE Kimlik Yakalama",
@@ -678,5 +680,6 @@
     "error.network": "Sunucuya ulaşılamadı.",
     "error.backupRunFailed": "Yedekleme başarısız oldu. Ayrıntılar yedekleme geçmişinde.",
     "error.currentPasswordWrong": "Mevcut yönetici parolası yanlış",
-    "error.peerSubnetNotPrivate": "Uzak subnet özel bir LAN aralığı olmalı (RFC 1918 veya ULA)."
+    "error.peerSubnetNotPrivate": "Uzak subnet özel bir LAN aralığı olmalı (RFC 1918 veya ULA).",
+    "error.duplicateOrderEntry": "Yinelenen kayıt"
 }

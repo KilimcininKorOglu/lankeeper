@@ -251,7 +251,7 @@ func (h *IPv6Handler) HandleSubnetMap(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, dup := seen[name]; dup {
-			http.Error(w, fmt.Sprintf("duplicate entry %q", name), http.StatusBadRequest)
+			clientErrorf(w, r, http.StatusBadRequest, "error.duplicateOrderEntry", name)
 			return
 		}
 		seen[name] = struct{}{}

@@ -100,8 +100,8 @@ func TestProbeDoHCataloguePickReturnsError(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rr := httptest.NewRecorder()
 	h.HandleProbeDoH(rr, req)
-	// 200 with FAIL badge body - probe HTML response, not HTTP error.
-	if !strings.Contains(rr.Body.String(), "FAIL") {
+	// 200 with the failure badge - probe HTML response, not HTTP error.
+	if !strings.Contains(rr.Body.String(), "badge-error") {
 		t.Errorf("body should contain FAIL badge: %s", rr.Body.String())
 	}
 }

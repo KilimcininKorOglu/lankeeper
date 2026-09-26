@@ -84,6 +84,24 @@ func (h *DNSHandler) HandleUpdateBlocklist(w http.ResponseWriter, r *http.Reques
 	respondRefresh(w, r, "/dns")
 }
 
+// writeProbeResult writes the badge a DoT or DoH probe swaps into the
+// page, in the operator's language.
+func writeProbeResult(w http.ResponseWriter, r *http.Request, latency time.Duration, err error) {
+	lang := i18n.LangFromContext(r.Context())
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err != nil {
+		_, _ = fmt.Fprintf(w, `<span class="badge badge-error">%s: %s</span>`,
+			html.EscapeString(i18n.T(lang, "dns.probeFailed")), html.EscapeString(err.Error()))
+		return
+	}
+	// The format arguments are an escaped locale string and an int64
+	// duration. The taint gosec followed is on the error branch above,
+	// which passes through html.EscapeString.
+	// #nosec G705
+	_, _ = fmt.Fprintf(w, `<span class="badge badge-success">%s (%dms)</span>`,
+		html.EscapeString(i18n.T(lang, "dns.probeOK")), latency.Milliseconds())
+}
+
 // HandleProbeDoT runs a one-shot connectivity check against the supplied
 // DoT upstream and returns an inline HTMX-friendly status snippet (small
 // HTML span) so the result lands in the Test button's hx-target.
@@ -98,16 +116,7 @@ func (h *DNSHandler) HandleProbeDoT(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	latency, err := h.dns.ProbeDoT(r.Context(), upstream)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err != nil {
-		_, _ = fmt.Fprintf(w, `<span class="badge badge-error">FAIL: %s</span>`, html.EscapeString(err.Error()))
-		return
-	}
-	// The only format argument is an int64 duration. The taint
-	// gosec followed is on the error branch above, which does
-	// pass through html.EscapeString.
-	// #nosec G705
-	_, _ = fmt.Fprintf(w, `<span class="badge badge-success">OK (%dms)</span>`, latency.Milliseconds())
+	writeProbeResult(w, r, latency, err)
 }
 
 // HandleSaveDoT now drives the radio "encryption mode" with three
@@ -218,16 +227,7 @@ func (h *DNSHandler) HandleProbeDoH(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	latency, err := h.doh.Probe(r.Context(), upstream)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err != nil {
-		_, _ = fmt.Fprintf(w, `<span class="badge badge-error">FAIL: %s</span>`, html.EscapeString(err.Error()))
-		return
-	}
-	// The only format argument is an int64 duration. The taint
-	// gosec followed is on the error branch above, which does
-	// pass through html.EscapeString.
-	// #nosec G705
-	_, _ = fmt.Fprintf(w, `<span class="badge badge-success">OK (%dms)</span>`, latency.Milliseconds())
+	writeProbeResult(w, r, latency, err)
 }
 
 func (h *DNSHandler) HandleAddRecord(w http.ResponseWriter, r *http.Request) {

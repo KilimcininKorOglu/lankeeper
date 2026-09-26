@@ -499,6 +499,8 @@
     "dns.doh.probe": "Test",
     "dns.disableAutoPTR": "Disable auto PTR",
     "dns.disableAutoPTRHint": "Skip the reverse-DNS (in-addr.arpa) entry for this record; let upstream answer",
+    "dns.probeFailed": "Failed",
+    "dns.probeOK": "OK",
     "openvpn.pkiNotReady": "PKI not initialized",
     "openvpn.initPki": "Initialize PKI",
     "pppoe.captureTitle": "PPPoE Credential Capture",
@@ -678,5 +680,6 @@
     "error.network": "The router could not be reached.",
     "error.backupRunFailed": "The backup failed. See the backup history for details.",
     "error.currentPasswordWrong": "The current admin password is wrong",
-    "error.peerSubnetNotPrivate": "A remote subnet must be a private LAN range (RFC 1918 or ULA)."
+    "error.peerSubnetNotPrivate": "A remote subnet must be a private LAN range (RFC 1918 or ULA).",
+    "error.duplicateOrderEntry": "Duplicate entry"
 }
