@@ -236,7 +236,10 @@ func (s *NetworkService) ApplyMACClone(ctx context.Context, device, cloneMAC str
 	// Restored on every start of the web process, which is not only a
 	// boot: taking the WAN down to set the address it already has would
 	// drop the link on each restart.
-	if current, err := os.ReadFile(filepath.Join(sysClassNet, device, "address")); err == nil &&
+	// The device name passed ValidateInterfaceName, so the path stays
+	// under sysClassNet.
+	addrPath := filepath.Join(sysClassNet, device, "address")
+	if current, err := os.ReadFile(addrPath); err == nil && // #nosec G304
 		strings.EqualFold(strings.TrimSpace(string(current)), cloneMAC) {
 		return nil
 	}
