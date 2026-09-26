@@ -11,6 +11,8 @@ import (
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
+	"os"
+	"path/filepath"
 )
 
 type NetworkService struct {
@@ -210,12 +212,26 @@ func (s *NetworkService) countLANExcept(id string) int {
 	return n
 }
 
+// sysClassNet is where the kernel lists network devices. Tests point it
+// elsewhere.
+var sysClassNet = "/sys/class/net"
+
 func (s *NetworkService) ApplyMACClone(ctx context.Context, device, cloneMAC string) error {
 	if cloneMAC == "" {
 		return nil
 	}
 	if err := netutil.ValidateMAC(cloneMAC); err != nil {
 		return err
+	}
+	if err := netutil.ValidateInterfaceName(device); err != nil {
+		return err
+	}
+	// Restored on every start of the web process, which is not only a
+	// boot: taking the WAN down to set the address it already has would
+	// drop the link on each restart.
+	if current, err := os.ReadFile(filepath.Join(sysClassNet, device, "address")); err == nil &&
+		strings.EqualFold(strings.TrimSpace(string(current)), cloneMAC) {
+		return nil
 	}
 
 	if _, err := netutil.Run(ctx, "ip", "link", "set", device, "down"); err != nil {

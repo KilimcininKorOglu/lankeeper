@@ -306,6 +306,9 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 // back in place. Failures are logged, not fatal: DNS, DHCP and the
 // firewall do not depend on either step.
 func (s *Server) loadSavedState(ctx context.Context) {
+	// A cloned MAC (for an ISP bound to the previous router's address)
+	// is lost on reboot; restore it before the VLANs built on top.
+	s.networkSvc.RestoreMACClones(ctx)
 	s.restoreVLANs(ctx)
 	// The site-to-site wizard and every downloaded peer config need the
 	// server public key, so create the pair before the UI can ask for it.
