@@ -488,6 +488,9 @@ func (s *Server) Serve(ctx context.Context) error {
 	// Feeds the DNS query log, top lists and blocked counter.
 	s.dnsSvc.StartQueryLogTail(ctx, &bg)
 
+	// Refreshes the DNS blocklist on its configured schedule.
+	s.dnsSvc.StartBlocklistSchedule(ctx, &bg)
+
 	// Backup scheduler: ticks every 30s, fires runOnce when the
 	// configured cron schedule next matches. No-op when disabled.
 	s.backupSvc.StartScheduler(ctx, s.backupOrch.SnapshotProvider(), &bg)
