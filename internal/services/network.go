@@ -7,7 +7,9 @@ import (
 	"log"
 	"net"
 	"regexp"
+	"slices"
 	"strings"
+	"sync"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
@@ -17,6 +19,11 @@ import (
 
 type NetworkService struct {
 	cfg *config.Config
+
+	// mu makes the VLAN uniqueness check, the list swap and the save one
+	// step, so two concurrent requests cannot both pass the check or
+	// overwrite each other's list.
+	mu sync.Mutex
 }
 
 func NewNetworkService(cfg *config.Config) *NetworkService {
@@ -265,6 +272,43 @@ var ErrInvalidVLAN = errors.New("invalid VLAN")
 // leaseTimePattern is dnsmasq's lease time syntax: a number with an
 // optional unit, or "infinite".
 var leaseTimePattern = regexp.MustCompile(`^([0-9]+[smhdw]?|infinite)$`)
+
+// AddVLAN validates v against the current list and stores it.
+func (s *NetworkService) AddVLAN(v config.VLANConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ValidateVLAN(v); err != nil {
+		return err
+	}
+	return s.storeVLANsLocked(append(slices.Clip(s.cfg.VLANs), v))
+}
+
+// RemoveVLAN deletes the VLAN with the given ID and returns the removed
+// entry. found is false when no VLAN has that ID.
+func (s *NetworkService) RemoveVLAN(id string) (removed config.VLANConfig, found bool, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := slices.IndexFunc(s.cfg.VLANs, func(v config.VLANConfig) bool { return v.ID == id })
+	if i < 0 {
+		return config.VLANConfig{}, false, nil
+	}
+	removed = s.cfg.VLANs[i]
+	return removed, true, s.storeVLANsLocked(slices.Delete(slices.Clone(s.cfg.VLANs), i, i+1))
+}
+
+// storeVLANsLocked stores next as the VLAN list and writes the config.
+// When the write fails it restores the previous list, so the running
+// config does not hold a change the file on disk lacks. next must not
+// share a backing array with the current list. Caller must hold s.mu.
+func (s *NetworkService) storeVLANsLocked(next []config.VLANConfig) error {
+	prev := s.cfg.VLANs
+	s.cfg.VLANs = next
+	if err := s.cfg.SaveToFile(); err != nil {
+		s.cfg.VLANs = prev
+		return fmt.Errorf("save VLANs: %w", err)
+	}
+	return nil
+}
 
 // ValidateVLAN checks a new VLAN entry against the config it joins.
 //

@@ -1,9 +1,9 @@
 package handlers
 
 import (
+	"errors"
 	"log"
 	"net/http"
-	"slices"
 	"strconv"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
@@ -33,13 +33,13 @@ func (h *VLANHandler) HandleAdd(w http.ResponseWriter, r *http.Request) {
 		clientError(w, r, http.StatusBadRequest, key)
 		return
 	}
-	if err := h.network.ValidateVLAN(vlan); err != nil {
+	err := h.network.AddVLAN(vlan)
+	if errors.Is(err, services.ErrInvalidVLAN) {
 		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
-
-	if !h.saveVLANs(append(slices.Clip(h.cfg.VLANs), vlan)) {
-		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+	if err != nil {
+		serverError(w, r, "error.saveFailed", err)
 		return
 	}
 
@@ -102,19 +102,15 @@ func (h *VLANHandler) parentDevice(parentID string) string {
 }
 
 func (h *VLANHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-
-	i := slices.IndexFunc(h.cfg.VLANs, func(v config.VLANConfig) bool { return v.ID == id })
-	if i < 0 {
-		respondRefresh(w, r, "/network")
-		return
-	}
-	v := h.cfg.VLANs[i]
-
 	// Persist first, so a failed save leaves the device and the entry in
 	// place together.
-	if !h.saveVLANs(slices.Delete(slices.Clone(h.cfg.VLANs), i, i+1)) {
-		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+	v, found, err := h.network.RemoveVLAN(r.PathValue("id"))
+	if err != nil {
+		serverError(w, r, "error.saveFailed", err)
+		return
+	}
+	if !found {
+		respondRefresh(w, r, "/network")
 		return
 	}
 	if parentDev := h.parentDevice(v.Parent); parentDev != "" {
@@ -124,19 +120,4 @@ func (h *VLANHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondRefresh(w, r, "/network")
-}
-
-// saveVLANs stores next as the VLAN list and writes the config. When the
-// write fails it restores the previous list and logs the error, so the
-// running config does not hold a change the file on disk lacks. next must
-// not share a backing array with the current list.
-func (h *VLANHandler) saveVLANs(next []config.VLANConfig) bool {
-	prev := h.cfg.VLANs
-	h.cfg.VLANs = next
-	if err := h.cfg.SaveToFile(); err != nil {
-		h.cfg.VLANs = prev
-		log.Printf("vlan: save config: %v", err)
-		return false
-	}
-	return true
 }
