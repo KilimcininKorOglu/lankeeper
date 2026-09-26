@@ -377,14 +377,17 @@ func parseHostsLine(line string) (string, bool) {
 
 var queryLogRegex = regexp.MustCompile(`\[(\d+)\]\s+\S+\s+info:\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)`)
 
-func (s *DNSService) StartQueryLogTail(ctx context.Context) {
+// StartQueryLogTail fills the query log, the top lists and the blocked
+// counter from Unbound's log until ctx ends. Both goroutines are counted
+// into wg so shutdown waits for them.
+func (s *DNSService) StartQueryLogTail(ctx context.Context, wg *sync.WaitGroup) {
 	if !s.cfg.DNS.QueryLog.Enabled {
 		return
 	}
 
 	ctx, s.cancel = context.WithCancel(ctx)
-	go s.tailQueryLog(ctx)
-	go s.aggregateStats(ctx)
+	wg.Go(func() { s.tailQueryLog(ctx) })
+	wg.Go(func() { s.aggregateStats(ctx) })
 }
 
 func (s *DNSService) StopQueryLogTail() {

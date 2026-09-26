@@ -62,9 +62,11 @@ type Server struct {
 	vpnSvc *services.VPNService
 	// routingSvc is retained so Serve can load the saved policies.
 	routingSvc *services.RoutingService
-	monitor    *services.MonitorService
-	dhcpSvc    *services.DHCPService
-	ipv6Svc    *services.IPv6Service
+	// dnsSvc is retained so Serve can start the query log tail.
+	dnsSvc  *services.DNSService
+	monitor *services.MonitorService
+	dhcpSvc *services.DHCPService
+	ipv6Svc *services.IPv6Service
 	// dotProbeLimiter throttles `POST /dns/dot/probe` to a tight
 	// per-client budget. ProbeDoT performs a synchronous TLS dial
 	// with a 5-second outer timeout; without this limiter an
@@ -238,6 +240,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 		qosSvc:     qosSvc,
 		vpnSvc:     vpnSvc,
 		routingSvc: routingSvc,
+		dnsSvc:     dnsSvc,
 		monitor:    monitorSvc,
 		ipv6Svc:    ipv6Svc,
 		// 1 probe/sec, burst 2 — comfortable for a single admin
@@ -461,6 +464,9 @@ func (s *Server) Serve(ctx context.Context) error {
 
 	// Keeps the policy-routing domain sets filled; their elements expire.
 	s.routingSvc.StartDomainRefresh(ctx, &bg)
+
+	// Feeds the DNS query log, top lists and blocked counter.
+	s.dnsSvc.StartQueryLogTail(ctx, &bg)
 
 	// Backup scheduler: ticks every 30s, fires runOnce when the
 	// configured cron schedule next matches. No-op when disabled.
