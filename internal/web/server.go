@@ -510,6 +510,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	// when the delegated prefix changes. Best-effort: a failure to
 	// install the fsnotify watch costs the auto-refresh, not the lease
 	// itself, so we log and keep serving.
+	s.ipv6Svc.ApplyAcceptRA(ctx)
 	if err := s.ipv6Svc.StartLeaseWatcher(ctx, &bg); err != nil {
 		log.Printf("ipv6: start lease watcher: %v", err)
 	}

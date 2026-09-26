@@ -634,6 +634,7 @@ func (s *IPv6Service) ApplyConfig(ctx context.Context) error {
 		// is briefly stale.
 		log.Printf("ipv6: dnsmasq reload after RA rewrite: %v", err)
 	}
+	s.applyAcceptRALocked(ctx)
 	// 6in4 mode and PD-disabled both mean dhcp6c must be down. Only
 	// PD-mode + RequestPrefix=true keeps dhcp6c running.
 	if s.cfg.IPv6.Enabled == "off" ||
@@ -642,6 +643,50 @@ func (s *IPv6Service) ApplyConfig(ctx context.Context) error {
 		return s.stopUnitLocked(ctx)
 	}
 	return s.restartUnitLocked(ctx)
+}
+
+// ApplyAcceptRA sets the WAN RA sysctl. Sysctls do not survive a reboot,
+// so the server calls it at every start as well as on each apply.
+func (s *IPv6Service) ApplyAcceptRA(ctx context.Context) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.applyAcceptRALocked(ctx)
+}
+
+// applyAcceptRALocked lets the WAN learn its IPv6 default route from the
+// ISP's Router Advertisements. The installers enable forwarding on every
+// interface, and a forwarding interface honours RAs only with
+// accept_ra=2. 6in4 routes over the tunnel and needs no RA. Failures are
+// logged: a PPP interface that is not up yet is expected.
+func (s *IPv6Service) applyAcceptRALocked(ctx context.Context) {
+	if !s.cfg.IPv6.WAN.AcceptRA || s.cfg.IPv6.Enabled == "off" || s.cfg.IPv6.Mode == "6in4" {
+		return
+	}
+	wan, _, err := s.resolveInterfaces()
+	if err != nil {
+		log.Printf("ipv6: accept_ra: %v", err)
+		return
+	}
+	if err := netutil.ValidateInterfaceName(wan); err != nil {
+		log.Printf("ipv6: accept_ra: %v", err)
+		return
+	}
+	for _, key := range acceptRAKeys(wan) {
+		if _, err := netutil.Run(ctx, "sysctl", "-w", key+"=2"); err != nil {
+			log.Printf("ipv6: set %s: %v", key, err)
+		}
+	}
+}
+
+// acceptRAKeys names the accept_ra sysctls for wan, in slash form so a
+// VLAN device such as eth0.10 is not split at its dot. pppd recreates
+// ppp0 on every reconnect, and a new interface takes the default.
+func acceptRAKeys(wan string) []string {
+	keys := []string{"net/ipv6/conf/" + wan + "/accept_ra"}
+	if strings.HasPrefix(wan, "ppp") {
+		keys = append(keys, "net/ipv6/conf/default/accept_ra")
+	}
+	return keys
 }
 
 // reloadDnsmasqLocked sends SIGHUP to dnsmasq via systemctl. Best-effort:
