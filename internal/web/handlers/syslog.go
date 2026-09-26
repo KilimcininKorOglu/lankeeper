@@ -78,7 +78,9 @@ func (h *SyslogHandler) HandleSaveServerConfig(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if err := h.syslog.ApplyConfig(r.Context()); err != nil {
-		log.Printf("syslog apply after save server: %v", err)
+		// Saved but not live: say so rather than report success.
+		fail(w, r, http.StatusInternalServerError, err)
+		return
 	}
 	syslogResponse(w, r)
 }
@@ -105,7 +107,9 @@ func (h *SyslogHandler) HandleSaveClientConfig(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if err := h.syslog.ApplyConfig(r.Context()); err != nil {
-		log.Printf("syslog apply after save client: %v", err)
+		// Saved but not live: say so rather than report success.
+		fail(w, r, http.StatusInternalServerError, err)
+		return
 	}
 	syslogResponse(w, r)
 }
@@ -125,7 +129,9 @@ func (h *SyslogHandler) HandleAddFacility(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := h.syslog.ApplyConfig(r.Context()); err != nil {
-		log.Printf("syslog apply after add facility: %v", err)
+		// Saved but not live: say so rather than report success.
+		fail(w, r, http.StatusInternalServerError, err)
+		return
 	}
 	syslogResponse(w, r)
 }
@@ -141,7 +147,9 @@ func (h *SyslogHandler) HandleRemoveFacility(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err := h.syslog.ApplyConfig(r.Context()); err != nil {
-		log.Printf("syslog apply after remove facility: %v", err)
+		// Saved but not live: say so rather than report success.
+		fail(w, r, http.StatusInternalServerError, err)
+		return
 	}
 	syslogResponse(w, r)
 }

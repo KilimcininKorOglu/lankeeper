@@ -93,12 +93,16 @@ func (s *SyslogService) ApplyConfig(ctx context.Context) error {
 	if err := s.RenderToDisk(ctx); err != nil {
 		return err
 	}
-	_, err := netutil.Run(ctx, "systemctl", "reload", "rsyslog")
+	// Debian 12 ships this unit with no ExecReload, so systemd refuses a
+	// reload job and the new config would wait for the next reboot.
+	_, err := netutil.Run(ctx, "systemctl", "restart", "rsyslog")
 	return err
 }
 
 func (s *SyslogService) Reload(ctx context.Context) error {
-	_, err := netutil.Run(ctx, "systemctl", "reload", "rsyslog")
+	// Debian 12 ships this unit with no ExecReload, so systemd refuses a
+	// reload job and the new config would wait for the next reboot.
+	_, err := netutil.Run(ctx, "systemctl", "restart", "rsyslog")
 	return err
 }
 

@@ -64,7 +64,9 @@ func (h *NTPHandler) HandleAddSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.ntp.ApplyConfig(r.Context()); err != nil {
-		log.Printf("ntp apply after add source: %v", err)
+		// Saved but not live: say so rather than report success.
+		fail(w, r, http.StatusInternalServerError, err)
+		return
 	}
 	respondRefresh(w, r, "/ntp")
 }
@@ -80,7 +82,9 @@ func (h *NTPHandler) HandleRemoveSource(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := h.ntp.ApplyConfig(r.Context()); err != nil {
-		log.Printf("ntp apply after remove source: %v", err)
+		// Saved but not live: say so rather than report success.
+		fail(w, r, http.StatusInternalServerError, err)
+		return
 	}
 	respondRefresh(w, r, "/ntp")
 }
@@ -100,7 +104,9 @@ func (h *NTPHandler) HandleAddAllowSubnet(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := h.ntp.ApplyConfig(r.Context()); err != nil {
-		log.Printf("ntp apply after add allow: %v", err)
+		// Saved but not live: say so rather than report success.
+		fail(w, r, http.StatusInternalServerError, err)
+		return
 	}
 	respondRefresh(w, r, "/ntp")
 }
@@ -116,7 +122,9 @@ func (h *NTPHandler) HandleRemoveAllowSubnet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err := h.ntp.ApplyConfig(r.Context()); err != nil {
-		log.Printf("ntp apply after remove allow: %v", err)
+		// Saved but not live: say so rather than report success.
+		fail(w, r, http.StatusInternalServerError, err)
+		return
 	}
 	respondRefresh(w, r, "/ntp")
 }
@@ -136,7 +144,9 @@ func (h *NTPHandler) HandleSaveSettings(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := h.ntp.ApplyConfig(r.Context()); err != nil {
-		log.Printf("ntp apply after save settings: %v", err)
+		// Saved but not live: say so rather than report success.
+		fail(w, r, http.StatusInternalServerError, err)
+		return
 	}
 	respondRefresh(w, r, "/ntp")
 }
