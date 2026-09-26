@@ -97,19 +97,22 @@ architecture before it changes anything.
 
 ```bash
 # Both architectures (requires Docker)
-make iso-all \
-    DEBIAN_AMD64_ISO=source_iso/debian-12-amd64-netinst.iso \
-    DEBIAN_ARM64_ISO=source_iso/debian-12-arm64-netinst.iso
+make iso-all
 
 # Single architecture
-make iso-amd64 DEBIAN_AMD64_ISO=...
-make iso-arm64 DEBIAN_ARM64_ISO=...
+make iso-amd64
+make iso-arm64
+
+# A source image stored elsewhere
+make iso-amd64 DEBIAN_AMD64_ISO=path/to/debian-12.10.0-amd64-netinst.iso
 
 # Full release pipeline (binaries + tarballs + ISOs + signed SHA256SUMS)
 make release-all
 ```
 
-The source Debian image is checksum-verified against
+A missing source image is downloaded from the Debian archive into
+`source_iso/`; the Makefile names the Debian point release. Downloaded
+or not, the source Debian image is checksum-verified against
 `deploy/iso/debian-images.sha512` before any of `xorriso`, `fdisk`, or
 `dd` touches it.
 
@@ -122,6 +125,7 @@ Generated artifacts are written to `dist/`:
 - `dist/packages/{amd64,arm64}/` — cached `.deb` package pools
 - `SHA256SUMS` — SHA-256 of the published tarballs and ISOs
 - `SHA256SUMS.sig` — ed25519 signature over `SHA256SUMS`
+- `RELEASE_NOTES.md` — the `CHANGELOG.md` section for the version (`make release-notes`), used as the GitHub Release body
 
 The local release targets sign `SHA256SUMS` with the key at `~/.config/lankeeper/release-signing.key` and fail without it; `make release-all SIGNING_KEY=path` points them at another file. `go run ./tools/signrelease -generate -key FILE` creates a key pair and prints the public key, which belongs in `PublicKeyB64` in `internal/releasekey/releasekey.go`. Signing refuses to write a signature that does not verify against that compiled-in key.
 
