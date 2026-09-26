@@ -195,7 +195,7 @@ nas:
 syslog:
   server:
     enabled: false
-    listenUDP: ":514"
+    listenUDP: "514"
     listenTCP: ""
     enableTLS: false
     logPath: "/var/log/remote"

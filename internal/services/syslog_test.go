@@ -285,3 +285,13 @@ func TestAddFacilityStoresASelector(t *testing.T) {
 		t.Errorf("an injected selector: err = %v, want ErrInvalidFacility", err)
 	}
 }
+
+// The server form is pre-filled from the shipped default, so saving it
+// untouched must pass the page's own port validator.
+func TestShippedSyslogServerConfigSaves(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
+	if err := services.NewSyslogService(cfg).SaveServerConfig(cfg.Syslog.Server); err != nil {
+		t.Fatalf("the shipped syslog server config is refused: %v", err)
+	}
+}
