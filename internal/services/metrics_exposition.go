@@ -70,11 +70,17 @@ func (snap MetricsSnapshot) writeInterfaces(w io.Writer) {
 
 // writeDHCPAndDNS writes the lease count and the Unbound counters.
 func (snap MetricsSnapshot) writeDHCPAndDNS(w io.Writer) {
-	writeScalar(w, "lankeeper_dhcp_active_leases", "Number of currently active DHCP leases.", metricGauge, float64(snap.DHCPLeases))
-	writeScalar(w, "lankeeper_dns_queries_total", "Total DNS queries served by Unbound.", metricCounter, float64(snap.DNSQueriesTotal))
-	writeScalar(w, "lankeeper_dns_cache_hits_total", "Total DNS cache hits.", metricCounter, float64(snap.DNSCacheHitsTotal))
-	writeScalar(w, "lankeeper_dns_cache_misses_total", "Total DNS cache misses.", metricCounter, float64(snap.DNSCacheMissesTotal))
-	writeScalar(w, "lankeeper_dns_blocked_total", "Total DNS responses that hit a blocklist.", metricCounter, float64(snap.DNSBlockedTotal))
+	if snap.DHCPCollected {
+		writeScalar(w, "lankeeper_dhcp_active_leases", "Number of currently active DHCP leases.", metricGauge, float64(snap.DHCPLeases))
+	}
+	if snap.DNSStatsCollected {
+		writeScalar(w, "lankeeper_dns_queries_total", "Total DNS queries served by Unbound.", metricCounter, float64(snap.DNSQueriesTotal))
+		writeScalar(w, "lankeeper_dns_cache_hits_total", "Total DNS cache hits.", metricCounter, float64(snap.DNSCacheHitsTotal))
+		writeScalar(w, "lankeeper_dns_cache_misses_total", "Total DNS cache misses.", metricCounter, float64(snap.DNSCacheMissesTotal))
+	}
+	if snap.DNSBlockedCollected {
+		writeScalar(w, "lankeeper_dns_blocked_total", "Total DNS responses that hit a blocklist.", metricCounter, float64(snap.DNSBlockedTotal))
+	}
 }
 
 // writeClients writes the per-client bandwidth series, when there are
@@ -136,7 +142,9 @@ func (snap MetricsSnapshot) writeSubsystems(w io.Writer) {
 	writeScalar(w, "lankeeper_ipv6_active", "1 when an IPv6 plane (PD or 6in4) is enabled.", metricGauge, float64(snap.IPv6Active))
 	writeHelp(w, "lankeeper_ipv6_mode_info", "Info-style metric carrying the configured IPv6 mode as a label.", metricGauge)
 	writeMetric(w, "lankeeper_ipv6_mode_info", map[string]string{"mode": snap.IPv6Mode}, 1)
-	writeScalar(w, "lankeeper_firewall_active", "1 when nftables ruleset is loaded.", metricGauge, float64(snap.FirewallActive))
+	if snap.FirewallCollected {
+		writeScalar(w, "lankeeper_firewall_active", "1 when nftables ruleset is loaded.", metricGauge, float64(snap.FirewallActive))
+	}
 }
 
 // writeScalar writes a family with one unlabelled sample.

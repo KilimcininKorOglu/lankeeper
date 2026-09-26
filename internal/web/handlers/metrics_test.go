@@ -38,7 +38,7 @@ func TestMetricsHandlerContentTypeAndBody(t *testing.T) {
 	for _, want := range []string{
 		"lankeeper_uptime_seconds",
 		"lankeeper_cpu_percent",
-		"# TYPE lankeeper_dhcp_active_leases gauge",
+		"# TYPE lankeeper_process_start_time_seconds gauge",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body missing %q\n--- body ---\n%s", want, body)

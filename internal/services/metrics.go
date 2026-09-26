@@ -104,12 +104,19 @@ type MetricsSnapshot struct {
 
 	Interfaces []IfaceMetric
 
-	DHCPLeases int
+	// The *Collected flags tell a reading of zero from a collector that
+	// failed. A failed collector's families are left out of the scrape:
+	// a counter that drops to zero and back reads as a reset, and a
+	// gauge at zero states something that was never measured.
+	DHCPLeases    int
+	DHCPCollected bool
 
 	DNSQueriesTotal     uint64
 	DNSCacheHitsTotal   uint64
 	DNSCacheMissesTotal uint64
+	DNSStatsCollected   bool
 	DNSBlockedTotal     uint64
+	DNSBlockedCollected bool
 
 	Clients []ClientBandwidthMetric
 
@@ -121,10 +128,11 @@ type MetricsSnapshot struct {
 	BackupLastStatusOK int
 	BackupHistorySize  int
 
-	PPPoEConnected int
-	IPv6Active     int
-	IPv6Mode       string
-	FirewallActive int
+	PPPoEConnected    int
+	IPv6Active        int
+	IPv6Mode          string
+	FirewallActive    int
+	FirewallCollected bool
 }
 
 // IfaceMetric captures cumulative byte counters per OS interface.
@@ -209,6 +217,7 @@ func (s *MetricsService) collect(ctx context.Context) MetricsSnapshot {
 	if s.dhcp != nil {
 		if leases, err := s.dhcp.GetLeases(); err == nil {
 			snap.DHCPLeases = len(leases)
+			snap.DHCPCollected = true
 		}
 	}
 	s.collectDNS(ctx, &snap)
@@ -224,7 +233,7 @@ func (s *MetricsService) collect(ctx context.Context) MetricsSnapshot {
 	}
 	snap.PPPoEConnected = pppoeConnectedFromCfg(s.cfg)
 	snap.IPv6Active, snap.IPv6Mode = ipv6StateFromCfg(s.cfg)
-	snap.FirewallActive = firewallActive(ctx)
+	snap.FirewallActive, snap.FirewallCollected = firewallActive(ctx)
 	return snap
 }
 
@@ -257,10 +266,15 @@ func (s *MetricsService) collectDNS(ctx context.Context, snap *MetricsSnapshot) 
 	if s.dns == nil {
 		return
 	}
+	// Counted in this process, so it does not depend on unbound-control
+	// answering.
+	snap.DNSBlockedTotal = uint64(max(s.dns.BlockedCount(), 0))
+	snap.DNSBlockedCollected = true
 	stats, err := s.dns.GetStats(ctx)
 	if err != nil || stats == nil {
 		return
 	}
+	snap.DNSStatsCollected = true
 	// Clamped rather than converted straight through. The counts come
 	// from `unbound-control stats_noreset` via Sscanf, which leaves the
 	// field untouched on a malformed value and would happily scan a
@@ -270,7 +284,6 @@ func (s *MetricsService) collectDNS(ctx context.Context, snap *MetricsSnapshot) 
 	snap.DNSQueriesTotal = uint64(max(stats.TotalQueries, 0))
 	snap.DNSCacheHitsTotal = uint64(max(stats.CacheHits, 0))
 	snap.DNSCacheMissesTotal = uint64(max(stats.CacheMisses, 0))
-	snap.DNSBlockedTotal = uint64(max(stats.BlockedCount, 0))
 }
 
 // collectBackup fills the backup state from the config.
@@ -308,15 +321,18 @@ func ifaceMetricsFromMonitor(m map[string]IfaceStats) []IfaceMetric {
 	return out
 }
 
-// firewallActive runs `nft list ruleset` and reports 1 if the
-// command succeeded with non-empty output. Cheap probe; the agent
-// whitelist already covers nft.
-func firewallActive(ctx context.Context) int {
+// firewallActive runs `nft list ruleset` and reports 1 if the command
+// succeeded with non-empty output, and whether the probe ran at all.
+// Cheap probe; the agent whitelist already covers nft.
+func firewallActive(ctx context.Context) (int, bool) {
 	out, err := netutil.RunSimple(ctx, "nft", "list", "ruleset")
-	if err != nil || strings.TrimSpace(out) == "" {
-		return 0
+	if err != nil {
+		return 0, false
 	}
-	return 1
+	if strings.TrimSpace(out) == "" {
+		return 0, true
+	}
+	return 1, true
 }
 
 // pppoeConnectedFromCfg infers PPPoE status from `cfg.PPPoE.Username`

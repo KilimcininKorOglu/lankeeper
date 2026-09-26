@@ -16,8 +16,10 @@ func TestExpositionSnapshotShapesAreStable(t *testing.T) {
 		MemoryUsed:        2 << 30,
 		Temperature:       42.5,
 		DHCPLeases:        12,
+		DHCPCollected:     true,
 		DNSQueriesTotal:   1000,
 		DNSCacheHitsTotal: 750,
+		DNSStatsCollected: true,
 		Interfaces: []IfaceMetric{
 			{Device: "eth0", RxBytes: 100, TxBytes: 200},
 			{Device: "wlan0", RxBytes: 0, TxBytes: 0},
@@ -31,10 +33,11 @@ func TestExpositionSnapshotShapesAreStable(t *testing.T) {
 		S2SPeers: []S2SPeerMetric{
 			{Name: "branch-a", HandshakeAge: -1, Online: 0},
 		},
-		PPPoEConnected: 1,
-		IPv6Active:     1,
-		IPv6Mode:       "6in4",
-		FirewallActive: 1,
+		PPPoEConnected:    1,
+		IPv6Active:        1,
+		IPv6Mode:          "6in4",
+		FirewallActive:    1,
+		FirewallCollected: true,
 	}
 	var buf bytes.Buffer
 	if err := snap.Write(&buf); err != nil {
@@ -140,5 +143,24 @@ func TestParseWGDumpSkipsHeaderRow(t *testing.T) {
 	row := rows["peerKEY"]
 	if row.lastHandshake != 1700000000 || row.rxBytes != 111 || row.txBytes != 222 {
 		t.Errorf("row parsed wrong: %+v", row)
+	}
+}
+
+// A collector that failed leaves its families out: a counter that drops
+// to zero and back reads as a reset, and a zero gauge states something
+// nobody measured.
+func TestExpositionOmitsFailedCollectors(t *testing.T) {
+	var buf bytes.Buffer
+	if err := (MetricsSnapshot{DNSBlockedTotal: 7, DNSBlockedCollected: true}).Write(&buf); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	out := buf.String()
+	for _, absent := range []string{"lankeeper_dhcp_active_leases", "lankeeper_dns_queries_total", "lankeeper_firewall_active"} {
+		if strings.Contains(out, absent) {
+			t.Errorf("%s exported although its collector failed", absent)
+		}
+	}
+	if !strings.Contains(out, "lankeeper_dns_blocked_total 7") {
+		t.Error("the in-process blocked counter depends on unbound-control")
 	}
 }

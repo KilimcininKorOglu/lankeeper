@@ -277,6 +277,13 @@ func (s *DNSService) GetStats(ctx context.Context) (*DNSStats, error) {
 	return stats, nil
 }
 
+// BlockedCount returns the blocked queries counted from the query log.
+func (s *DNSService) BlockedCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.stats.BlockedCount
+}
+
 func (s *DNSService) UpdateBlocklist(ctx context.Context) error {
 	var allDomains []string
 
