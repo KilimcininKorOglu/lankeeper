@@ -2,8 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
-	"html"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -177,7 +176,8 @@ func (h *BackupHandler) HandleDeleteTarget(w http.ResponseWriter, r *http.Reques
 func (h *BackupHandler) HandleRunNow(w http.ResponseWriter, r *http.Request) {
 	allowLongWrite(w, 35*time.Minute)
 	if err := h.backup.RunNow(r.Context()); err != nil {
-		_, _ = fmt.Fprintf(w, `<div class="alert alert-error">%s</div>`, html.EscapeString(err.Error()))
+		log.Printf("backup: run now: %v", err)
+		clientError(w, r, http.StatusInternalServerError, "error.backupRunFailed")
 		return
 	}
 	respondRefresh(w, r, "/backup")

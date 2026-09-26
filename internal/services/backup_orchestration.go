@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
+	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 )
 
 // BackupOrchestrator wires the BackupService runtime callbacks
@@ -116,7 +117,7 @@ func retentionOrDefault(retention int) int {
 func (o *BackupOrchestrator) uploadAll(ctx context.Context, src string, targets []config.BackupTarget, keep int) (succeeded, failures []string) {
 	for _, target := range targets {
 		if err := o.uploadOne(ctx, src, target, keep); err != nil {
-			failures = append(failures, fmt.Sprintf("%s: %v", target.Name, err))
+			failures = append(failures, target.Name+": "+historyMessage(err))
 			log.Printf("backup: target %s failed: %v", target.Name, err)
 			continue
 		}
@@ -185,9 +186,23 @@ func (o *BackupOrchestrator) failRun(started time.Time, err error) error {
 		StartedAt:   started,
 		CompletedAt: time.Now(),
 		Status:      "error",
-		Message:     err.Error(),
+		Message:     historyMessage(err),
 	})
+	log.Printf("backup: run failed: %v", err)
 	return err
+}
+
+// historyMessage is the text a run failure leaves in the history. The
+// history is rendered on the backup page and persisted in router.yaml,
+// and so in every later backup of it, so an error that crossed the agent
+// boundary, which carries root stderr and internal paths, is replaced by
+// a generic phrase. The full error goes to the journal.
+func historyMessage(err error) string {
+	var agentErr *netutil.AgentError
+	if errors.As(err, &agentErr) {
+		return "privileged command failed, see the system journal"
+	}
+	return err.Error()
 }
 
 // recordHistory persists the run entry to BackupConfig.History
