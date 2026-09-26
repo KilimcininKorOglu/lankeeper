@@ -597,6 +597,9 @@ func (h *SystemHandler) HandleImport(w http.ResponseWriter, r *http.Request) {
 
 	log.Println("config imported via web UI")
 	respondRefresh(w, r, "/settings")
+	// The restart deliberately outlives the request: it takes down the
+	// process that is writing the response.
+	// #nosec G118
 	go h.restartAfterImport()
 }
 
