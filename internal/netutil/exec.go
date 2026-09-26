@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const defaultTimeout = 30 * time.Second
@@ -138,20 +139,24 @@ func RunWithStdin(ctx context.Context, stdin string, name string, args ...string
 	return stdout.String(), nil
 }
 
+// fileWriteParams mirrors agent.FileWriteParams: the body travels in
+// Content when it is valid UTF-8 and in ContentBytes otherwise, because
+// encoding/json replaces invalid UTF-8 in a string with U+FFFD.
 type fileWriteParams struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
-	Mode    int    `json:"mode"`
-	MkdirP  bool   `json:"mkdirp"`
+	Path         string `json:"path"`
+	Content      string `json:"content"`
+	ContentBytes []byte `json:"contentBytes,omitempty"`
+	Mode         int    `json:"mode"`
+	MkdirP       bool   `json:"mkdirp"`
 }
 
 func WriteFile(path string, content []byte, mode os.FileMode) error {
 	if agentClient != nil {
-		params := fileWriteParams{
-			Path:    path,
-			Content: string(content),
-			Mode:    int(mode),
-			MkdirP:  true,
+		params := fileWriteParams{Path: path, Mode: int(mode), MkdirP: true}
+		if utf8.Valid(content) {
+			params.Content = string(content)
+		} else {
+			params.ContentBytes = content
 		}
 		_, err := agentClient.Call(context.Background(), "file.write", params)
 		if err != nil {
@@ -192,10 +197,14 @@ func ReadFile(path string) ([]byte, error) {
 			return nil, &AgentError{Op: "file.read", Target: path, Err: err}
 		}
 		var result struct {
-			Content string `json:"content"`
+			Content      string `json:"content"`
+			ContentBytes []byte `json:"contentBytes"`
 		}
 		if err := json.Unmarshal(raw, &result); err != nil {
 			return nil, fmt.Errorf("decode file.read: %w", err)
+		}
+		if result.ContentBytes != nil {
+			return result.ContentBytes, nil
 		}
 		return []byte(result.Content), nil
 	}

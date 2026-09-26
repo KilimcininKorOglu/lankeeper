@@ -87,8 +87,8 @@ func TestFileReadAllowsAWhitelistedTempFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("file.read refused a whitelisted temp file: %v", err)
 	}
-	m, ok := out.(map[string]string)
-	if !ok || m["content"] != "probe\n" {
+	m, ok := out.(agent.FileContent)
+	if !ok || string(m.Bytes()) != "probe\n" {
 		t.Errorf("file.read returned %#v, want the file contents", out)
 	}
 }

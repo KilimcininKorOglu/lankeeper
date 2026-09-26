@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 var allowedCommands = map[string]bool{
@@ -300,11 +301,40 @@ type ExecResult struct {
 	ExitCode int    `json:"exitCode"`
 }
 
+// FileWriteParams carries the file body in Content when it is valid
+// UTF-8 and in ContentBytes otherwise. encoding/json replaces every
+// invalid UTF-8 byte in a string with U+FFFD, so a binary or Latin-1 file
+// sent as a string would arrive altered; base64 for every file would cost
+// a third of the frame budget on the large text files the services write.
 type FileWriteParams struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
-	Mode    int    `json:"mode"`
-	MkdirP  bool   `json:"mkdirp"`
+	Path         string `json:"path"`
+	Content      string `json:"content"`
+	ContentBytes []byte `json:"contentBytes,omitempty"`
+	Mode         int    `json:"mode"`
+	MkdirP       bool   `json:"mkdirp"`
+}
+
+// FileContent is the file.read reply, split the same way as
+// FileWriteParams.
+type FileContent struct {
+	Content      string `json:"content"`
+	ContentBytes []byte `json:"contentBytes,omitempty"`
+}
+
+// NewFileContent picks the field that carries data unaltered.
+func NewFileContent(data []byte) FileContent {
+	if utf8.Valid(data) {
+		return FileContent{Content: string(data)}
+	}
+	return FileContent{ContentBytes: data}
+}
+
+// Bytes returns the carried data.
+func (c FileContent) Bytes() []byte {
+	if c.ContentBytes != nil {
+		return c.ContentBytes
+	}
+	return []byte(c.Content)
 }
 
 type FileReadParams struct {
@@ -440,7 +470,8 @@ func opFileWrite(_ context.Context, raw json.RawMessage) (any, error) {
 		}
 	}
 
-	if err := os.WriteFile(params.Path, []byte(params.Content), mode); err != nil {
+	body := FileContent{Content: params.Content, ContentBytes: params.ContentBytes}.Bytes()
+	if err := os.WriteFile(params.Path, body, mode); err != nil {
 		return nil, fmt.Errorf("write file: %w", err)
 	}
 
@@ -462,7 +493,7 @@ func opFileRead(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("read file: %w", err)
 	}
 
-	return map[string]string{"content": string(data)}, nil
+	return NewFileContent(data), nil
 }
 
 func opFileMkdir(_ context.Context, raw json.RawMessage) (any, error) {
