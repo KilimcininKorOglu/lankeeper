@@ -532,10 +532,10 @@ func (s *IPv6Service) RenderToDisk(ctx context.Context) error {
 		return writeIPv6DisabledStubs()
 	}
 
-	for _, dir := range []string{filepath.Dir(ipv6StatePath), filepath.Dir(dnsmasqRAConfPath)} {
-		if err := netutil.MkdirAll(dir, 0o755); err != nil {
-			return fmt.Errorf("mkdir %s: %w", dir, err)
-		}
+	// The agent creates /etc/dnsmasq.d when it writes the drop-in, and
+	// admits no other path there.
+	if err := netutil.MkdirAll(filepath.Dir(ipv6StatePath), 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(ipv6StatePath), err)
 	}
 	if err := s.writeDHCP6CFiles(pdRequested); err != nil {
 		return err
@@ -591,9 +591,6 @@ func (s *IPv6Service) writePDFiles() error {
 	script, err := s.RenderScript()
 	if err != nil {
 		return err
-	}
-	if err := netutil.MkdirAll(filepath.Dir(dhcp6cConfPath), 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", filepath.Dir(dhcp6cConfPath), err)
 	}
 	if err := netutil.WriteFile(dhcp6cConfPath, []byte(conf), 0o644); err != nil {
 		return fmt.Errorf("write dhcp6c.conf: %w", err)

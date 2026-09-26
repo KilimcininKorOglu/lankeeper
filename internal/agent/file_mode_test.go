@@ -85,13 +85,14 @@ func TestFileWriteRejectsBitsOutsideThePermissionSet(t *testing.T) {
 
 // TestFileWriteStillAcceptsEveryModeTheServicesUse keeps the guard from
 // being a regression of its own: these are the modes the production call
-// sites actually pass.
+// sites actually pass. 0755 is used only for the dhcp6c script, which
+// the exec-bit test covers.
 func TestFileWriteStillAcceptsEveryModeTheServicesUse(t *testing.T) {
 	srv := agent.NewServer("/tmp/test-agent-mode.sock")
 	agent.RegisterBuiltinOps(srv)
 
 	path := filepath.Join(agent.AllowScratchDir(t), "lankeeper-mode-ok.txt")
-	for _, mode := range []int{0o600, 0o640, 0o644, 0o755, 0} {
+	for _, mode := range []int{0o600, 0o640, 0o644, 0} {
 		t.Cleanup(func() { _ = os.Remove(path) })
 
 		params, _ := json.Marshal(agent.FileWriteParams{Path: path, Content: "x", Mode: mode})

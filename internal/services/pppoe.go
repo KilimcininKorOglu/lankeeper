@@ -186,10 +186,9 @@ func (s *PPPoEService) renderConfig() error {
 		return fmt.Errorf("no WAN interface configured")
 	}
 
+	// The agent creates the directory of the file it writes, and admits
+	// no directory under /etc/ppp on its own.
 	peerDir := "/etc/ppp/peers"
-	if err := netutil.MkdirAll(peerDir, 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", peerDir, err)
-	}
 
 	optSrc, err := os.ReadFile("configs/sysconf/pppoe-options.tmpl")
 	if err == nil {
@@ -331,9 +330,6 @@ func (s *PPPoEService) SniffStart(ctx context.Context) error {
 	optSrc, err := os.ReadFile("configs/sysconf/pppoe-server-options.tmpl")
 	if err != nil {
 		return fmt.Errorf("read pppoe-server-options: %w", err)
-	}
-	if err := netutil.MkdirAll("/etc/ppp", 0o755); err != nil {
-		return fmt.Errorf("mkdir /etc/ppp: %w", err)
 	}
 	if err := netutil.WriteFile("/etc/pppoe-server-options", optSrc, 0o644); err != nil {
 		return fmt.Errorf("write pppoe-server-options: %w", err)

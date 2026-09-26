@@ -27,7 +27,7 @@ const (
 )
 
 // backupSourceDirs are the directories a backup archive may carry.
-var backupSourceDirs = []string{"/etc/lankeeper", "/etc/unbound", "/etc/dnsmasq.d", "/etc/openvpn"}
+var backupSourceDirs = []string{"/etc/lankeeper", "/etc/unbound", "/etc/openvpn"}
 
 // serviceUnits lists, per systemctl verb and its flags, the units the
 // services manage.

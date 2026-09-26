@@ -181,20 +181,31 @@ type pathRule struct {
 	kind    pathRuleKind
 }
 
+// allowedWriteRules names exact files wherever root loads the directory's
+// contents as code or configuration by scanning it: grub-mkconfig sources
+// every /etc/default/grub.d/*.cfg as a shell script, pppd runs
+// /etc/ppp/ip-up.d, dnsmasq reads every /etc/dnsmasq.d file, which may
+// carry a dhcp-script line, and dhcp6c runs its script. A directory rule
+// there lets a caller add a file that root then runs.
 var allowedWriteRules = []pathRule{
-	{"/etc/ppp/", dirPrefix},
+	{"/etc/ppp/options", exactFile},
+	{"/etc/ppp/peers/wan", exactFile},
+	{"/etc/ppp/chap-secrets", exactFile},
+	{"/etc/ppp/pap-secrets", exactFile},
 	{"/etc/openvpn/", dirPrefix},
 	{"/etc/nftables.conf", exactFile},
 	{"/etc/unbound/", dirPrefix},
 	{"/etc/dnsmasq.conf", exactFile},
-	{"/etc/dnsmasq.d/", dirPrefix},
+	{"/etc/dnsmasq.d/lankeeper-ipv6-ra.conf", exactFile},
 	{"/etc/wireguard/", dirPrefix},
 	{"/etc/samba/", dirPrefix},
 	{"/etc/chrony/", dirPrefix},
 	{"/etc/rsyslog.d/", dirPrefix},
 	{"/etc/lankeeper/", dirPrefix},
-	{"/etc/default/grub.d/", dirPrefix},
-	{"/etc/wide-dhcpv6/", dirPrefix},
+	{"/etc/default/grub.d/lankeeper.cfg", exactFile},
+	{"/etc/wide-dhcpv6/dhcp6c.conf", exactFile},
+	{dhcp6cScript, exactFile},
+	{"/etc/wide-dhcpv6/lankeeper-dhcp6c.env", exactFile},
 	{"/etc/dnscrypt-proxy/", dirPrefix},
 	{"/etc/fstab", exactFile},
 	{"/etc/pppoe-server-options", exactFile},
@@ -424,6 +435,19 @@ func refuse(err error) error {
 	return err
 }
 
+// dhcp6cScript is the one file the services write with execute bits.
+const dhcp6cScript = "/etc/wide-dhcpv6/dhcp6c-script"
+
+// validateFileExec refuses execute bits on every file but the known
+// script, so file.write cannot plant a program for a root daemon or a
+// later exec.run to start.
+func validateFileExec(path string, mode os.FileMode) error {
+	if mode&0o111 != 0 && path != dhcp6cScript {
+		return fmt.Errorf("mode %v makes %s executable", mode, path)
+	}
+	return nil
+}
+
 func validateFileMode(mode os.FileMode) error {
 	if mode&^os.FileMode(0o777) != 0 {
 		return fmt.Errorf("mode %v carries bits outside the permission set", mode)
@@ -449,6 +473,9 @@ func opFileWrite(_ context.Context, raw json.RawMessage) (any, error) {
 		mode = 0o644
 	}
 	if err := validateFileMode(mode); err != nil {
+		return nil, refuse(err)
+	}
+	if err := validateFileExec(params.Path, mode); err != nil {
 		return nil, refuse(err)
 	}
 

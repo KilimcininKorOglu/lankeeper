@@ -75,9 +75,14 @@ func (s *BackupService) Settings() (config.BackupConfig, bool) {
 // certificate to be reissued. The WireGuard private keys live in
 // router.yaml, encrypted with the credential key, which an encrypted
 // export carries as archiveKeyMember.
+//
+// /etc/dnsmasq.d is not archived. Its only LANKeeper file, the IPv6 RA
+// drop-in, is rendered from router.yaml, and dnsmasq reads every file
+// there, so restoring the directory would let an archive add a
+// dhcp-script line that root runs. An older archive's entries for it
+// are skipped as unknown.
 var backupExtraDirs = []string{
 	"/etc/unbound",
-	"/etc/dnsmasq.d",
 	"/etc/openvpn",
 }
 
