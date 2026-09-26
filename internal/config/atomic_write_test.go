@@ -33,6 +33,7 @@ func TestSaveNeedsAWritableDirectory(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 	path := filepath.Join(dir, "router.yaml")
+	t.Setenv("LANKEEPER_CONFIG_KEY", filepath.Join(t.TempDir(), "config.key"))
 
 	cfg := &config.Config{}
 	cfg.SetFilePath(path)

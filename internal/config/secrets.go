@@ -8,10 +8,11 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
-// Encryption at rest for the third-party credentials in router.yaml.
+// Encryption at rest for the credentials and keys in router.yaml.
 //
 // What this protects against, stated plainly: the key lives outside the
 // config directory and is never included in an unencrypted backup
@@ -150,33 +151,40 @@ func decryptSecret(value string, key []byte) (string, error) {
 	return string(plaintext), nil
 }
 
-// encryptedSecrets reports whether the config holds any value that needs
-// the key. Checked before touching the key so an appliance that never
-// configures a backup target never creates one.
+// secretFields returns a pointer to every secret field of c. It is the
+// single list encryption, detection and clearing work from; a new
+// credential goes here and gets a log line in decryptSecretsInPlace.
+func (c *Config) secretFields() []*string {
+	fields := []*string{
+		&c.Backup.Passphrase,
+		&c.VPN.Server.PrivateKey,
+		&c.System.SessionSecret,
+		&c.System.TLS.ACME.DNSChallenge.APIToken,
+	}
+	for i := range c.Backup.Targets {
+		fields = append(fields, &c.Backup.Targets[i].SecretAccessKey, &c.Backup.Targets[i].Password)
+	}
+	for i := range c.VPN.Server.Peers {
+		fields = append(fields, &c.VPN.Server.Peers[i].PrivateKey, &c.VPN.Server.Peers[i].PresharedKey)
+	}
+	for i := range c.VPN.Clients {
+		fields = append(fields, &c.VPN.Clients[i].PrivateKey, &c.VPN.Clients[i].PresharedKey)
+	}
+	return fields
+}
+
+// hasSecrets reports whether the config holds any value that needs the
+// key. Checked before touching the key so an appliance with no secret
+// configured never creates one.
 func (c *Config) hasSecrets() bool {
-	if c.Backup.Passphrase != "" {
-		return true
-	}
-	for _, t := range c.Backup.Targets {
-		if t.SecretAccessKey != "" || t.Password != "" {
-			return true
-		}
-	}
-	if c.VPN.Server.PrivateKey != "" {
-		return true
-	}
-	for _, p := range c.VPN.Server.Peers {
-		if p.PrivateKey != "" {
-			return true
-		}
-	}
-	return c.System.TLS.ACME.DNSChallenge.APIToken != ""
+	return slices.ContainsFunc(c.secretFields(), func(f *string) bool { return *f != "" })
 }
 
 // withEncryptedSecrets returns a copy of the config whose secret fields
 // carry ciphertext, leaving the caller's live config untouched. Copying
 // matters: encrypting in place would leave the running process holding
-// ciphertext where it expects an S3 key.
+// ciphertext where it expects an S3 key. The slices holding secrets are
+// cloned too, since the shallow copy still shares their backing arrays.
 func withEncryptedSecrets(cfg *Config) (*Config, error) {
 	if !cfg.hasSecrets() {
 		return cfg, nil
@@ -188,91 +196,21 @@ func withEncryptedSecrets(cfg *Config) (*Config, error) {
 	}
 
 	out := *cfg
-	out.Backup.Passphrase, err = encryptSecret(cfg.Backup.Passphrase, key)
-	if err != nil {
-		return nil, fmt.Errorf("encrypt backup passphrase: %w", err)
+	out.Backup.Targets = slices.Clone(cfg.Backup.Targets)
+	out.VPN.Server.Peers = slices.Clone(cfg.VPN.Server.Peers)
+	out.VPN.Clients = slices.Clone(cfg.VPN.Clients)
+	for _, f := range out.secretFields() {
+		if *f, err = encryptSecret(*f, key); err != nil {
+			return nil, fmt.Errorf("encrypt secret: %w", err)
+		}
 	}
-
-	if out.Backup.Targets, err = encryptedTargets(cfg.Backup.Targets, key); err != nil {
-		return nil, err
-	}
-
-	out.VPN.Server.PrivateKey, err = encryptSecret(cfg.VPN.Server.PrivateKey, key)
-	if err != nil {
-		return nil, fmt.Errorf("encrypt wireguard server private key: %w", err)
-	}
-
-	if out.VPN.Server.Peers, err = encryptedPeers(cfg.VPN.Server.Peers, key); err != nil {
-		return nil, err
-	}
-
-	// The DNS provider token is a live credential for the operator's
-	// whole zone, not just this record, so it belongs here rather than
-	// in the config as typed.
-	out.System.TLS.ACME.DNSChallenge.APIToken, err = encryptSecret(cfg.System.TLS.ACME.DNSChallenge.APIToken, key)
-	if err != nil {
-		return nil, fmt.Errorf("encrypt dns challenge api token: %w", err)
-	}
-
 	return &out, nil
-}
-
-// encryptedTargets returns a copy of targets with their secrets
-// encrypted. The slice header is shared by the shallow config copy, so
-// the elements have to be copied before any field is rewritten.
-func encryptedTargets(src []BackupTarget, key []byte) ([]BackupTarget, error) {
-	out := make([]BackupTarget, len(src))
-	copy(out, src)
-	var err error
-	for i := range out {
-		t := &out[i]
-		if t.SecretAccessKey, err = encryptSecret(t.SecretAccessKey, key); err != nil {
-			return nil, fmt.Errorf("encrypt secret access key for target %q: %w", t.Name, err)
-		}
-		if t.Password, err = encryptSecret(t.Password, key); err != nil {
-			return nil, fmt.Errorf("encrypt password for target %q: %w", t.Name, err)
-		}
-	}
-	return out, nil
-}
-
-// encryptedPeers returns a copy of peers with their private keys
-// encrypted. Peers sit two levels down, but the config copy is just as
-// shallow: the slice still points at the caller's backing array, so
-// rewriting a peer in place would leave the running process holding
-// ciphertext where it expects a usable key.
-func encryptedPeers(src []WGServerPeer, key []byte) ([]WGServerPeer, error) {
-	out := make([]WGServerPeer, len(src))
-	copy(out, src)
-	var err error
-	for i := range out {
-		p := &out[i]
-		if p.PrivateKey, err = encryptSecret(p.PrivateKey, key); err != nil {
-			return nil, fmt.Errorf("encrypt private key for peer %q: %w", p.Name, err)
-		}
-	}
-	return out, nil
 }
 
 // hasEncryptedSecrets reports whether any secret field holds ciphertext,
 // which is the only case that needs the key on load.
 func (c *Config) hasEncryptedSecrets() bool {
-	if isEncrypted(c.Backup.Passphrase) ||
-		isEncrypted(c.VPN.Server.PrivateKey) ||
-		isEncrypted(c.System.TLS.ACME.DNSChallenge.APIToken) {
-		return true
-	}
-	for _, t := range c.Backup.Targets {
-		if isEncrypted(t.SecretAccessKey) || isEncrypted(t.Password) {
-			return true
-		}
-	}
-	for _, p := range c.VPN.Server.Peers {
-		if isEncrypted(p.PrivateKey) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(c.secretFields(), func(f *string) bool { return isEncrypted(*f) })
 }
 
 // decryptInPlace replaces *field with its plaintext. On failure it clears
@@ -334,6 +272,12 @@ func (c *Config) decryptSecretsInPlace() {
 		decryptInPlace(&p.PrivateKey, key, fmt.Sprintf("the private key for peer %q", p.Name),
 			"its config can no longer be re-issued")
 	}
+	c.decryptVPNPeerSecrets(key)
+
+	// A cleared secret makes serve generate a new one, which signs the
+	// operator out and nothing more.
+	decryptInPlace(&c.System.SessionSecret, key, "the session secret",
+		"a new one is generated and every session must log in again")
 
 	// Renewal is what breaks: the token is only read when a challenge
 	// record has to be published. The certificate on disk keeps serving
@@ -343,31 +287,30 @@ func (c *Config) decryptSecretsInPlace() {
 		"re-enter it on the settings page or renewal will fail")
 }
 
+// decryptVPNPeerSecrets decrypts the preshared keys of server peers and
+// the keys of outbound client tunnels.
+func (c *Config) decryptVPNPeerSecrets(key []byte) {
+	for i := range c.VPN.Server.Peers {
+		p := &c.VPN.Server.Peers[i]
+		decryptInPlace(&p.PresharedKey, key, fmt.Sprintf("the preshared key for peer %q", p.Name),
+			"the peer cannot connect until it is re-created")
+	}
+	for i := range c.VPN.Clients {
+		cl := &c.VPN.Clients[i]
+		decryptInPlace(&cl.PrivateKey, key, fmt.Sprintf("the private key for client tunnel %q", cl.Name),
+			"re-enter the tunnel on the VPN page")
+		decryptInPlace(&cl.PresharedKey, key, fmt.Sprintf("the preshared key for client tunnel %q", cl.Name),
+			"re-enter the tunnel on the VPN page")
+	}
+}
+
 // clearEncryptedSecrets blanks every value that is ciphertext we cannot
 // read. Cleartext values from a config written before encryption existed
 // are left alone, since those are still usable.
 func (c *Config) clearEncryptedSecrets() {
-	if isEncrypted(c.Backup.Passphrase) {
-		c.Backup.Passphrase = ""
-	}
-	for i := range c.Backup.Targets {
-		t := &c.Backup.Targets[i]
-		if isEncrypted(t.SecretAccessKey) {
-			t.SecretAccessKey = ""
+	for _, f := range c.secretFields() {
+		if isEncrypted(*f) {
+			*f = ""
 		}
-		if isEncrypted(t.Password) {
-			t.Password = ""
-		}
-	}
-	if isEncrypted(c.VPN.Server.PrivateKey) {
-		c.VPN.Server.PrivateKey = ""
-	}
-	for i := range c.VPN.Server.Peers {
-		if isEncrypted(c.VPN.Server.Peers[i].PrivateKey) {
-			c.VPN.Server.Peers[i].PrivateKey = ""
-		}
-	}
-	if isEncrypted(c.System.TLS.ACME.DNSChallenge.APIToken) {
-		c.System.TLS.ACME.DNSChallenge.APIToken = ""
 	}
 }

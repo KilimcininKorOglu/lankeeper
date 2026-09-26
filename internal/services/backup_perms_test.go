@@ -158,6 +158,8 @@ func TestExportRestrictsAnUnencryptedArchive(t *testing.T) {
 // same mode, so the guard does not depend on which branch ran.
 func TestExportRestrictsAnEncryptedArchive(t *testing.T) {
 	useBackupStagingDir(t)
+	// No credential key: the fake tar writes no real archive to append it to.
+	t.Setenv("LANKEEPER_CONFIG_KEY", filepath.Join(t.TempDir(), "absent.key"))
 	agent := &exportAgent{tarMode: 0o644}
 	netutil.SetAgentClient(agent)
 	t.Cleanup(func() { netutil.SetAgentClient(nil) })
