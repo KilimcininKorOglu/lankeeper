@@ -141,20 +141,27 @@ type renderStaticRecord struct {
 // WireGuard and OpenVPN servers when they run. unbound refuses any
 // query no access-control line covers.
 func (s *DNSService) clientSubnets() []string {
+	return servedClientSubnets(s.cfg)
+}
+
+// servedClientSubnets lists each LAN interface and VLAN network, and the
+// WireGuard and OpenVPN server subnets when those servers run: every
+// network whose clients the router serves.
+func servedClientSubnets(cfg *config.Config) []string {
 	var cidrs []string
-	for _, iface := range s.cfg.Interfaces {
+	for _, iface := range cfg.Interfaces {
 		if iface.Role == "lan" {
 			cidrs = append(cidrs, iface.Address)
 		}
 	}
-	for _, vlan := range s.cfg.VLANs {
+	for _, vlan := range cfg.VLANs {
 		cidrs = append(cidrs, vlan.Address)
 	}
-	if s.cfg.VPN.Server.Enabled {
-		cidrs = append(cidrs, s.cfg.VPN.Server.Address)
+	if cfg.VPN.Server.Enabled {
+		cidrs = append(cidrs, cfg.VPN.Server.Address)
 	}
-	if s.cfg.OpenVPN.Server.Enabled {
-		cidrs = append(cidrs, s.cfg.OpenVPN.Server.Subnet)
+	if cfg.OpenVPN.Server.Enabled {
+		cidrs = append(cidrs, cfg.OpenVPN.Server.Subnet)
 	}
 
 	var out []string

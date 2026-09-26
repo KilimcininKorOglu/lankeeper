@@ -437,8 +437,13 @@ fi
 # Native Debian servislerini enable et — config'ler /etc/ altına yazıldı,
 # ilk boot'ta lankeeper template'leriyle başlasınlar. dnsmasq Debian'da
 # default disabled, açıkça enable ediyoruz. Diğerleri de idempotent.
-for svc in unbound dnsmasq chrony rsyslog smbd nmbd; do
+for svc in unbound dnsmasq chrony rsyslog; do
     systemctl enable "$svc" 2>/dev/null || true
+done
+# Samba kapalı kalır; NAS servisi bir paylaşım eklendiğinde smbd ve nmbd'yi
+# başlatır. Samba stays off until the NAS service has a share to serve.
+for svc in smbd nmbd; do
+    systemctl disable "$svc" 2>/dev/null || true
 done
 
 # dnscrypt-proxy varsayilan olarak KAPALI kalir. Operator /dns sayfasindan

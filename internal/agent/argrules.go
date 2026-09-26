@@ -29,13 +29,16 @@ const (
 // backupSourceDirs are the directories a backup archive may carry.
 var backupSourceDirs = []string{"/etc/lankeeper", "/etc/unbound", "/etc/dnsmasq.d", "/etc/openvpn"}
 
-// serviceUnits lists, per systemctl verb, the units the services manage.
+// serviceUnits lists, per systemctl verb and its flags, the units the
+// services manage.
 var serviceUnits = map[string][]string{
 	"start":             {"openvpn@server"},
 	"stop":              {"openvpn@server", "dnscrypt-proxy", "lankeeper-dhcp6c.service", UpdateGuardUnit + ".timer"},
 	"restart":           {"lankeeper.target", "chrony", "rsyslog", "dnscrypt-proxy", "lankeeper-dhcp6c.service"},
 	"reload-or-restart": {"dnsmasq", "lankeeper-dhcp6c.service"},
 	"enable":            {"dnscrypt-proxy"},
+	"enable --now":      {"lankeeper-dhcp6c.service", "smbd", "nmbd"},
+	"disable --now":     {"smbd", "nmbd"},
 }
 
 // cleanAbs returns p cleaned, or an error when it is relative or climbs.
@@ -187,10 +190,7 @@ func validateSystemctlArgs(args []string) error {
 	if len(args) == 1 && args[0] == "reboot" {
 		return nil
 	}
-	if len(args) == 3 && args[0] == "enable" && args[1] == "--now" && args[2] == "lankeeper-dhcp6c.service" {
-		return nil
-	}
-	if len(args) == 2 && slices.Contains(serviceUnits[args[0]], args[1]) {
+	if len(args) >= 2 && slices.Contains(serviceUnits[strings.Join(args[:len(args)-1], " ")], args[len(args)-1]) {
 		return nil
 	}
 	return fmt.Errorf("systemctl: %s is not permitted", strings.Join(args, " "))

@@ -558,13 +558,17 @@ setup_render_configs() {
 }
 
 enable_native_services() {
-    # Native Debian services (unbound, dnsmasq, chrony, rsyslog, smbd,
-    # nmbd) start on boot using the lankeeper-rendered configs in
-    # /etc/. dnsmasq is default-disabled in Debian; force-enable.
-    for svc in unbound dnsmasq chrony rsyslog smbd nmbd; do
+    # Native Debian services (unbound, dnsmasq, chrony, rsyslog) start
+    # on boot using the lankeeper-rendered configs in /etc/. dnsmasq is
+    # default-disabled in Debian; force-enable. Samba stays off: the NAS
+    # service starts smbd and nmbd once a share exists.
+    for svc in unbound dnsmasq chrony rsyslog; do
         if systemctl enable "$svc" 2>/dev/null; then
             log_info "Enabled $svc.service"
         fi
+    done
+    for svc in smbd nmbd; do
+        systemctl disable --now "$svc" 2>/dev/null || true
     done
     # dnscrypt-proxy stays disabled by default - the operator turns
     # it on by picking DoH in the /dns settings page, which triggers

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -117,7 +118,12 @@ func (s *NASService) RenderConfig() (string, error) {
 	s.mu.RUnlock()
 
 	var buf strings.Builder
-	if err := tmpl.Execute(&buf, map[string]any{"Shares": safeShares(shares)}); err != nil {
+	data := map[string]any{
+		"Shares":         safeShares(shares),
+		"Addresses":      routerLANAddresses(s.cfg),
+		"AllowedSubnets": servedClientSubnets(s.cfg),
+	}
+	if err := tmpl.Execute(&buf, data); err != nil {
 		return "", fmt.Errorf("execute smb template: %w", err)
 	}
 	return buf.String(), nil
@@ -141,6 +147,32 @@ func safeShares(shares []config.ShareConfig) []config.ShareConfig {
 			continue
 		}
 		out = append(out, sh)
+	}
+	return out
+}
+
+// routerLANAddresses returns the router's own address on each LAN
+// interface and VLAN, in address/prefix form. smbd binds to these alone,
+// so it never listens on the WAN; VPN clients reach it through the LAN
+// address, which routes over their tunnel.
+func routerLANAddresses(cfg *config.Config) []string {
+	var cidrs []string
+	for _, iface := range cfg.Interfaces {
+		if iface.Role == "lan" {
+			cidrs = append(cidrs, iface.Address)
+		}
+	}
+	for _, vlan := range cfg.VLANs {
+		cidrs = append(cidrs, vlan.Address)
+	}
+	var out []string
+	for _, cidr := range cidrs {
+		ip, subnet, err := net.ParseCIDR(strings.TrimSpace(cidr))
+		if err != nil {
+			continue
+		}
+		ones, _ := subnet.Mask.Size()
+		out = append(out, fmt.Sprintf("%s/%d", ip, ones))
 	}
 	return out
 }
@@ -173,9 +205,32 @@ func (s *NASService) RenderToDisk(ctx context.Context) error {
 	return nil
 }
 
+// sambaUnits are the Samba daemons the NAS runs.
+var sambaUnits = []string{"smbd", "nmbd"}
+
+// ApplyConfig renders smb.conf and runs Samba only while a share exists.
+// With no share, smbd and nmbd are stopped and disabled: a file server
+// with nothing to serve is only something listening.
 func (s *NASService) ApplyConfig(ctx context.Context) error {
 	if err := s.RenderToDisk(ctx); err != nil {
 		return err
+	}
+	s.mu.RLock()
+	shares := safeShares(s.cfg.NAS.Shares)
+	s.mu.RUnlock()
+
+	verb := "enable"
+	if len(shares) == 0 {
+		verb = "disable"
+	}
+	for _, unit := range sambaUnits {
+		if _, err := netutil.Run(ctx, "systemctl", verb, "--now", unit); err != nil {
+			return fmt.Errorf("%s %s: %w", verb, unit, err)
+		}
+	}
+	if len(shares) == 0 {
+		log.Println("samba stopped: no shares configured")
+		return nil
 	}
 	if _, err := netutil.Run(ctx, "smbcontrol", "all", "reload-config"); err != nil {
 		return fmt.Errorf("reload samba: %w", err)

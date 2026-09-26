@@ -14,6 +14,13 @@ passwd chat = *Enter\snew\s*\spassword:* %n\n *Retype\snew\s*\spassword:* %n\n *
 pam password change = yes
 map to guest = bad user
 usershare allow guests = yes
+# Listen only on the router's LAN and VLAN addresses and admit only the
+# networks it serves, so Samba never depends on the firewall to stay off
+# the WAN.
+interfaces = 127.0.0.1/8{{ range .Addresses }} {{ . }}{{ end }}
+bind interfaces only = yes
+hosts allow = 127.0.0.1{{ range .AllowedSubnets }} {{ . }}{{ end }}
+hosts deny = ALL
 
 {{ range .Shares }}
 [{{ .Name }}]
