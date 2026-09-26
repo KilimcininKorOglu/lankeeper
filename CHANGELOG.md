@@ -10,6 +10,29 @@ git history.
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-09-26
+
+A release-pipeline release. The router code is unchanged from 0.5.5;
+what changes is how the published files are produced. Updating is
+optional.
+
+### Added
+
+- Release archives and installer ISOs are now built on GitHub Actions
+  from the pushed tag, for amd64 and on a native arm64 runner, instead
+  of on the maintainer's machine. `SHA256SUMS` is signed in a job that
+  runs only after the maintainer approves it and after CI passed on the
+  tagged commit, so a commit that failed CI is never signed.
+- Signing refuses a key whose signature does not verify against the
+  public key compiled into the router. A wrong key now stops the release
+  before anything is published, instead of producing a release every
+  router would reject.
+- `make iso-amd64` and `make iso-arm64` download the Debian source image
+  when it is missing; the ISO builder still checks it against the pinned
+  digests. `make release-notes` writes the CHANGELOG section for a
+  version to `dist/RELEASE_NOTES.md` and refuses a version with no
+  section.
+
 ## [0.5.5] - 2026-09-26
 
 A correctness and hardening release. The largest changes close paths
