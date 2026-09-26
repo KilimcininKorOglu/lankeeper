@@ -377,6 +377,9 @@ func (s *NetworkService) DeleteVLAN(ctx context.Context, parentDevice string, vi
 	return nil
 }
 
+// RestoreVLANs recreates every configured VLAN device that is missing.
+// The devices are runtime kernel state, so a reboot removes them while
+// dnsmasq, Unbound and nftables still render for them.
 func (s *NetworkService) RestoreVLANs(ctx context.Context) error {
 	var errs []string
 	for _, vlan := range s.cfg.VLANs {
@@ -389,6 +392,11 @@ func (s *NetworkService) RestoreVLANs(ctx context.Context) error {
 		}
 		if parentDev == "" {
 			errs = append(errs, fmt.Sprintf("parent %s not found for VLAN %d", vlan.Parent, vlan.VID))
+			continue
+		}
+		// A web-process restart without a reboot finds the device still
+		// in place, and ip link add would refuse it.
+		if _, err := netutil.GetInterfaceState(fmt.Sprintf("%s.%d", parentDev, vlan.VID)); err == nil {
 			continue
 		}
 

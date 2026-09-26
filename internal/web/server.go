@@ -62,6 +62,9 @@ type Server struct {
 	vpnSvc *services.VPNService
 	// routingSvc is retained so Serve can load the saved policies.
 	routingSvc *services.RoutingService
+	// networkSvc and dhcpSvc are retained so Serve can recreate the VLAN
+	// devices and re-render dnsmasq for them.
+	networkSvc *services.NetworkService
 	// dnsSvc is retained so Serve can start the query log tail.
 	dnsSvc  *services.DNSService
 	monitor *services.MonitorService
@@ -241,6 +244,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 		vpnSvc:     vpnSvc,
 		routingSvc: routingSvc,
 		dnsSvc:     dnsSvc,
+		networkSvc: networkSvc,
 		monitor:    monitorSvc,
 		ipv6Svc:    ipv6Svc,
 		// 1 probe/sec, burst 2 — comfortable for a single admin
@@ -302,6 +306,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 // back in place. Failures are logged, not fatal: DNS, DHCP and the
 // firewall do not depend on either step.
 func (s *Server) loadSavedState(ctx context.Context) {
+	s.restoreVLANs(ctx)
 	// The site-to-site wizard and every downloaded peer config need the
 	// server public key, so create the pair before the UI can ask for it.
 	if err := s.vpnSvc.EnsureServerKeypair(ctx); err != nil {
@@ -311,6 +316,21 @@ func (s *Server) loadSavedState(ctx context.Context) {
 	// loaded; nothing else puts them into the kernel after a restart.
 	if err := s.routingSvc.Apply(ctx); err != nil {
 		log.Printf("routing: apply saved policies: %v", err)
+	}
+}
+
+// restoreVLANs recreates the VLAN devices a reboot removed, then
+// restarts dnsmasq so it serves DHCP on them; it started before the
+// devices existed.
+func (s *Server) restoreVLANs(ctx context.Context) {
+	if len(s.cfg.VLANs) == 0 {
+		return
+	}
+	if err := s.networkSvc.RestoreVLANs(ctx); err != nil {
+		log.Printf("vlan: restore devices: %v", err)
+	}
+	if err := s.dhcpSvc.ApplyConfig(ctx); err != nil {
+		log.Printf("vlan: reapply dhcp after restore: %v", err)
 	}
 }
 
