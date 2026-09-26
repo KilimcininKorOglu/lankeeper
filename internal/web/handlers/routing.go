@@ -51,8 +51,15 @@ func (h *RoutingHandler) HandleAddPolicy(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if err := services.ValidateRoutingPolicy(policy); err != nil {
+		fail(w, r, http.StatusBadRequest, err)
+		return
+	}
 	if err := h.routing.AddPolicy(policy); err != nil {
 		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+		return
+	}
+	if !h.apply(w, r) {
 		return
 	}
 
@@ -120,6 +127,9 @@ func (h *RoutingHandler) HandleDeletePolicy(w http.ResponseWriter, r *http.Reque
 		fail(w, r, http.StatusBadRequest, err)
 		return
 	}
+	if !h.apply(w, r) {
+		return
+	}
 
 	respondRefresh(w, r, "/routing")
 }
@@ -135,6 +145,19 @@ func (h *RoutingHandler) HandleReorder(w http.ResponseWriter, r *http.Request) {
 		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return
 	}
+	if !h.apply(w, r) {
+		return
+	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// apply loads the saved policies into the kernel. A policy that is only
+// saved routes nothing, so the change is not done until this succeeds.
+func (h *RoutingHandler) apply(w http.ResponseWriter, r *http.Request) bool {
+	if err := h.routing.Apply(r.Context()); err != nil {
+		fail(w, r, http.StatusInternalServerError, err)
+		return false
+	}
+	return true
 }

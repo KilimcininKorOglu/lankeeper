@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -46,7 +47,32 @@ func (s *RoutingService) persist() error {
 	return s.cfg.SaveToFile()
 }
 
+// routingPolicyNamePattern bounds a policy name. The name becomes an nft
+// set name inside the script the root agent loads, so anything beyond
+// these characters could end the statement and add another.
+var routingPolicyNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
+
+// ValidateRoutingPolicy checks the fields that reach the nft script or a
+// command before the policy is stored.
+func ValidateRoutingPolicy(p config.RoutingPolicy) error {
+	if !routingPolicyNamePattern.MatchString(p.Name) {
+		return fmt.Errorf("policy name must be 1-32 letters, digits, hyphens or underscores")
+	}
+	if p.Tunnel == "" {
+		return fmt.Errorf("policy %q names no tunnel", p.Name)
+	}
+	for _, d := range p.Domains {
+		if err := ValidateDomain(d); err != nil {
+			return fmt.Errorf("policy %q domain %q: %w", p.Name, d, err)
+		}
+	}
+	return nil
+}
+
 func (s *RoutingService) AddPolicy(policy config.RoutingPolicy) error {
+	if err := ValidateRoutingPolicy(policy); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

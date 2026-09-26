@@ -57,12 +57,14 @@ type Server struct {
 	// qosSse is dedicated to per-client bandwidth events. Kept
 	// separate from sse so consumers of /events/stats are not
 	// flooded with qos-clients payloads they will not render.
-	qosSse  *SSEBroker
-	qosSvc  *services.QoSService
-	vpnSvc  *services.VPNService
-	monitor *services.MonitorService
-	dhcpSvc *services.DHCPService
-	ipv6Svc *services.IPv6Service
+	qosSse *SSEBroker
+	qosSvc *services.QoSService
+	vpnSvc *services.VPNService
+	// routingSvc is retained so Serve can load the saved policies.
+	routingSvc *services.RoutingService
+	monitor    *services.MonitorService
+	dhcpSvc    *services.DHCPService
+	ipv6Svc    *services.IPv6Service
 	// dotProbeLimiter throttles `POST /dns/dot/probe` to a tight
 	// per-client budget. ProbeDoT performs a synchronous TLS dial
 	// with a 5-second outer timeout; without this limiter an
@@ -150,6 +152,9 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 
 	routingSvc := services.NewRoutingService(cfg)
 	routingHandler := handlers.NewRoutingHandler(renderer, routingSvc)
+	// Every firewall load starts with "flush ruleset", which also removes
+	// the policy routing chain and its domain sets, so reload them after.
+	firewallSvc.SetAfterReload(routingSvc.Apply)
 
 	nasSvc := services.NewNASService(cfg)
 	nasHandler := handlers.NewNASHandler(renderer, nasSvc)
@@ -232,6 +237,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 		qosSse:     qosBroker,
 		qosSvc:     qosSvc,
 		vpnSvc:     vpnSvc,
+		routingSvc: routingSvc,
 		monitor:    monitorSvc,
 		ipv6Svc:    ipv6Svc,
 		// 1 probe/sec, burst 2 — comfortable for a single admin
@@ -287,6 +293,22 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	}
 
 	return s, nil
+}
+
+// loadSavedState puts config the kernel does not keep across a restart
+// back in place. Failures are logged, not fatal: DNS, DHCP and the
+// firewall do not depend on either step.
+func (s *Server) loadSavedState(ctx context.Context) {
+	// The site-to-site wizard and every downloaded peer config need the
+	// server public key, so create the pair before the UI can ask for it.
+	if err := s.vpnSvc.EnsureServerKeypair(ctx); err != nil {
+		log.Printf("wireguard server key pair: %v", err)
+	}
+	// Saved routing policies exist only in router.yaml until they are
+	// loaded; nothing else puts them into the kernel after a restart.
+	if err := s.routingSvc.Apply(ctx); err != nil {
+		log.Printf("routing: apply saved policies: %v", err)
+	}
 }
 
 // initDoH brings the dnscrypt-proxy state in line with the config at
@@ -435,13 +457,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	// not leave stale pending peers visible in the UI.
 	s.vpnSvc.StartInviteGC(ctx, 5*time.Minute, &bg)
 
-	// The site-to-site wizard and every downloaded peer config need the
-	// server public key, so create the pair before the UI can ask for it.
-	// A failure leaves the WireGuard pages without a key; it is logged,
-	// not fatal, because DNS, DHCP and the firewall do not depend on it.
-	if err := s.vpnSvc.EnsureServerKeypair(ctx); err != nil {
-		log.Printf("wireguard server key pair: %v", err)
-	}
+	s.loadSavedState(ctx)
 
 	// Backup scheduler: ticks every 30s, fires runOnce when the
 	// configured cron schedule next matches. No-op when disabled.

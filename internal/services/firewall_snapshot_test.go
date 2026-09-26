@@ -264,3 +264,27 @@ func TestConfirmPersistsTheRulesetForBoot(t *testing.T) {
 		t.Errorf("boot ruleset differs from the confirmed one:\n%s", got)
 	}
 }
+
+// TestFirewallReloadRestoresDependentChains is the regression test for the
+// hook policy routing relies on. Every firewall load starts with "flush
+// ruleset", which also removes the policy routing chain, so the owning
+// service has to reload after both an apply and a rollback.
+func TestFirewallReloadRestoresDependentChains(t *testing.T) {
+	agent := &snapshotAgent{}
+	svc := newSnapshotTest(t, agent)
+	calls := 0
+	svc.SetAfterReload(func(context.Context) error { calls++; return nil })
+
+	if err := svc.Apply(context.Background()); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("after apply: hook ran %d times, want 1", calls)
+	}
+	if err := svc.Rollback(context.Background()); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	if calls != 2 {
+		t.Errorf("after rollback: hook ran %d times, want 2", calls)
+	}
+}

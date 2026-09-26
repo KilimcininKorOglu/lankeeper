@@ -57,7 +57,7 @@ func TestRoutingTogglePolicy(t *testing.T) {
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewRoutingService(cfg)
 
-	if err := svc.AddPolicy(config.RoutingPolicy{Name: "test", Enabled: true}); err != nil {
+	if err := svc.AddPolicy(config.RoutingPolicy{Name: "test", Enabled: true, Tunnel: "wg0"}); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 
@@ -77,7 +77,7 @@ func TestRoutingUpdatePriorities(t *testing.T) {
 	svc := services.NewRoutingService(cfg)
 
 	for _, name := range []string{"a", "b", "c"} {
-		if err := svc.AddPolicy(config.RoutingPolicy{Name: name, Enabled: true}); err != nil {
+		if err := svc.AddPolicy(config.RoutingPolicy{Name: name, Enabled: true, Tunnel: "wg0"}); err != nil {
 			t.Fatalf("add %s: %v", name, err)
 		}
 	}
@@ -321,5 +321,27 @@ func TestRoutingApplyLoadsTheScriptTheAgentWrote(t *testing.T) {
 	}
 	if !agent.wroteFile(loaded) {
 		t.Errorf("nft loads %s, but the agent never wrote it (writes: %+v)", loaded, agent.writeLog)
+	}
+}
+
+// TestAddPolicyRefusesANameThatBreaksTheNftScript pins the validation
+// that has to hold before policies are loaded. The name becomes an nft
+// set name in the script the root agent runs, so a semicolon or a
+// newline in it would add a statement of the caller's choosing.
+func TestAddPolicyRefusesANameThatBreaksTheNftScript(t *testing.T) {
+	cfg := &config.Config{}
+	svc := services.NewRoutingService(cfg)
+	for _, p := range []config.RoutingPolicy{
+		{Name: "a; flush ruleset", Tunnel: "wg0"},
+		{Name: "a\nadd rule", Tunnel: "wg0"},
+		{Name: "ok", Tunnel: ""},
+		{Name: "ok", Tunnel: "wg0", Domains: []string{"example.com; drop"}},
+	} {
+		if err := svc.AddPolicy(p); err == nil {
+			t.Errorf("policy %+v was accepted", p)
+		}
+	}
+	if len(cfg.Routing.Policies) != 0 {
+		t.Errorf("a refused policy was stored: %+v", cfg.Routing.Policies)
 	}
 }

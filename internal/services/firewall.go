@@ -44,6 +44,25 @@ type FirewallService struct {
 	// appliedRuleset is the ruleset the pending change loaded, kept so
 	// Confirm can persist exactly what the operator confirmed.
 	appliedRuleset string
+	// afterReload runs after every load that replaced the ruleset, so the
+	// services owning chains inside it can put them back. May be nil.
+	afterReload func(context.Context) error
+}
+
+// SetAfterReload registers the hook run after Apply and after a rollback.
+// Both load a file that starts with "flush ruleset", which removes every
+// chain another service added.
+func (s *FirewallService) SetAfterReload(fn func(context.Context) error) {
+	s.afterReload = fn
+}
+
+func (s *FirewallService) runAfterReload(ctx context.Context) {
+	if s.afterReload == nil {
+		return
+	}
+	if err := s.afterReload(ctx); err != nil {
+		log.Printf("firewall: reload dependent rules: %v", err)
+	}
 }
 
 type nftTemplateData struct {
@@ -183,6 +202,7 @@ func (s *FirewallService) armWatchdog(ac *netutil.AtomicChange, timeout time.Dur
 
 		err := ac.Rollback(context.Background())
 		s.clearPendingState()
+		s.runAfterReload(context.Background())
 		return err
 	})
 }
@@ -285,6 +305,7 @@ func (s *FirewallService) Apply(ctx context.Context) error {
 	s.appliedRuleset = rendered
 	s.persistPendingState(ac.GetSnapshot())
 	s.armWatchdog(ac, firewallConfirmWindow)
+	s.runAfterReload(ctx)
 
 	log.Println("firewall rules applied — waiting for confirmation (30s)")
 	return nil
@@ -335,6 +356,7 @@ func (s *FirewallService) Rollback(ctx context.Context) error {
 		err := s.change.Rollback(ctx)
 		s.change = nil
 		s.clearPendingState()
+		s.runAfterReload(ctx)
 		return err
 	}
 	return nil
