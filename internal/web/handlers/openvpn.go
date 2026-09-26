@@ -200,6 +200,10 @@ func (h *OpenVPNHandler) HandleAddOutboundClient(w http.ResponseWriter, r *http.
 		return
 	}
 
+	if err := services.ValidateOutboundClient(client); err != nil {
+		fail(w, r, http.StatusBadRequest, err)
+		return
+	}
 	if err := h.ovpn.AddOutboundClient(client); err != nil {
 		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
 		return

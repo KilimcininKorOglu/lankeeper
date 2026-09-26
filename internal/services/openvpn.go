@@ -553,6 +553,9 @@ func (s *OpenVPNService) ImportClientConfig(name, ovpnContent string) {
 }
 
 func (s *OpenVPNService) AddOutboundClient(client config.OVPNClientConfig) error {
+	if err := ValidateOutboundClient(client); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cfg.OpenVPN.Clients = append(s.cfg.OpenVPN.Clients, client)
@@ -568,6 +571,11 @@ func (s *OpenVPNService) ListOutboundClients() []config.OVPNClientConfig {
 }
 
 func (s *OpenVPNService) renderClientConfig(c config.OVPNClientConfig, confPath string) error {
+	// Checked again here because a stored client may predate the check,
+	// and this file is what the root agent hands to openvpn.
+	if err := ValidateOutboundClient(c); err != nil {
+		return err
+	}
 	if c.ConfigFile != "" {
 		return netutil.WriteFile(confPath, []byte(c.ConfigFile), 0o600)
 	}
