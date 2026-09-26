@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
-	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 )
 
 // LocalBackupRoot is the only path local backups may live under.
@@ -65,7 +64,9 @@ func uploadLocal(srcPath string, t config.BackupTarget) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := netutil.MkdirAll(dir, 0o750); err != nil {
+	// Created by this process, not through the agent: the agent would
+	// create it root-owned, and the file below is written from here.
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 
