@@ -283,6 +283,11 @@ func (s *OpenVPNService) GenerateClientOVPN(name string) (string, error) {
 	fmt.Fprintf(&sb, "persist-tun\n")
 	fmt.Fprintf(&sb, "cipher %s\n", srv.Cipher)
 	fmt.Fprintf(&sb, "auth %s\n", srv.Auth)
+	if srv.Compression {
+		// Must match the server template, or the two ends disagree on
+		// whether data packets carry a compression header.
+		fmt.Fprintf(&sb, "compress\n")
+	}
 	fmt.Fprintf(&sb, "key-direction 1\n")
 	fmt.Fprintf(&sb, "verb 3\n")
 

@@ -30,7 +30,10 @@ cipher {{ .Cipher }}
 auth {{ .Auth }}
 keepalive {{ .Keepalive }}
 
-{{- if not .Compression }}
+{{- if .Compression }}
+# Framing only: compress with no algorithm sends uncompressed packets
+# (compression enables VORACLE-style leaks). Client profiles carry the
+# same line, so both ends agree on the packet format.
 compress
 {{- end }}
 {{- if .ClientToClient }}
