@@ -394,7 +394,16 @@ func (s *HealthCheckService) actionRestartPPPoE(ctx context.Context) error {
 	return err
 }
 
+// errUSBFailoverDisabled reports that the operator has not allowed an
+// automatic switch to the USB link.
+var errUSBFailoverDisabled = errors.New("USB failover is disabled")
+
 func (s *HealthCheckService) actionFailoverUSB(ctx context.Context) error {
+	// The operator's switches decide whether the chain may move the
+	// default route onto the phone's link at all.
+	if !s.cfg.USBTether.Enabled || !s.cfg.USBTether.AutoFailover {
+		return errUSBFailoverDisabled
+	}
 	iface := s.cfg.USBTether.Interface
 	if iface == "" {
 		iface = "usb0"
