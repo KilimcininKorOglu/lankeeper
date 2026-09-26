@@ -476,6 +476,11 @@ func (s *ACMEService) StartRenewal(ctx context.Context) {
 	ticker := time.NewTicker(renewCheckInterval)
 	defer ticker.Stop()
 
+	// Check once at start as well: the process restarts on every update,
+	// mode change and reboot, and a router whose uptime never reaches a
+	// full interval would otherwise never check at all.
+	s.RenewIfDue(ctx)
+
 	for {
 		select {
 		case <-ctx.Done():
