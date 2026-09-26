@@ -255,7 +255,7 @@ var schedulerRunning bool
 // StartScheduler launches the cron-driven backup goroutine. It
 // computes the next run from cfg.Backup.Schedule on every tick and
 // fires runBackup(ctx) when due. Schedule reloads happen on each
-// tick so a config change takes effect by the next minute boundary.
+// tick so a config change takes effect by the next tick.
 // wg may be nil. When supplied, the goroutine is counted into it so a
 // caller can wait for an in-flight run to finish: RunNow is called
 // synchronously inside the loop below, so the goroutine does not exit
@@ -296,7 +296,7 @@ func claimScheduler() bool {
 func (s *BackupService) schedulerLoop(ctx context.Context, cfg *backupSchedulerConfig) {
 	t := time.NewTicker(30 * time.Second)
 	defer t.Stop()
-	var nextFire time.Time
+	var next scheduledFire
 
 	for {
 		select {
@@ -306,34 +306,52 @@ func (s *BackupService) schedulerLoop(ctx context.Context, cfg *backupSchedulerC
 			scheduleMu.Unlock()
 			return
 		case now := <-t.C:
-			nextFire = s.schedulerTick(ctx, cfg, now, nextFire)
+			next = s.schedulerTick(ctx, cfg, now, next)
 		}
 	}
 }
 
+// scheduledFire is the next run and the schedule it was computed from.
+// The source is kept so an edited schedule or timezone replaces the time
+// the old expression produced instead of waiting for it to fire.
+type scheduledFire struct {
+	at     time.Time
+	source string
+}
+
+// scheduleSource identifies the inputs a fire time was computed from.
+func scheduleSource(snap backupSnapshot) string {
+	loc := ""
+	if snap.Location != nil {
+		loc = snap.Location.String()
+	}
+	return snap.Schedule + "|" + loc
+}
+
 // schedulerTick runs the backup when it is due and returns the next
 // fire time. The schedule is re-read on every tick, so a config change
-// takes effect by the next minute boundary.
-func (s *BackupService) schedulerTick(ctx context.Context, cfg *backupSchedulerConfig, now, nextFire time.Time) time.Time {
+// takes effect by the next tick.
+func (s *BackupService) schedulerTick(ctx context.Context, cfg *backupSchedulerConfig, now time.Time, next scheduledFire) scheduledFire {
 	snap := cfg.Snapshot()
 	if !snap.Enabled || snap.Schedule == "" {
-		return time.Time{}
+		return scheduledFire{}
 	}
 	sched, err := ParseSchedule(snap.Schedule, snap.Location)
 	if err != nil {
 		log.Printf("backup scheduler: parse %q: %v", snap.Schedule, err)
-		return nextFire
+		return next
 	}
-	if nextFire.IsZero() || nextFire.Before(snap.LastRun) {
-		nextFire = sched.Next(now)
+	source := scheduleSource(snap)
+	if next.at.IsZero() || next.at.Before(snap.LastRun) || next.source != source {
+		next = scheduledFire{at: sched.Next(now), source: source}
 	}
-	if nextFire.IsZero() || now.Before(nextFire) {
-		return nextFire
+	if next.at.IsZero() || now.Before(next.at) {
+		return next
 	}
 	if err := s.RunNow(ctx); err != nil {
 		log.Printf("backup scheduler: run: %v", err)
 	}
-	return sched.Next(now.Add(time.Minute))
+	return scheduledFire{at: sched.Next(now.Add(time.Minute)), source: source}
 }
 
 // backupSchedulerConfig is the minimal slice of the live config the
