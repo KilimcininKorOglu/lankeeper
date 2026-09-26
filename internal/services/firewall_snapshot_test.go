@@ -133,7 +133,7 @@ func TestApplySucceedsOnAFreshSystem(t *testing.T) {
 	if err := svc.Rollback(context.Background()); err != nil {
 		t.Errorf("rollback after a fresh-system apply: %v", err)
 	}
-	if !agent.ran("nft flush ruleset") {
+	if !agent.ran("nft -f /var/lib/lankeeper/firewall/rollback.nft") {
 		t.Error("the rollback did no work, so the safety net was absent")
 	}
 }
@@ -176,5 +176,30 @@ func TestSnapshotKeepsARealRulesetVerbatim(t *testing.T) {
 	}
 	if got := ac.GetSnapshot(); got != "table inet filter {\n}\n" {
 		t.Errorf("snapshot = %q, want the ruleset verbatim", got)
+	}
+}
+
+// TestApplyStagesTheRulesetWhereTheAgentCanReadIt is the regression test.
+// Apply wrote the candidate to the web process's own /tmp, which the web
+// unit's PrivateTmp hides from the agent, so every nft -c -f failed.
+func TestApplyStagesTheRulesetWhereTheAgentCanReadIt(t *testing.T) {
+	agent := &snapshotAgent{}
+	svc := newSnapshotTest(t, agent)
+
+	if err := svc.Apply(context.Background()); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	t.Cleanup(svc.Confirm)
+
+	for _, want := range []string{
+		"nft -c -f /var/lib/lankeeper/firewall/candidate.nft",
+		"nft -f /var/lib/lankeeper/firewall/candidate.nft",
+	} {
+		if !agent.ran(want) {
+			t.Errorf("agent never ran %q; calls: %v", want, agent.calls)
+		}
+	}
+	if agent.ran("/tmp/") {
+		t.Errorf("a /tmp path crossed the agent boundary; calls: %v", agent.calls)
 	}
 }

@@ -235,18 +235,15 @@ func TestRestoreRollsBackExpiredWindow(t *testing.T) {
 	}
 
 	calls := agent.snapshotCalls()
-	var flushed, reapplied bool
+	var reapplied bool
 	for _, c := range calls {
-		if strings.HasPrefix(c, "nft flush ruleset") {
-			flushed = true
-		}
-		if strings.HasPrefix(c, "nft -f ") {
+		// The rollback file carries its own flush, so one load restores.
+		if strings.HasPrefix(c, "nft -f /var/lib/lankeeper/firewall/rollback.nft") {
 			reapplied = true
 		}
 	}
-	if !flushed || !reapplied {
-		t.Errorf("expired window did not roll back (flush=%v reapply=%v); calls: %v",
-			flushed, reapplied, calls)
+	if !reapplied {
+		t.Errorf("expired window did not roll back; calls: %v", calls)
 	}
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {

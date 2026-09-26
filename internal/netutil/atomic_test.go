@@ -21,16 +21,30 @@ type scriptedAgent struct {
 	calls  []string
 	stdout map[string]string
 	fail   map[string]bool
+	writes map[string]string
 }
 
 func newScriptedAgent() *scriptedAgent {
 	return &scriptedAgent{
 		stdout: make(map[string]string),
 		fail:   make(map[string]bool),
+		writes: make(map[string]string),
 	}
 }
 
 func (a *scriptedAgent) Call(_ context.Context, method string, params any) (json.RawMessage, error) {
+	if method == "file.write" {
+		raw, _ := json.Marshal(params)
+		var w struct {
+			Path    string `json:"path"`
+			Content string `json:"content"`
+		}
+		_ = json.Unmarshal(raw, &w)
+		a.mu.Lock()
+		a.writes[w.Path] = w.Content
+		a.mu.Unlock()
+		return []byte(`{}`), nil
+	}
 	if method != "exec.run" {
 		return []byte(`{}`), nil
 	}
@@ -163,9 +177,11 @@ func TestApplyCommitsTheCandidate(t *testing.T) {
 }
 
 // TestRollbackFlushesThenReappliesTheSnapshot is the core of the safety
-// net. A partial rollback, flush without re-apply, would leave the
-// router with no ruleset at all, which is worse than the change being
-// rolled back.
+// net. The flush and the snapshot load go to nft as one file, so a
+// snapshot that fails to load cannot leave the router with no ruleset.
+// The file is staged through the agent under the shared data directory:
+// the web unit runs with PrivateTmp, so a /tmp path is invisible to the
+// agent that runs nft.
 func TestRollbackFlushesThenReappliesTheSnapshot(t *testing.T) {
 	agent := useScriptedAgent(t)
 	agent.stdout["nft list ruleset"] = "table inet filter { chain input { policy accept } }"
@@ -181,27 +197,19 @@ func TestRollbackFlushesThenReappliesTheSnapshot(t *testing.T) {
 		t.Fatalf("rollback: %v", err)
 	}
 
-	calls := agent.recorded()
-	flushAt, reapplyAt := -1, -1
-	for i, c := range calls {
-		if strings.HasPrefix(c, "nft flush ruleset") {
-			flushAt = i
-		}
-		// The rollback writes the snapshot to its own temp file, so
-		// match the command rather than the candidate path.
-		if strings.HasPrefix(c, "nft -f /tmp/nft-rollback-") {
-			reapplyAt = i
-		}
+	path := "/var/lib/lankeeper/firewall/rollback.nft"
+	want := "flush ruleset\ntable inet filter { chain input { policy accept } }"
+	agent.mu.Lock()
+	got := agent.writes[path]
+	agent.mu.Unlock()
+	if got != want {
+		t.Errorf("rollback file %s = %q, want %q", path, got, want)
 	}
-
-	if flushAt < 0 {
-		t.Fatalf("rollback never flushed; calls: %v", calls)
+	if !agent.sawPrefix("nft -f " + path) {
+		t.Errorf("rollback did not load the staged file; calls: %v", agent.recorded())
 	}
-	if reapplyAt < 0 {
-		t.Fatalf("rollback flushed but never re-applied the snapshot, leaving no ruleset; calls: %v", calls)
-	}
-	if reapplyAt < flushAt {
-		t.Errorf("rollback re-applied before flushing; calls: %v", calls)
+	if agent.sawPrefix("nft flush ruleset") {
+		t.Error("rollback flushed in a separate command, so a failed load leaves no ruleset")
 	}
 }
 

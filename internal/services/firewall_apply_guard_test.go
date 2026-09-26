@@ -106,7 +106,7 @@ func TestWatchdogRollbackClearsThePendingChange(t *testing.T) {
 	if pending != nil {
 		t.Fatal("the watchdog rolled back but left the change in place; every later apply would be refused")
 	}
-	if countCalls(agent.snapshotCalls(), "nft flush ruleset") == 0 {
+	if countCalls(agent.snapshotCalls(), "nft -f /var/lib/lankeeper/firewall/rollback.nft") == 0 {
 		t.Fatal("the watchdog did not roll back at all")
 	}
 

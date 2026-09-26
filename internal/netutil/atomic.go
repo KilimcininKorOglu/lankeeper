@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -158,18 +159,14 @@ func (ac *AtomicChange) Rollback(ctx context.Context) error {
 
 	switch ac.Service {
 	case "firewall":
-		_, err := Run(ctx, "nft", "flush", "ruleset")
-		if err != nil {
-			return fmt.Errorf("flush for rollback: %w", err)
-		}
-
-		tmpFile := fmt.Sprintf("/tmp/nft-rollback-%d.conf", time.Now().UnixNano())
-		if err := writeFile(tmpFile, []byte(ac.snapshot)); err != nil {
+		// The flush and the snapshot load are one nft transaction, so a
+		// snapshot that fails to load leaves the current ruleset in force
+		// instead of an empty one.
+		path := filepath.Join(FirewallStagingDir(), "rollback.nft")
+		if err := WriteFile(path, []byte("flush ruleset\n"+ac.snapshot), 0o600); err != nil {
 			return fmt.Errorf("write rollback: %w", err)
 		}
-
-		_, err = Run(ctx, "nft", "-f", tmpFile)
-		if err != nil {
+		if _, err := Run(ctx, "nft", "-f", path); err != nil {
 			return fmt.Errorf("apply rollback: %w", err)
 		}
 	}
@@ -185,6 +182,13 @@ func (ac *AtomicChange) GetSnapshot() string {
 	return ac.snapshot
 }
 
-func writeFile(path string, data []byte) error {
-	return os.WriteFile(path, data, 0o600)
+// FirewallStagingDir is where nft input files are staged for the agent.
+// The web unit runs with PrivateTmp, so a file under /tmp is invisible to
+// the agent; /var/lib/lankeeper is the directory both units see.
+// LANKEEPER_FIREWALL_STAGING overrides it for tests.
+func FirewallStagingDir() string {
+	if dir := os.Getenv("LANKEEPER_FIREWALL_STAGING"); dir != "" {
+		return dir
+	}
+	return "/var/lib/lankeeper/firewall"
 }

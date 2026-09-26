@@ -259,8 +259,6 @@ func (s *FirewallService) Apply(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("render nftables: %w", err)
 	}
-	defer func() { _ = os.Remove(tmpFile) }()
-
 	ac := netutil.NewAtomicChange("firewall")
 
 	// The snapshot IS the safety net. Applying without one arms a
@@ -876,24 +874,19 @@ func (s *FirewallService) addVPNInterfaces(data *nftTemplateData) {
 	}
 }
 
+// renderToFile stages the rendered ruleset where the agent can read it.
+// The web process runs with PrivateTmp, so its own /tmp is invisible to
+// the agent that runs nft.
 func (s *FirewallService) renderToFile() (string, error) {
-	data := s.buildTemplateData()
-
-	f, err := os.CreateTemp("", "nftables-*.conf")
+	rendered, err := s.RenderConfig()
 	if err != nil {
-		return "", fmt.Errorf("create temp: %w", err)
+		return "", err
 	}
-
-	if err := s.tmpl.Execute(f, data); err != nil {
-		_ = f.Close()
-		_ = os.Remove(f.Name())
-		return "", fmt.Errorf("execute template: %w", err)
+	path := filepath.Join(netutil.FirewallStagingDir(), "candidate.nft")
+	if err := netutil.WriteFile(path, []byte(rendered), 0o600); err != nil {
+		return "", fmt.Errorf("stage ruleset: %w", err)
 	}
-
-	if err := f.Close(); err != nil {
-		return "", fmt.Errorf("close temp: %w", err)
-	}
-	return f.Name(), nil
+	return path, nil
 }
 
 func (s *FirewallService) RenderConfig() (string, error) {
