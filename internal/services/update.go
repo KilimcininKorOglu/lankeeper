@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KilimcininKorOglu/lankeeper/internal/agent"
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 )
 
@@ -36,7 +37,6 @@ type UpdateService struct {
 	repoName        string
 	backup          *BackupService
 	mu              sync.Mutex
-	watchdogCancel  context.CancelFunc
 	pendingVersion  string
 	previousVersion string
 	backupBinary    string
@@ -287,16 +287,18 @@ func (s *UpdateService) ApplyUpdate(ctx context.Context, info *UpdateInfo) error
 	s.backupBinary = backupBinary
 	s.configSnapshot = configSnapshot
 
-	watchCtx, cancel := context.WithCancel(context.Background())
-	s.watchdogCancel = cancel
+	// The rollback has to outlive this process: the restart below kills
+	// it, and a release that cannot start never reaches the code that
+	// would re-arm an in-process timer. A transient systemd unit running
+	// the previous binary survives the restart and owns the rollback.
+	if err := s.armUpdateGuard(ctx); err != nil {
+		s.restoreBinary(ctx, backupBinary)
+		_ = s.clearUpdateState()
+		s.resetPendingUpdate()
+		return fmt.Errorf("arm update guard: %w", err)
+	}
 
-	// The watchdog deliberately outlives the request. It must
-	// still be able to roll the binary back after the HTTP
-	// response has been written and the client has gone.
-	// #nosec G118
-	go s.watchdog(watchCtx, updateConfirmWindow)
-
-	log.Printf("update to %s applied, waiting for confirmation (60s watchdog)", info.LatestVersion)
+	log.Printf("update to %s applied, waiting for confirmation (%s guard)", info.LatestVersion, updateConfirmWindow)
 
 	s.updateBootBranding(ctx, info.LatestVersion)
 	if _, err := netutil.Run(ctx, "systemctl", "restart", "lankeeper.target"); err != nil {
@@ -396,7 +398,7 @@ func (s *UpdateService) ConfirmUpdate(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.stopUpdateWatchdog()
+	s.stopUpdateGuard(ctx)
 
 	if s.backupBinary != "" {
 		if _, err := netutil.Run(ctx, "rm", "-f", s.backupBinary); err != nil {
@@ -414,11 +416,23 @@ func (s *UpdateService) ConfirmUpdate(ctx context.Context) error {
 	return nil
 }
 
-// stopUpdateWatchdog cancels the rollback timer if one is armed.
-func (s *UpdateService) stopUpdateWatchdog() {
-	if s.watchdogCancel != nil {
-		s.watchdogCancel()
-		s.watchdogCancel = nil
+// armUpdateGuard starts the transient unit that rolls the update back
+// when it is not confirmed in time. It runs the previous binary, which is
+// known to start, and the agent accepts systemd-run only in this shape.
+func (s *UpdateService) armUpdateGuard(ctx context.Context) error {
+	_, err := netutil.Run(ctx, "systemd-run",
+		"--unit="+agent.UpdateGuardUnit,
+		fmt.Sprintf("--on-active=%d", int(updateConfirmWindow.Seconds())),
+		agent.UpdateGuardBinary,
+		"update-guard")
+	return err
+}
+
+// stopUpdateGuard disarms the rollback unit. The guard also does nothing
+// once the state file is gone, so a failure here is logged, not fatal.
+func (s *UpdateService) stopUpdateGuard(ctx context.Context) {
+	if _, err := netutil.Run(ctx, "systemctl", "stop", agent.UpdateGuardUnit+".timer"); err != nil {
+		log.Printf("update: stop rollback guard: %v", err)
 	}
 }
 
@@ -465,7 +479,7 @@ func (s *UpdateService) Rollback(ctx context.Context) error {
 		return ErrNoPendingUpdate
 	}
 
-	s.stopUpdateWatchdog()
+	s.stopUpdateGuard(ctx)
 
 	backupBinary := s.backupBinary
 	if _, err := netutil.Run(ctx, "cp", "-f", backupBinary, s.binaryPath); err != nil {
@@ -495,19 +509,6 @@ func (s *UpdateService) Rollback(ctx context.Context) error {
 	return nil
 }
 
-func (s *UpdateService) watchdog(ctx context.Context, delay time.Duration) {
-	select {
-	case <-ctx.Done():
-		return
-	case <-time.After(delay):
-		log.Println("update watchdog: no confirmation received, rolling back")
-		rollbackCtx := context.Background()
-		if err := s.Rollback(rollbackCtx); err != nil {
-			log.Printf("update watchdog rollback failed: %v", err)
-		}
-	}
-}
-
 func (s *UpdateService) restorePendingUpdate() {
 	data, err := os.ReadFile(s.statePath)
 	if err != nil {
@@ -528,14 +529,9 @@ func (s *UpdateService) restorePendingUpdate() {
 	s.backupBinary = state.BackupBinary
 	s.configSnapshot = state.ConfigSnapshot
 
-	elapsed := time.Since(state.AppliedAt)
-	remaining := max(updateConfirmWindow-elapsed, 0)
-
-	watchCtx, cancel := context.WithCancel(context.Background())
-	s.watchdogCancel = cancel
-	go s.watchdog(watchCtx, remaining)
-
-	log.Printf("update: restored pending update to %s, rollback in %s", state.PendingVersion, remaining)
+	// The rollback itself belongs to the guard unit armed by ApplyUpdate;
+	// this process only needs to know an update is waiting to be confirmed.
+	log.Printf("update: pending update to %s awaits confirmation", state.PendingVersion)
 }
 
 func (s *UpdateService) saveUpdateState(state updateState) error {

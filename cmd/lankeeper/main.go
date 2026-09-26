@@ -24,6 +24,7 @@ var runners = map[string]func() error{
 	"agent":          runAgent,
 	"gen-cert":       runGenCert,
 	"render-configs": runRenderConfigs,
+	"update-guard":   runUpdateGuard,
 }
 
 func main() {
@@ -101,6 +102,7 @@ Commands:
   hash-password  Read a password from stdin and print its bcrypt hash
   gen-cert       Generate the self-signed TLS cert/key and exit
   render-configs Render all service templates to /etc/* and exit (no reload)
+  update-guard   Roll back an unconfirmed OTA update (run by systemd, root)
   version        Show version info
   help           Show this help message
 `)

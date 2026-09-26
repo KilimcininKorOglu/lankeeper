@@ -25,7 +25,37 @@ var allowedCommands = map[string]bool{
 	"cp": true, "chmod": true, "mv": true, "rm": true, "kill": true,
 	"openssl": true, "usermod": true, "localectl": true, "loadkeys": true,
 	"easyrsa": true, "mkdir": true, "tail": true, "update-grub": true,
-	"dhcp6c": true, "dhcp6ctl": true, "mkcert": true,
+	"dhcp6c": true, "dhcp6ctl": true, "mkcert": true, "systemd-run": true,
+}
+
+// argValidators constrain the argv of a command whose name alone would
+// hand the caller root. systemd-run starts any command line as a root
+// unit, so it is accepted only in the one shape the OTA guard uses.
+var argValidators = map[string]func([]string) error{
+	"systemd-run": validateUpdateGuardArgs,
+}
+
+// UpdateGuardUnit names the transient unit that rolls an unconfirmed OTA
+// update back. The guard runs from the backup of the previous binary.
+const (
+	UpdateGuardUnit   = "lankeeper-update-guard"
+	UpdateGuardBinary = "/usr/local/bin/lankeeper.bak"
+)
+
+// validateUpdateGuardArgs accepts exactly
+// --unit=lankeeper-update-guard --on-active=<seconds> <backup binary> update-guard.
+func validateUpdateGuardArgs(args []string) error {
+	if len(args) != 4 ||
+		args[0] != "--unit="+UpdateGuardUnit ||
+		args[2] != UpdateGuardBinary ||
+		args[3] != "update-guard" {
+		return fmt.Errorf("systemd-run: only the OTA update guard may be started")
+	}
+	secs, ok := strings.CutPrefix(args[1], "--on-active=")
+	if !ok || secs == "" || strings.Trim(secs, "0123456789") != "" {
+		return fmt.Errorf("systemd-run: --on-active must be a number of seconds")
+	}
+	return nil
 }
 
 // trustedBinDirs are the only directories a whitelisted command is
@@ -250,6 +280,11 @@ func opExecRun(ctx context.Context, raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if validate, ok := argValidators[baseName]; ok {
+		if err := validate(params.Args); err != nil {
+			return nil, err
+		}
+	}
 
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
@@ -258,7 +293,7 @@ func opExecRun(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	// The variable command IS the design. cmdPath comes from
-	// allowedCommands above, a 47-entry whitelist checked before
+	// allowedCommands above, a 48-entry whitelist checked before
 	// this line, and arguments are validated at the service
 	// boundary because the whitelist matches the base name only.
 	// #nosec G204

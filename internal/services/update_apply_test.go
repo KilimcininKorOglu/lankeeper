@@ -30,6 +30,7 @@ type sharedDirAgent struct {
 	mu      sync.Mutex
 	visible []string
 	cpSrc   []string
+	execs   []string
 }
 
 func (a *sharedDirAgent) Call(_ context.Context, method string, params any) (json.RawMessage, error) {
@@ -47,6 +48,9 @@ func (a *sharedDirAgent) Call(_ context.Context, method string, params any) (jso
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, err
 	}
+	a.mu.Lock()
+	a.execs = append(a.execs, strings.TrimSpace(p.Cmd+" "+strings.Join(p.Args, " ")))
+	a.mu.Unlock()
 	if p.Cmd == "cp" {
 		return a.copyFile(p.Args[1], p.Args[2])
 	}
@@ -159,5 +163,68 @@ func TestApplyUpdateStagesTheBinaryWhereTheAgentCanReadIt(t *testing.T) {
 	installed, err := os.ReadFile(svc.binaryPath)
 	if err != nil || !strings.Contains(string(installed), "v9.9.9") {
 		t.Errorf("the new binary was not installed: %q, %v", installed, err)
+	}
+}
+
+// indexOf returns the position of the first recorded command with prefix.
+func (a *sharedDirAgent) indexOf(prefix string) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for i, c := range a.execs {
+		if strings.HasPrefix(c, prefix) {
+			return i
+		}
+	}
+	return -1
+}
+
+// TestApplyUpdateArmsTheGuardBeforeTheRestart is the regression test.
+// The rollback watchdog was a goroutine in the process the restart kills,
+// so a release that failed before re-arming it was never rolled back.
+// The guard is a transient unit running the previous binary, and it has
+// to exist before the restart takes the old process down.
+func TestApplyUpdateArmsTheGuardBeforeTheRestart(t *testing.T) {
+	publicLoopbackClient(t)
+	dataDir := t.TempDir()
+	t.Setenv("LANKEEPER_UPDATE_STATE", filepath.Join(dataDir, "update-state.json"))
+
+	binDir := t.TempDir()
+	fake := &sharedDirAgent{visible: []string{dataDir, binDir}}
+	netutil.SetAgentClient(fake)
+	t.Cleanup(func() { netutil.SetAgentClient(nil) })
+
+	svc := NewUpdateService("v1.0.0", "", "", nil)
+	svc.binaryPath = filepath.Join(binDir, "lankeeper")
+	if err := os.WriteFile(svc.binaryPath, []byte("#!/bin/sh\necho lankeeper v1.0.0\n"), 0o755); err != nil {
+		t.Fatalf("seed binary: %v", err)
+	}
+	const asset = "lankeeper-v9.9.9-linux-arm64.tar.gz"
+	archive := releaseArchive(t, "v9.9.9")
+	srv := releaseServer(t, asset, archive)
+
+	if err := svc.ApplyUpdate(context.Background(), &UpdateInfo{
+		LatestVersion: "v9.9.9",
+		DownloadURL:   srv.URL + "/asset",
+		ChecksumURL:   srv.URL + "/sums",
+		AssetName:     asset,
+		AssetSize:     int64(len(archive)),
+	}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	guard := fake.indexOf("systemd-run --unit=lankeeper-update-guard --on-active=60 /usr/local/bin/lankeeper.bak update-guard")
+	restart := fake.indexOf("systemctl restart lankeeper.target")
+	if guard < 0 {
+		t.Fatalf("no rollback guard was armed; commands: %q", fake.execs)
+	}
+	if restart >= 0 && restart < guard {
+		t.Errorf("the target restarted before the guard existed; commands: %q", fake.execs)
+	}
+
+	if err := svc.ConfirmUpdate(context.Background()); err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+	if fake.indexOf("systemctl stop lankeeper-update-guard.timer") < 0 {
+		t.Errorf("confirm left the rollback guard armed; commands: %q", fake.execs)
 	}
 }
