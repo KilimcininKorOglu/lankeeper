@@ -109,6 +109,10 @@ func (s *QoSService) clear(ctx context.Context) error {
 	wanDev := s.wanDevice()
 	// Best-effort cleanup; missing qdiscs/links are not errors.
 	_, _ = netutil.Run(ctx, "tc", "qdisc", "del", "dev", wanDev, "root")
+	// The ingress qdisc carries the redirect to ifb0. Left behind after
+	// ifb0 is deleted, it sends every inbound WAN packet to a device that
+	// no longer exists.
+	_, _ = netutil.Run(ctx, "tc", "qdisc", "del", "dev", wanDev, "ingress")
 	_, _ = netutil.Run(ctx, "tc", "qdisc", "del", "dev", "ifb0", "root")
 	_, _ = netutil.Run(ctx, "ip", "link", "set", "ifb0", "down")
 	_, _ = netutil.Run(ctx, "ip", "link", "del", "ifb0")
