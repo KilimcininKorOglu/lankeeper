@@ -13,8 +13,14 @@ AMD64_ISO := $(DIST_DIR)/$(BINARY)-$(VERSION)-installer-amd64.iso
 ARM64_ISO := $(DIST_DIR)/$(BINARY)-$(VERSION)-installer-arm64.iso
 AMD64_RELEASE_DIR := $(DIST_DIR)/release-amd64
 ARM64_RELEASE_DIR := $(DIST_DIR)/release-arm64
-DEBIAN_AMD64_ISO ?= source_iso/debian-12.10.0-amd64-netinst.iso
-DEBIAN_ARM64_ISO ?= source_iso/debian-12.10.0-arm64-netinst.iso
+# A missing source image is fetched from the Debian archive. The point
+# release has to be one deploy/iso/debian-images.sha512 lists, because
+# build-iso.sh checks the image against those signed digests before any
+# parser reads it: the download is a convenience, never a trust decision.
+DEBIAN_RELEASE := 12.10.0
+DEBIAN_CDIMAGE := https://cdimage.debian.org/cdimage/archive/$(DEBIAN_RELEASE)
+DEBIAN_AMD64_ISO ?= source_iso/debian-$(DEBIAN_RELEASE)-amd64-netinst.iso
+DEBIAN_ARM64_ISO ?= source_iso/debian-$(DEBIAN_RELEASE)-arm64-netinst.iso
 # install builds and installs on the machine it runs on, so the binary
 # has to match that machine rather than a fixed target.
 HOST_ARCH := $(shell uname -m)
@@ -31,7 +37,7 @@ DOCKER ?= docker
 ISO_BUILDER_AMD64 ?= lankeeper-iso-builder-amd64
 ISO_BUILDER_ARM64 ?= lankeeper-iso-builder-arm64
 
-.PHONY: build test lint cyclo clean dev cross cross-amd64 cross-arm64 cross-all install iso iso-amd64 iso-arm64 iso-all docker-builder-amd64 docker-builder-arm64 docker-builders release release-archives release-amd64 release-arm64 release-all checksums sign check
+.PHONY: build test lint cyclo clean dev cross cross-amd64 cross-arm64 cross-all install iso iso-amd64 iso-arm64 iso-all docker-builder-amd64 docker-builder-arm64 docker-builders release release-archives release-amd64 release-arm64 release-all release-notes checksums sign check
 
 build:
 	mkdir -p $(DIST_DIR)
@@ -98,16 +104,26 @@ ISO_MOUNTS = \
 	-v $(CURDIR)/deploy:/build/deploy:ro \
 	-v $(CURDIR)/$(DIST_DIR):/build/$(DIST_DIR)
 
+$(DEBIAN_AMD64_ISO):
+	mkdir -p $(dir $@)
+	curl --fail --location --retry 3 --output $@.part $(DEBIAN_CDIMAGE)/amd64/iso-cd/$(notdir $@)
+	mv $@.part $@
+
+$(DEBIAN_ARM64_ISO):
+	mkdir -p $(dir $@)
+	curl --fail --location --retry 3 --output $@.part $(DEBIAN_CDIMAGE)/arm64/iso-cd/$(notdir $@)
+	mv $@.part $@
+
 iso: iso-amd64
 
-iso-amd64: cross-amd64 docker-builder-amd64
+iso-amd64: cross-amd64 docker-builder-amd64 $(DEBIAN_AMD64_ISO)
 	@test -n "$(DEBIAN_AMD64_ISO)" || (echo "DEBIAN_AMD64_ISO or DEBIAN_ISO is required" >&2; exit 1)
 	$(DOCKER) run --platform linux/amd64 --rm \
 		$(ISO_MOUNTS) \
 		-v $(CURDIR)/$(DEBIAN_AMD64_ISO):/debian.iso:ro \
 		$(ISO_BUILDER_AMD64) /debian.iso /build/$(AMD64_BINARY) amd64 /build/$(AMD64_ISO) $(VERSION)
 
-iso-arm64: cross-arm64 docker-builder-arm64
+iso-arm64: cross-arm64 docker-builder-arm64 $(DEBIAN_ARM64_ISO)
 	@test -n "$(DEBIAN_ARM64_ISO)" || (echo "DEBIAN_ARM64_ISO is required" >&2; exit 1)
 	$(DOCKER) run --platform linux/arm64 --rm \
 		$(ISO_MOUNTS) \
@@ -154,6 +170,21 @@ release-all:
 	$(MAKE) -j 4 release-amd64 release-arm64 iso-amd64 iso-arm64
 	$(MAKE) checksums VERSION=$(VERSION)
 	$(MAKE) sign
+
+# The GitHub Release body is the hand-written CHANGELOG section for the
+# version, never generated commit notes. The heading omits the tag's v,
+# and the heading is matched as a literal prefix so the dots in a version
+# are not read as regex wildcards. A missing or empty section is refused
+# rather than published as a blank body.
+release-notes:
+	@mkdir -p dist
+	@awk -v h="## [$(patsubst v%,%,$(VERSION))]" 'index($$0, h) == 1 {f = 1; next} f && /^## \[/ {exit} f {print}' CHANGELOG.md > dist/RELEASE_NOTES.md
+	@if ! grep -q '[^[:space:]]' dist/RELEASE_NOTES.md; then \
+	    rm -f dist/RELEASE_NOTES.md; \
+	    echo "ERROR: CHANGELOG.md has no section for $(VERSION)" >&2; \
+	    exit 1; \
+	fi
+	@echo "Release notes: dist/RELEASE_NOTES.md"
 
 # `[ -f "$$f" ] && shasum ...` made the loop's exit status the status of
 # its last iteration. `make release` builds tarballs and no ISOs, so the

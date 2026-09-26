@@ -7,11 +7,12 @@ import (
 	"testing"
 )
 
-// makeVar returns the value of a `NAME := value` assignment.
+// makeVar returns the value of a `NAME := value`, `NAME = value` or
+// `NAME ?= value` assignment.
 func makeVar(t *testing.T, makefile, name string) string {
 	t.Helper()
 
-	re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(name) + `\s*:?=\s*(.*)$`)
+	re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(name) + `\s*[:?]?=\s*(.*)$`)
 	m := re.FindStringSubmatch(makefile)
 	if m == nil {
 		t.Fatalf("%s is gone from the Makefile", name)

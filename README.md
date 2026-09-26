@@ -123,7 +123,7 @@ Generated artifacts are written to `dist/`:
 - `SHA256SUMS` — SHA-256 of the published tarballs and ISOs
 - `SHA256SUMS.sig` — ed25519 signature over `SHA256SUMS`
 
-The release targets sign `SHA256SUMS` with the key at `SIGNING_KEY` (default `~/.config/lankeeper/release-signing.key`) and fail without it. `go run ./tools/signrelease -generate -key FILE` creates a key pair and prints the public key, which belongs in `PublicKeyB64` in `internal/releasekey/releasekey.go`. Signing refuses to write a signature that does not verify against that compiled-in key.
+The local release targets sign `SHA256SUMS` with the key at `~/.config/lankeeper/release-signing.key` and fail without it; `make release-all SIGNING_KEY=path` points them at another file. `go run ./tools/signrelease -generate -key FILE` creates a key pair and prints the public key, which belongs in `PublicKeyB64` in `internal/releasekey/releasekey.go`. Signing refuses to write a signature that does not verify against that compiled-in key.
 
 `make dev` and `make build` write `dist/lankeeper` for the host platform.
 Only the tarballs and ISOs carry the version in their filename.
