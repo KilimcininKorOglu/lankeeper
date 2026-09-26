@@ -86,9 +86,9 @@ func (snap MetricsSnapshot) writeClients(w io.Writer) {
 		snap.Clients, func(c ClientBandwidthMetric) (map[string]string, float64) { return clientLabels(c), float64(c.RxBytes) })
 	writeFamily(w, "lankeeper_client_tx_bytes_total", "Cumulative bytes transmitted to each LAN client.", metricCounter,
 		snap.Clients, func(c ClientBandwidthMetric) (map[string]string, float64) { return clientLabels(c), float64(c.TxBytes) })
-	writeFamily(w, "lankeeper_client_rx_bps", "Instantaneous bytes-per-second received from each LAN client.", metricGauge,
+	writeFamily(w, "lankeeper_client_rx_bps", "Instantaneous bits per second received from each LAN client.", metricGauge,
 		snap.Clients, func(c ClientBandwidthMetric) (map[string]string, float64) { return clientLabels(c), float64(c.RxBPS) })
-	writeFamily(w, "lankeeper_client_tx_bps", "Instantaneous bytes-per-second transmitted to each LAN client.", metricGauge,
+	writeFamily(w, "lankeeper_client_tx_bps", "Instantaneous bits per second transmitted to each LAN client.", metricGauge,
 		snap.Clients, func(c ClientBandwidthMetric) (map[string]string, float64) { return clientLabels(c), float64(c.TxBPS) })
 }
 
