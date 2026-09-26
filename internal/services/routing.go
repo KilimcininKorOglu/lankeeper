@@ -227,12 +227,6 @@ func (s *RoutingService) generateFullNftChain(policies []config.RoutingPolicy) s
 	return sb.String()
 }
 
-// pbrTmpPath is the scratch file nft loads the PBR chain from. The agent
-// writes it, because the agent and the web process each run with
-// PrivateTmp: a file the web process writes to its own /tmp is absent
-// from the /tmp the agent's nft reads.
-const pbrTmpPath = "/tmp/lankeeper-pbr.nft"
-
 // writePolicyRules writes the mark rules for one policy: its source
 // MACs and IPs, destination IPs and ports, its domain set, and the
 // kill-switch drops.
@@ -276,11 +270,10 @@ func writePolicyRules(sb *strings.Builder, p config.RoutingPolicy, fwmark int) {
 	}
 }
 
+// applyNftRules loads the PBR chain. nft reads the script on stdin, so
+// no scratch file sits at a name another local account could claim.
 func (s *RoutingService) applyNftRules(ctx context.Context, rules string) error {
-	if err := netutil.WriteFile(pbrTmpPath, []byte(rules), 0o600); err != nil {
-		return fmt.Errorf("write PBR rules: %w", err)
-	}
-	_, err := netutil.Run(ctx, "nft", "-f", pbrTmpPath)
+	_, err := netutil.RunWithStdin(ctx, rules, "nft", "-f", "-")
 	return err
 }
 

@@ -800,11 +800,10 @@ func (s *VPNService) SyncWGServer(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("wg-quick strip: %w", err)
 	}
-	tmpPath := "/tmp/lankeeper-wgs0-sync.conf"
-	if err := netutil.WriteFile(tmpPath, []byte(stripped), 0o600); err != nil {
-		return fmt.Errorf("write stripped: %w", err)
-	}
-	if _, err := netutil.Run(ctx, "wg", "syncconf", "wgs0", tmpPath); err != nil {
+	// On stdin: the stripped config carries the server private key and
+	// every preshared key, and a scratch file for it would sit at a name
+	// other local accounts can predict.
+	if _, err := netutil.RunWithStdin(ctx, stripped, "wg", "syncconf", "wgs0", "/dev/stdin"); err != nil {
 		return fmt.Errorf("wg syncconf: %w", err)
 	}
 	return nil

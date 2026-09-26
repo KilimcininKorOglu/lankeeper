@@ -204,8 +204,6 @@ var allowedWriteRules = []pathRule{
 	{MkcertCARoot, exactFile},
 	{MkcertCARoot + "/staged.crt", exactFile},
 	{MkcertCARoot + "/staged.key", exactFile},
-	{"/tmp/nftables-", filenamePrefix},
-	{"/tmp/lankeeper-", filenamePrefix},
 }
 
 var allowedReadRules = []pathRule{
@@ -229,8 +227,6 @@ var allowedReadRules = []pathRule{
 	{MkcertCARoot + "/staged.key", exactFile},
 	{MkcertCARoot + "/rootCA.pem", exactFile},
 	{"/proc/mdstat", exactFile},
-	{"/tmp/nftables-", filenamePrefix},
-	{"/tmp/lankeeper-", filenamePrefix},
 }
 
 func init() {

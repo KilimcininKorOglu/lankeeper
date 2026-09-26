@@ -28,7 +28,6 @@ const MaxQoSClients = 64
 const (
 	qosTableName = "lankeeper_qos"
 	qosChainName = "fwd"
-	qosTmpPath   = "/tmp/lankeeper-qos.nft"
 )
 
 // ClientUsage is one snapshot of an individual MAC's traffic.
@@ -151,10 +150,9 @@ func (s *QoSService) applyClientCounters(ctx context.Context, ips map[string]str
 		script.WriteString(renderQoSTable(macs, ips))
 	}
 
-	if err := netutil.WriteFile(qosTmpPath, []byte(script.String()), 0o600); err != nil {
-		return fmt.Errorf("write qos nft script: %w", err)
-	}
-	if _, err := netutil.Run(ctx, "nft", "-f", qosTmpPath); err != nil {
+	// On stdin, so no scratch file sits at a name another local account
+	// could claim.
+	if _, err := netutil.RunWithStdin(ctx, script.String(), "nft", "-f", "-"); err != nil {
 		return fmt.Errorf("apply qos nft script: %w", err)
 	}
 	return nil

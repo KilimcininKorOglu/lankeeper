@@ -29,8 +29,9 @@ type fakeAgent struct {
 }
 
 type execCall struct {
-	Cmd  string
-	Args []string
+	Cmd   string
+	Args  []string
+	Stdin string
 }
 
 type writeCall struct {
@@ -67,13 +68,14 @@ func decodeParams(params, v any) error {
 // recordExec logs one exec.run and answers an empty success.
 func (f *fakeAgent) recordExec(params any) (json.RawMessage, error) {
 	var p struct {
-		Cmd  string   `json:"cmd"`
-		Args []string `json:"args"`
+		Cmd   string   `json:"cmd"`
+		Args  []string `json:"args"`
+		Stdin string   `json:"stdin"`
 	}
 	if err := decodeParams(params, &p); err != nil {
 		return nil, err
 	}
-	f.execLog = append(f.execLog, execCall{Cmd: p.Cmd, Args: append([]string(nil), p.Args...)})
+	f.execLog = append(f.execLog, execCall{Cmd: p.Cmd, Args: append([]string(nil), p.Args...), Stdin: p.Stdin})
 	return []byte(`{"stdout":"","stderr":"","exitCode":0}`), nil
 }
 
@@ -127,20 +129,6 @@ func (f *fakeAgent) countExec(cmd string, prefix ...string) int {
 		}
 	}
 	return n
-}
-
-// lastWrite returns the body of the last file.write whose path ends in
-// suffix, or "".
-func (f *fakeAgent) lastWrite(suffix string) string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	body := ""
-	for _, w := range f.writeLog {
-		if strings.HasSuffix(w.Path, suffix) {
-			body = w.Body
-		}
-	}
-	return body
 }
 
 // nftModes reports whether an `nft -c -f` validate and an `nft -f`

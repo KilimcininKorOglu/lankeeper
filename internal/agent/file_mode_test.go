@@ -3,6 +3,7 @@ package agent_test
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -18,7 +19,7 @@ func TestFileWriteRejectsAWorldWritableMode(t *testing.T) {
 	srv := agent.NewServer("/tmp/test-agent-mode.sock")
 	agent.RegisterBuiltinOps(srv)
 
-	const path = "/tmp/lankeeper-mode-world-writable.txt"
+	path := filepath.Join(agent.AllowScratchDir(t), "lankeeper-mode-world-writable.txt")
 	t.Cleanup(func() { _ = os.Remove(path) })
 
 	params, _ := json.Marshal(agent.FileWriteParams{
@@ -45,7 +46,7 @@ func TestFileWriteRejectsAGroupWritableMode(t *testing.T) {
 	srv := agent.NewServer("/tmp/test-agent-mode.sock")
 	agent.RegisterBuiltinOps(srv)
 
-	const path = "/tmp/lankeeper-mode-group-writable.txt"
+	path := filepath.Join(agent.AllowScratchDir(t), "lankeeper-mode-group-writable.txt")
 	t.Cleanup(func() { _ = os.Remove(path) })
 
 	params, _ := json.Marshal(agent.FileWriteParams{Path: path, Content: "x", Mode: 0o660})
@@ -62,12 +63,13 @@ func TestFileWriteRejectsBitsOutsideThePermissionSet(t *testing.T) {
 	srv := agent.NewServer("/tmp/test-agent-mode.sock")
 	agent.RegisterBuiltinOps(srv)
 
+	scratch := agent.AllowScratchDir(t)
 	for name, mode := range map[string]os.FileMode{
 		"setuid": os.ModeSetuid | 0o755,
 		"setgid": os.ModeSetgid | 0o755,
 		"sticky": os.ModeSticky | 0o755,
 	} {
-		path := "/tmp/lankeeper-mode-" + name + ".txt"
+		path := filepath.Join(scratch, "lankeeper-mode-"+name+".txt")
 		t.Cleanup(func() { _ = os.Remove(path) })
 
 		params, _ := json.Marshal(agent.FileWriteParams{
@@ -88,8 +90,8 @@ func TestFileWriteStillAcceptsEveryModeTheServicesUse(t *testing.T) {
 	srv := agent.NewServer("/tmp/test-agent-mode.sock")
 	agent.RegisterBuiltinOps(srv)
 
+	path := filepath.Join(agent.AllowScratchDir(t), "lankeeper-mode-ok.txt")
 	for _, mode := range []int{0o600, 0o640, 0o644, 0o755, 0} {
-		path := "/tmp/lankeeper-mode-ok.txt"
 		t.Cleanup(func() { _ = os.Remove(path) })
 
 		params, _ := json.Marshal(agent.FileWriteParams{Path: path, Content: "x", Mode: mode})
@@ -105,7 +107,7 @@ func TestFileMkdirRejectsAWorldWritableMode(t *testing.T) {
 	srv := agent.NewServer("/tmp/test-agent-mode.sock")
 	agent.RegisterBuiltinOps(srv)
 
-	const path = "/tmp/lankeeper-mode-dir"
+	path := filepath.Join(agent.AllowScratchDir(t), "lankeeper-mode-dir")
 	t.Cleanup(func() { _ = os.RemoveAll(path) })
 
 	params, _ := json.Marshal(struct {

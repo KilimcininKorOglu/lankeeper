@@ -70,22 +70,20 @@ func TestFileReadEnforcesItsOwnRuleSet(t *testing.T) {
 	})
 }
 
-// TestFileReadAllowsAWhitelistedTempFile exercises the positive side of
-// the filenamePrefix rule through the real operation. /tmp/lankeeper-
-// is the scratch pattern the firewall and backup paths use.
-func TestFileReadAllowsAWhitelistedTempFile(t *testing.T) {
+// TestFileReadAllowsAWhitelistedFile exercises the positive side of a
+// read rule through the real operation.
+func TestFileReadAllowsAWhitelistedFile(t *testing.T) {
 	srv := newOpsServer(t)
 
-	path := "/tmp/lankeeper-read-rule-probe.txt"
+	path := filepath.Join(agent.AllowScratchDir(t), "lankeeper-read-rule-probe.txt")
 	if err := os.WriteFile(path, []byte("probe\n"), 0o600); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	t.Cleanup(func() { _ = os.Remove(path) })
 
 	params, _ := json.Marshal(agent.FileReadParams{Path: path})
 	out, err := dispatchMethod(srv, "file.read", params)
 	if err != nil {
-		t.Fatalf("file.read refused a whitelisted temp file: %v", err)
+		t.Fatalf("file.read refused a whitelisted file: %v", err)
 	}
 	m, ok := out.(agent.FileContent)
 	if !ok || string(m.Bytes()) != "probe\n" {
@@ -112,8 +110,7 @@ func TestFileMkdirEnforcesTheWriteRules(t *testing.T) {
 	})
 
 	t.Run("allowed", func(t *testing.T) {
-		path := "/tmp/lankeeper-mkdir-probe"
-		t.Cleanup(func() { _ = os.RemoveAll(path) })
+		path := filepath.Join(agent.AllowScratchDir(t), "lankeeper-mkdir-probe")
 
 		params, _ := json.Marshal(map[string]any{"path": path, "mode": 0o755})
 		if _, err := dispatchMethod(srv, "file.mkdir", params); err != nil {
@@ -127,19 +124,22 @@ func TestFileMkdirEnforcesTheWriteRules(t *testing.T) {
 
 // TestFilenamePrefixMatchesAnySuffix pins what the third rule kind
 // actually means. It is a prefix match on the whole cleaned path, not a
-// directory boundary, so /tmp/lankeeper-anything is deliberately in
+// directory boundary, so any name after the prefix is deliberately in
 // scope. Anyone tightening this needs to know that is the contract the
-// scratch-file callers depend on.
+// pre-update snapshot depends on.
 func TestFilenamePrefixMatchesAnySuffix(t *testing.T) {
 	srv := newOpsServer(t)
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent.AllowScratchPrefix(t, dir+"/lankeeper-")
 
 	for _, name := range []string{
-		"/tmp/lankeeper-a.conf",
-		"/tmp/lankeeper-deeply-suffixed-name.tmp",
-		"/tmp/nftables-candidate.conf",
+		dir + "/lankeeper-a.conf",
+		dir + "/lankeeper-deeply-suffixed-name.tmp",
 	} {
-		t.Run(name, func(t *testing.T) {
-			t.Cleanup(func() { _ = os.Remove(name) })
+		t.Run(filepath.Base(name), func(t *testing.T) {
 			params, _ := json.Marshal(agent.FileWriteParams{Path: name, Content: "x"})
 			if _, err := dispatchMethod(srv, "file.write", params); err != nil {
 				t.Errorf("write refused for %s: %v", name, err)
@@ -149,22 +149,20 @@ func TestFilenamePrefixMatchesAnySuffix(t *testing.T) {
 
 	// The neighbouring name without the trailing hyphen must not match.
 	t.Run("prefix must include the hyphen", func(t *testing.T) {
-		params, _ := json.Marshal(agent.FileWriteParams{Path: "/tmp/lankeeperevil", Content: "x"})
+		params, _ := json.Marshal(agent.FileWriteParams{Path: dir + "/lankeeperevil", Content: "x"})
 		if _, err := dispatchMethod(srv, "file.write", params); err == nil {
-			_ = os.Remove("/tmp/lankeeperevil")
-			t.Error("/tmp/lankeeperevil matched the /tmp/lankeeper- rule")
+			t.Error("lankeeperevil matched the lankeeper- rule")
 		}
 	})
 }
 
-// TestDotSegmentsCannotEscapeAWhitelistedPrefix is the guard that makes
-// the /tmp rules safe to have at all. /tmp is world-writable, so the
-// path is attacker-influenced in a way /etc paths are not.
+// TestDotSegmentsCannotEscapeAWhitelistedPrefix pins that a path under
+// an admitted directory cannot walk out of it with dot segments.
 func TestDotSegmentsCannotEscapeAWhitelistedPrefix(t *testing.T) {
 	srv := newOpsServer(t)
 
 	params, _ := json.Marshal(agent.FileWriteParams{
-		Path:    "/tmp/lankeeper-x/../../etc/cron.d/pwned",
+		Path:    "/var/log/x/../../../etc/cron.d/pwned",
 		Content: "* * * * * root sh -c id\n",
 	})
 	if _, err := dispatchMethod(srv, "file.write", params); err == nil {
@@ -226,5 +224,21 @@ func TestSymlinkedParentIsResolvedForAFileThatDoesNotExistYet(t *testing.T) {
 	if _, err := dispatchMethod(srv, "file.write", params); err == nil {
 		_ = os.Remove(filepath.Join(outsideDir, "new-file.conf"))
 		t.Error("a symlinked parent redirected a create outside every rule")
+	}
+}
+
+// TestHostTmpIsNotWhitelisted pins that the agent no longer writes into
+// the host /tmp. The agent unit has no PrivateTmp, so any local account
+// can create a fixed /tmp name first and have root write through it.
+func TestHostTmpIsNotWhitelisted(t *testing.T) {
+	srv := newOpsServer(t)
+	tmp := resolvedTmp(t)
+	for _, name := range []string{"lankeeper-qos.nft", "nftables-candidate.conf"} {
+		path := filepath.Join(tmp, name)
+		params, _ := json.Marshal(agent.FileWriteParams{Path: path, Content: "x"})
+		if _, err := dispatchMethod(srv, "file.write", params); err == nil {
+			_ = os.Remove(path)
+			t.Errorf("file.write accepted %s", path)
+		}
 	}
 }

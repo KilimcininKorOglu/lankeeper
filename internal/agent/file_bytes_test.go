@@ -14,8 +14,7 @@ import (
 // unchanged in both directions.
 func TestFileContentRoundTripsNonUTF8Bytes(t *testing.T) {
 	body := []byte{'c', 'a', 'f', 0xe9, '\n', 0xff, 0x00}
-	path := filepath.Join("/tmp", "lankeeper-bytes-"+filepath.Base(t.TempDir()))
-	t.Cleanup(func() { _ = os.Remove(path) })
+	path := filepath.Join(AllowScratchDir(t), "lankeeper-bytes")
 
 	raw, _ := json.Marshal(FileWriteParams{Path: path, ContentBytes: body, Mode: 0o600})
 	if _, err := opFileWrite(context.Background(), raw); err != nil {

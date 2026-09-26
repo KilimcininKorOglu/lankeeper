@@ -3,6 +3,7 @@ package agent_test
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/agent"
@@ -53,7 +54,7 @@ func TestFileWriteAllowedPath(t *testing.T) {
 	agent.RegisterBuiltinOps(srv)
 
 	params, _ := json.Marshal(agent.FileWriteParams{
-		Path:    "/tmp/lankeeper-test-write.txt",
+		Path:    filepath.Join(agent.AllowScratchDir(t), "lankeeper-test-write.txt"),
 		Content: "test content",
 		Mode:    0o644,
 	})

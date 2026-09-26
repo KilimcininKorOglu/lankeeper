@@ -287,11 +287,11 @@ func TestRoutingNftScriptIsNftSyntax(t *testing.T) {
 	}
 }
 
-// TestRoutingApplyLoadsTheScriptTheAgentWrote pins that nft loads the
-// PBR script from a file the agent itself wrote. The web process wrote
-// it to its own /tmp, which PrivateTmp separates from the agent's, so
-// the agent's `nft -f` found no file.
-func TestRoutingApplyLoadsTheScriptTheAgentWrote(t *testing.T) {
+// TestRoutingApplyPassesTheScriptOnStdin pins that nft reads the PBR
+// script on stdin. A file the web process wrote to its own /tmp was
+// absent from the agent's under PrivateTmp, and a file the agent wrote
+// to the host /tmp sat at a name any local account could claim first.
+func TestRoutingApplyPassesTheScriptOnStdin(t *testing.T) {
 	agent := &fakeAgent{}
 	netutil.SetAgentClient(agent)
 	t.Cleanup(func() { netutil.SetAgentClient(nil) })
@@ -307,20 +307,14 @@ func TestRoutingApplyLoadsTheScriptTheAgentWrote(t *testing.T) {
 		t.Fatalf("apply: %v", err)
 	}
 
-	var loaded string
+	var script string
 	for _, c := range agent.execCallsCopy() {
-		if c.Cmd == "nft" && len(c.Args) == 2 && c.Args[0] == "-f" {
-			loaded = c.Args[1]
+		if c.Cmd == "nft" && len(c.Args) == 2 && c.Args[0] == "-f" && c.Args[1] == "-" {
+			script = c.Stdin
 		}
 	}
-	if loaded == "" {
-		t.Fatal("nft -f was never run")
-	}
-	if !strings.HasPrefix(loaded, "/tmp/lankeeper-") {
-		t.Errorf("nft loads %s, which the agent write whitelist does not cover", loaded)
-	}
-	if !agent.wroteFile(loaded) {
-		t.Errorf("nft loads %s, but the agent never wrote it (writes: %+v)", loaded, agent.writeLog)
+	if !strings.Contains(script, "pbr_policies") {
+		t.Fatalf("nft -f - did not receive the PBR script on stdin: %q", script)
 	}
 }
 
