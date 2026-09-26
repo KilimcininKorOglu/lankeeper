@@ -19,6 +19,15 @@ func AuthRequired(auth *Auth) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !auth.IsAuthenticated(r) {
+				// htmx follows a 303 inside its XHR and swaps the login
+				// page into the target, or drops it, so the click does
+				// nothing visible. HX-Redirect makes the browser itself
+				// navigate to the login page.
+				if r.Header.Get("HX-Request") == "true" {
+					w.Header().Set("HX-Redirect", "/login")
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
 				http.Redirect(w, r, "/login", http.StatusSeeOther)
 				return
 			}
