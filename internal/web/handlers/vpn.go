@@ -55,7 +55,7 @@ func (h *VPNHandler) HandleAddPeer(w http.ResponseWriter, r *http.Request) {
 	if key := firstFailed(
 		check{name == "", "error.nameRequired"},
 		check{len(name) > 64 || !vpnNamePattern.MatchString(name), "error.invalidNameCharacters"},
-		check{endpoint != "" && !strings.Contains(endpoint, ":"), "error.endpointFormat"},
+		check{endpoint != "" && services.ValidatePeerEndpoint(endpoint) != nil, "error.endpointFormat"},
 	); key != "" {
 		clientError(w, r, http.StatusBadRequest, key)
 		return

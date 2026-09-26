@@ -273,6 +273,11 @@ func (s *VPNService) AddPeer(ctx context.Context, name string, siteToSite bool, 
 	if conflict, bad := s.subnetsConflict(remoteSubnets); bad {
 		return nil, "", fmt.Errorf("%w: %s", ErrPeerSubnetConflict, conflict)
 	}
+	if endpoint != "" {
+		if err := ValidatePeerEndpoint(endpoint); err != nil {
+			return nil, "", err
+		}
+	}
 
 	privKey, pubKey, err := s.GenerateKeypair(ctx)
 	if err != nil {

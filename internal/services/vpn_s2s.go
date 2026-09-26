@@ -217,6 +217,13 @@ func validateS2SEndpoint(endpoint string) error {
 	return nil
 }
 
+// ValidatePeerEndpoint checks a manually entered peer endpoint. The value
+// lands on the Endpoint line of wgs0.conf, which wg-quick runs as root, so
+// a line break in it would add a section with a PostUp hook.
+func ValidatePeerEndpoint(endpoint string) error {
+	return validateS2SEndpoint(endpoint)
+}
+
 // validateSubnetList accepts only CIDRs.
 func validateSubnetList(subnets []string) error {
 	for _, cidr := range subnets {

@@ -224,3 +224,26 @@ func TestWizardStillRejectsADuplicateName(t *testing.T) {
 		t.Errorf("got %v, want ErrPeerNameInUse", err)
 	}
 }
+
+// TestAddPeerRefusesAnEndpointThatInjectsASection is the regression test.
+// The manual form stored the endpoint unchecked, and it lands on the
+// Endpoint line of wgs0.conf, so a line break added an [Interface] section
+// with a PostUp hook that wg-quick runs as root.
+func TestAddPeerRefusesAnEndpointThatInjectsASection(t *testing.T) {
+	svc, _ := newPeerGuardService(t)
+	for _, ep := range []string{
+		"1.2.3.4:51820\n[Interface]\nPostUp = id",
+		"1.2.3.4",
+		"host name:51820",
+		"1.2.3.4:99999",
+	} {
+		if _, _, err := svc.AddPeer(context.Background(), "phone", false, nil, ep); err == nil {
+			t.Errorf("endpoint %q was accepted", ep)
+		}
+	}
+	// Reusing the name also proves no refused attempt was stored: a
+	// stored one would make this fail with ErrPeerNameInUse.
+	if _, _, err := svc.AddPeer(context.Background(), "phone", false, nil, "vpn.example.com:51820"); err != nil {
+		t.Errorf("a valid endpoint was refused: %v", err)
+	}
+}
