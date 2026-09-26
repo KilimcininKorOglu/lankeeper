@@ -37,7 +37,7 @@ type SystemHandler struct {
 	// object, which caches it by value. A callback rather than a
 	// direct reference because Auth lives in the parent web package,
 	// which already imports this one. May be nil.
-	passwordSink func(hash string)
+	passwordSink func(r *http.Request, hash string)
 	// csrfRotator issues a fresh CSRF token on the response. Injected
 	// for the same reason as passwordSink: the cookie is minted in the
 	// parent web package, which already imports this one. May be nil.
@@ -47,7 +47,7 @@ type SystemHandler struct {
 // SetPasswordSink wires the callback that refreshes the live password
 // hash, following the same injection pattern as SetDNSService and
 // SetRunner elsewhere in the tree.
-func (h *SystemHandler) SetPasswordSink(fn func(hash string)) {
+func (h *SystemHandler) SetPasswordSink(fn func(r *http.Request, hash string)) {
 	h.passwordSink = fn
 }
 
@@ -127,9 +127,9 @@ func (h *SystemHandler) HandleChangeWebPassword(w http.ResponseWriter, r *http.R
 
 	// Persisting alone is not enough: the auth object holds its own
 	// copy, so without this the old password would keep working until
-	// the process restarted.
+	// the process restarted. The sink also ends every other session.
 	if h.passwordSink != nil {
-		h.passwordSink(string(hashBytes))
+		h.passwordSink(r, string(hashBytes))
 	}
 	log.Println("web UI admin password changed")
 

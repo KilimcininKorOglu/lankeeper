@@ -181,7 +181,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	// Without this the auth object keeps verifying against the hash it
 	// captured at startup, so a password change would report success
 	// while the old credential still worked.
-	settingsHandler.SetPasswordSink(auth.SetPasswordHash)
+	settingsHandler.SetPasswordSink(auth.ChangePassword)
 	settingsHandler.SetCSRFRotator(func(w http.ResponseWriter) error {
 		_, err := rotateCSRFToken(w)
 		return err
