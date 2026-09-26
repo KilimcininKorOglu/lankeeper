@@ -52,8 +52,9 @@ func TestRebuildClientCountersEmitsExpectedNftCalls(t *testing.T) {
 			t.Errorf("script must carry %q so a reapply flushes and redeclares the table, got:\n%s", want, script)
 		}
 	}
-	// Two unique MACs → two saddr + two daddr rules + four counters.
-	for want, n := range map[string]int{"ether saddr ": 2, "ether daddr ": 2, "counter cli_": 4} {
+	// Two unique MACs → two upload rules on the MAC, two download rules
+	// on the leased address, and four counters.
+	for want, n := range map[string]int{"ether saddr ": 2, "ip daddr 10.10.10.": 2, "counter cli_": 4} {
 		if got := strings.Count(script, want); got != n {
 			t.Errorf("expected %d %q entries (duplicate MACs collapse), got %d in:\n%s", n, want, got, script)
 		}
