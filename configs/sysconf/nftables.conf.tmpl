@@ -76,6 +76,14 @@ table inet filter {
     chain forward {
         type filter hook forward priority 0; policy drop;
 
+        # MSS clamping to the route MTU (PPPoE 1492). It has to come first:
+        # accept ends evaluation, so a clamp after the LAN -> WAN accept or
+        # the established rule never sees an outbound SYN or its SYN-ACK.
+        tcp flags syn tcp option maxseg size set rt mtu
+{{- if .IPv6Enabled }}
+        ip6 nexthdr tcp tcp flags syn tcp option maxseg size set rt mtu
+{{- end }}
+
         ct state established,related accept
         ct state invalid drop
 
@@ -134,14 +142,6 @@ table inet filter {
         iifname "{{ $vlan.Device }}" oifname "{{ .Device }}" drop
         iifname "{{ .Device }}" oifname "{{ $vlan.Device }}" drop
 {{- end }}
-{{- end }}
-
-        # MSS clamping (IPv4) — PPPoE MTU 1492
-        tcp flags syn tcp option maxseg size set rt mtu
-
-        # MSS clamping (IPv6) — 40-byte IPv6 header
-{{- if .IPv6Enabled }}
-        ip6 nexthdr tcp tcp flags syn tcp option maxseg size set rt mtu
 {{- end }}
 
         # Port forwards — allow forwarded traffic

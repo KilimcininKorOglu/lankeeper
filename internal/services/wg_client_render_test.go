@@ -60,3 +60,40 @@ func TestShippedRulesetAcceptsNoNewConnectionsFromAClientTunnel(t *testing.T) {
 		t.Fatalf("ruleset lacks the LAN -> client tunnel accept:\n%s", rendered)
 	}
 }
+
+// accept ends evaluation, so the MSS clamp must come before every accept
+// in the forward chain or an outbound SYN never reaches it.
+func TestShippedRulesetClampsMSSBeforeAnyForwardAccept(t *testing.T) {
+	t.Chdir("../..")
+	cfg := config.DefaultConfig()
+	cfg.Interfaces = []config.InterfaceConfig{
+		{ID: "wan", Device: "enp3s0", Role: "wan"},
+		{ID: "lan", Device: "enp0s25", Role: "lan"},
+	}
+	svc, err := NewFirewallService(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.stopWatchdog)
+	rendered, err := svc.RenderConfig()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	fwd := rendered[strings.Index(rendered, "chain forward {"):]
+	clamp, accept := firstRuleLine(fwd, "maxseg size set rt mtu"), firstRuleLine(fwd, "accept")
+	if clamp < 0 || accept < 0 || clamp > accept {
+		t.Fatalf("MSS clamp is not ahead of the first forward accept:\n%s", fwd)
+	}
+}
+
+// firstRuleLine returns the index of the first non-comment line of text
+// that contains needle, or -1.
+func firstRuleLine(text, needle string) int {
+	for i, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "#") && strings.Contains(line, needle) {
+			return i
+		}
+	}
+	return -1
+}
