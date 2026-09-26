@@ -155,3 +155,36 @@ func TestOwnBackupObjectsKeepsOnlyBackupsDirectlyUnderPrefix(t *testing.T) {
 		t.Errorf("prefix other/: got %v, want only other/lankeeper-backup-2.tar.gz", got)
 	}
 }
+
+// ListObjectsV2 answers at most 1000 keys a page; retention has to see
+// every page, so the listing follows the continuation token.
+func TestS3ListObjectsFollowsContinuationTokens(t *testing.T) {
+	var tokens []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := r.URL.Query().Get("continuation-token")
+		tokens = append(tokens, token)
+		if token == "" {
+			_, _ = w.Write([]byte(`<ListBucketResult><IsTruncated>true</IsTruncated>
+<NextContinuationToken>page/2+x=</NextContinuationToken>
+<Contents><Key>a.tar.gz</Key><LastModified>2026-05-07T03:00:00Z</LastModified><Size>1</Size></Contents>
+</ListBucketResult>`))
+			return
+		}
+		_, _ = w.Write([]byte(`<ListBucketResult><IsTruncated>false</IsTruncated>
+<Contents><Key>b.tar.gz</Key><LastModified>2026-05-08T03:00:00Z</LastModified><Size>2</Size></Contents>
+</ListBucketResult>`))
+	}))
+	defer server.Close()
+
+	c := &s3Client{Endpoint: server.URL, Region: "us-east-1", AccessKey: "key", SecretKey: "secret", PathStyle: true, HTTP: server.Client()}
+	objects, err := c.listObjects(t.Context(), "test", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(objects) != 2 || objects[1].Key != "b.tar.gz" {
+		t.Fatalf("objects = %+v, want both pages", objects)
+	}
+	if len(tokens) != 2 || tokens[1] != "page/2+x=" {
+		t.Errorf("continuation tokens sent = %q", tokens)
+	}
+}

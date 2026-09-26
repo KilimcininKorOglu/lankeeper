@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -116,68 +117,114 @@ type s3Object struct {
 	Size         int64
 }
 
+// maxListPages bounds how many ListObjectsV2 pages one listing follows,
+// a million objects at 1000 a page.
+const maxListPages = 1000
+
+// listObjects returns every object under prefix. ListObjectsV2 answers
+// at most 1000 keys per request in key order, so the continuation token
+// is followed until the listing is complete; retention deciding over the
+// first page alone would never see the rest.
 func (c *s3Client) listObjects(ctx context.Context, bucket, prefix string) ([]s3Object, error) {
+	var all []s3Object
+	token := ""
+	for range maxListPages {
+		objs, next, err := c.listPage(ctx, bucket, prefix, token)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, objs...)
+		if next == "" {
+			return all, nil
+		}
+		token = next
+	}
+	return nil, fmt.Errorf("s3 LIST: more than %d pages under %q", maxListPages, prefix)
+}
+
+// listPage fetches one ListObjectsV2 page and returns its objects and the
+// token for the next page, empty on the last one.
+func (c *s3Client) listPage(ctx context.Context, bucket, prefix, token string) ([]s3Object, string, error) {
+	u, host, err := c.listURL(bucket, prefix, token)
+	if err != nil {
+		return nil, "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	emptyHash := sha256Hex(nil)
+	req.Header.Set("Host", host)
+	req.Header.Set("x-amz-content-sha256", emptyHash)
+	if err := c.sign(req, emptyHash); err != nil {
+		return nil, "", err
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode/100 != 2 {
+		return nil, "", s3Failure("LIST", bucket, resp)
+	}
+
+	return decodeListing(resp.Body)
+}
+
+// listURL builds the ListObjectsV2 URL for one page.
+func (c *s3Client) listURL(bucket, prefix, token string) (string, string, error) {
 	endpoint, host, err := c.bucketURL(bucket, "")
 	if err != nil {
-		return nil, err
+		return "", "", err
 	}
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, err
+		return "", "", err
 	}
 	q := u.Query()
 	q.Set("list-type", "2")
 	if prefix != "" {
 		q.Set("prefix", prefix)
 	}
+	if token != "" {
+		q.Set("continuation-token", token)
+	}
 	u.RawQuery = q.Encode()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-	emptyHash := sha256Hex(nil)
-	req.Header.Set("Host", host)
-	req.Header.Set("x-amz-content-sha256", emptyHash)
-	if err := c.sign(req, emptyHash); err != nil {
-		return nil, err
-	}
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode/100 != 2 {
-		return nil, s3Failure("LIST", bucket, resp)
-	}
-
-	return decodeListing(resp.Body)
+	return u.String(), host, nil
 }
 
 // decodeListing parses a ListObjectsV2 response body. An object whose
 // LastModified does not parse fails the whole listing: retention sorts
 // by that time, and the zero time a failed parse leaves would rank the
 // object oldest and delete it first, whatever its real age.
-func decodeListing(body io.Reader) ([]s3Object, error) {
+func decodeListing(body io.Reader) ([]s3Object, string, error) {
 	var parsed struct {
-		Contents []struct {
+		IsTruncated           bool   `xml:"IsTruncated"`
+		NextContinuationToken string `xml:"NextContinuationToken"`
+		Contents              []struct {
 			Key          string `xml:"Key"`
 			LastModified string `xml:"LastModified"`
 			Size         int64  `xml:"Size"`
 		} `xml:"Contents"`
 	}
 	if err := xml.NewDecoder(body).Decode(&parsed); err != nil {
-		return nil, err
+		return nil, "", err
+	}
+	if parsed.IsTruncated && parsed.NextContinuationToken == "" {
+		return nil, "", errors.New("s3 LIST: truncated page carries no continuation token")
 	}
 	out := make([]s3Object, 0, len(parsed.Contents))
 	for _, e := range parsed.Contents {
 		t, err := time.Parse(time.RFC3339, e.LastModified)
 		if err != nil {
-			return nil, fmt.Errorf("s3 LIST: object %q has an unreadable LastModified %q: %w", e.Key, e.LastModified, err)
+			return nil, "", fmt.Errorf("s3 LIST: object %q has an unreadable LastModified %q: %w", e.Key, e.LastModified, err)
 		}
 		out = append(out, s3Object{Key: e.Key, LastModified: t, Size: e.Size})
 	}
-	return out, nil
+	if !parsed.IsTruncated {
+		return out, "", nil
+	}
+	return out, parsed.NextContinuationToken, nil
 }
 
 func (c *s3Client) deleteObject(ctx context.Context, bucket, key string) error {
