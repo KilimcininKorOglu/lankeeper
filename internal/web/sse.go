@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -128,31 +129,45 @@ func (b *SSEBroker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	// The stats broker publishes every second, so a dead peer there is
-	// noticed almost at once. The bandwidth broker publishes nothing
-	// while sampling is failing, and a stream that never writes never
-	// learns its peer is gone.
+	// The server-wide WriteTimeout would end the stream after 30 s, and on
+	// HTTP/2 it also cancels the request context. Each write gets its own
+	// deadline instead, so a live stream never expires and a stalled peer
+	// still releases its slot.
+	rc := http.NewResponseController(w)
+	send := func(frame []byte) bool {
+		_ = rc.SetWriteDeadline(time.Now().Add(2 * b.keepAlive))
+		if _, err := w.Write(frame); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
+	b.pump(r.Context(), ch, send)
+}
+
+// pump forwards published messages to one stream until the client leaves
+// or a write fails.
+//
+// The stats broker publishes every second, so a dead peer there is
+// noticed almost at once. The bandwidth broker publishes nothing while
+// sampling is failing, and a stream that never writes never learns its
+// peer is gone, hence the keep-alive.
+func (b *SSEBroker) pump(ctx context.Context, ch chan []byte, send func([]byte) bool) {
 	keepAlive := time.NewTicker(b.keepAlive)
 	defer keepAlive.Stop()
 
-	ctx := r.Context()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-keepAlive.C:
-			if _, err := w.Write(sseKeepAliveFrame); err != nil {
+			if !send(sseKeepAliveFrame) {
 				return
 			}
-			flusher.Flush()
 		case msg, ok := <-ch:
-			if !ok {
+			if !ok || !send(msg) {
 				return
 			}
-			if _, err := w.Write(msg); err != nil {
-				return
-			}
-			flusher.Flush()
 		}
 	}
 }

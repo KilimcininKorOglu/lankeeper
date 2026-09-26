@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/i18n"
@@ -62,6 +63,7 @@ func (h *OpenVPNHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *OpenVPNHandler) HandleInitPKI(w http.ResponseWriter, r *http.Request) {
+	allowLongWrite(w, 15*time.Minute)
 	if err := h.ovpn.InitPKI(r.Context()); err != nil {
 		fail(w, r, http.StatusInternalServerError, err)
 		return

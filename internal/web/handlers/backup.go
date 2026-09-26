@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/i18n"
@@ -174,6 +175,7 @@ func (h *BackupHandler) HandleDeleteTarget(w http.ResponseWriter, r *http.Reques
 // the HTTP request; we accept this tradeoff for v1 since
 // encrypted-config archives are typically a few MB.
 func (h *BackupHandler) HandleRunNow(w http.ResponseWriter, r *http.Request) {
+	allowLongWrite(w, 35*time.Minute)
 	if err := h.backup.RunNow(r.Context()); err != nil {
 		_, _ = fmt.Fprintf(w, `<div class="alert alert-error">%s</div>`, html.EscapeString(err.Error()))
 		return

@@ -423,6 +423,7 @@ func (h *SystemHandler) HandleDownloadMkcertCA(w http.ResponseWriter, r *http.Re
 // therefore leaves the operator with their inputs preserved on the form
 // and the previous certificate still being served.
 func (h *SystemHandler) HandleConfigureACME(w http.ResponseWriter, r *http.Request) {
+	allowLongWrite(w, 10*time.Minute)
 	if h.acme == nil {
 		clientError(w, r, http.StatusNotImplemented, "error.internal")
 		return
@@ -655,6 +656,7 @@ func (h *SystemHandler) HandleCheckUpdate(w http.ResponseWriter, r *http.Request
 }
 
 func (h *SystemHandler) HandleApplyUpdate(w http.ResponseWriter, r *http.Request) {
+	allowLongWrite(w, 15*time.Minute)
 	info, err := h.update.CheckForUpdate(r.Context())
 	if err != nil {
 		fail(w, r, http.StatusInternalServerError, err)

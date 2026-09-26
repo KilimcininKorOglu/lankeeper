@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/i18n"
@@ -75,6 +76,7 @@ func (h *DNSHandler) HandleClearLog(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *DNSHandler) HandleUpdateBlocklist(w http.ResponseWriter, r *http.Request) {
+	allowLongWrite(w, 5*time.Minute)
 	if err := h.dns.UpdateBlocklist(r.Context()); err != nil {
 		fail(w, r, http.StatusInternalServerError, err)
 		return
