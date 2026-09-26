@@ -31,15 +31,16 @@ func NewFirewallHandler(renderer *tmpl.Renderer, firewall *services.FirewallServ
 func (h *FirewallHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
 	lang := i18n.LangFromContext(r.Context())
 
+	ttlFix := h.firewall.GetTTLFix()
 	data := &tmpl.PageData{
 		Lang: lang,
 		Page: "firewall",
 		Data: map[string]any{
 			"OpenPorts":     h.firewall.GetOpenPorts(),
-			"PortForwards":  h.cfg.Firewall.PortForwards,
+			"PortForwards":  h.firewall.GetPortForwards(),
 			"Rules":         h.firewall.GetCustomRules(),
-			"TTLFixEnabled": h.cfg.Firewall.TTLFix.Enabled,
-			"TTLFixValue":   h.cfg.Firewall.TTLFix.Value,
+			"TTLFixEnabled": ttlFix.Enabled,
+			"TTLFixValue":   ttlFix.Value,
 			"PendingChange": h.firewall.HasPendingChange(),
 		},
 	}
@@ -278,7 +279,7 @@ func (h *FirewallHandler) HandleSetTTLFix(w http.ResponseWriter, r *http.Request
 	// The field keeps its stored value when the form omits it, so
 	// toggling the checkbox off does not silently reset the hop limit
 	// to something the operator never chose.
-	value := h.cfg.Firewall.TTLFix.Value
+	value := h.firewall.GetTTLFix().Value
 	if raw := strings.TrimSpace(r.FormValue("value")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil {

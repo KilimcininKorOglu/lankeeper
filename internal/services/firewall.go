@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"text/template"
@@ -410,81 +411,118 @@ func (s *FirewallService) persist() error {
 	return s.cfg.SaveToFile()
 }
 
-func (s *FirewallService) AddOpenPort(op config.OpenPort) error {
-	s.cfg.Firewall.OpenPorts = append(s.cfg.Firewall.OpenPorts, op)
+// mutate runs change on the firewall config and persists it, both under
+// s.mu. Apply renders from the same slices under that lock, so a
+// background apply sees the config either before or after an edit, never
+// in the middle of one.
+func (s *FirewallService) mutate(change func(fw *config.FirewallConfig) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := change(&s.cfg.Firewall); err != nil {
+		return err
+	}
 	return s.persist()
+}
+
+// removeAt deletes element index from list, or reports what is invalid.
+func removeAt[T any](list []T, index int, what string) ([]T, error) {
+	if index < 0 || index >= len(list) {
+		return nil, fmt.Errorf("invalid %s index: %d", what, index)
+	}
+	return slices.Delete(list, index, index+1), nil
+}
+
+func (s *FirewallService) AddOpenPort(op config.OpenPort) error {
+	return s.mutate(func(fw *config.FirewallConfig) error {
+		fw.OpenPorts = append(fw.OpenPorts, op)
+		return nil
+	})
 }
 
 func (s *FirewallService) RemoveOpenPort(index int) error {
-	if index < 0 || index >= len(s.cfg.Firewall.OpenPorts) {
-		return fmt.Errorf("invalid open port index: %d", index)
-	}
-	s.cfg.Firewall.OpenPorts = append(
-		s.cfg.Firewall.OpenPorts[:index],
-		s.cfg.Firewall.OpenPorts[index+1:]...,
-	)
-	return s.persist()
+	return s.mutate(func(fw *config.FirewallConfig) error {
+		var err error
+		fw.OpenPorts, err = removeAt(fw.OpenPorts, index, "open port")
+		return err
+	})
 }
 
 func (s *FirewallService) ToggleOpenPort(index int, enabled bool) error {
-	if index < 0 || index >= len(s.cfg.Firewall.OpenPorts) {
-		return fmt.Errorf("invalid open port index: %d", index)
-	}
-	s.cfg.Firewall.OpenPorts[index].Enabled = enabled
-	return s.persist()
+	return s.mutate(func(fw *config.FirewallConfig) error {
+		if index < 0 || index >= len(fw.OpenPorts) {
+			return fmt.Errorf("invalid open port index: %d", index)
+		}
+		fw.OpenPorts[index].Enabled = enabled
+		return nil
+	})
 }
 
+// GetOpenPorts returns a copy of the open ports.
 func (s *FirewallService) GetOpenPorts() []config.OpenPort {
-	return s.cfg.Firewall.OpenPorts
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.cfg.Firewall.OpenPorts)
+}
+
+// GetPortForwards returns a copy of the port forwards.
+func (s *FirewallService) GetPortForwards() []config.PortForward {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.cfg.Firewall.PortForwards)
+}
+
+// GetTTLFix returns the TTL rewrite setting.
+func (s *FirewallService) GetTTLFix() config.TTLFixConfig {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg.Firewall.TTLFix
 }
 
 func (s *FirewallService) AddPortForward(pf config.PortForward) error {
-	s.cfg.Firewall.PortForwards = append(s.cfg.Firewall.PortForwards, pf)
-	return s.persist()
+	return s.mutate(func(fw *config.FirewallConfig) error {
+		fw.PortForwards = append(fw.PortForwards, pf)
+		return nil
+	})
 }
 
 func (s *FirewallService) RemovePortForward(index int) error {
-	if index < 0 || index >= len(s.cfg.Firewall.PortForwards) {
-		return fmt.Errorf("invalid port forward index: %d", index)
-	}
-	s.cfg.Firewall.PortForwards = append(
-		s.cfg.Firewall.PortForwards[:index],
-		s.cfg.Firewall.PortForwards[index+1:]...,
-	)
-	return s.persist()
+	return s.mutate(func(fw *config.FirewallConfig) error {
+		var err error
+		fw.PortForwards, err = removeAt(fw.PortForwards, index, "port forward")
+		return err
+	})
 }
 
 func (s *FirewallService) AddRule(rule config.FirewallRule) error {
-	if rule.Priority == 0 {
-		maxPrio := 0
-		for _, r := range s.cfg.Firewall.Rules {
-			if r.Priority > maxPrio {
-				maxPrio = r.Priority
+	return s.mutate(func(fw *config.FirewallConfig) error {
+		if rule.Priority == 0 {
+			maxPrio := 0
+			for _, r := range fw.Rules {
+				maxPrio = max(maxPrio, r.Priority)
 			}
+			rule.Priority = maxPrio + 10
 		}
-		rule.Priority = maxPrio + 10
-	}
-	s.cfg.Firewall.Rules = append(s.cfg.Firewall.Rules, rule)
-	return s.persist()
+		fw.Rules = append(fw.Rules, rule)
+		return nil
+	})
 }
 
 func (s *FirewallService) RemoveRule(index int) error {
-	if index < 0 || index >= len(s.cfg.Firewall.Rules) {
-		return fmt.Errorf("invalid rule index: %d", index)
-	}
-	s.cfg.Firewall.Rules = append(
-		s.cfg.Firewall.Rules[:index],
-		s.cfg.Firewall.Rules[index+1:]...,
-	)
-	return s.persist()
+	return s.mutate(func(fw *config.FirewallConfig) error {
+		var err error
+		fw.Rules, err = removeAt(fw.Rules, index, "rule")
+		return err
+	})
 }
 
 func (s *FirewallService) ToggleRule(index int, enabled bool) error {
-	if index < 0 || index >= len(s.cfg.Firewall.Rules) {
-		return fmt.Errorf("invalid rule index: %d", index)
-	}
-	s.cfg.Firewall.Rules[index].Enabled = enabled
-	return s.persist()
+	return s.mutate(func(fw *config.FirewallConfig) error {
+		if index < 0 || index >= len(fw.Rules) {
+			return fmt.Errorf("invalid rule index: %d", index)
+		}
+		fw.Rules[index].Enabled = enabled
+		return nil
+	})
 }
 
 // ErrInvalidTTL reports a hop limit outside what the field can carry.
@@ -503,13 +541,18 @@ func (s *FirewallService) SetTTLFix(enabled bool, value int) error {
 	if value < 1 || value > 255 {
 		return fmt.Errorf("%w: %d", ErrInvalidTTL, value)
 	}
-	s.cfg.Firewall.TTLFix.Enabled = enabled
-	s.cfg.Firewall.TTLFix.Value = value
-	return s.persist()
+	return s.mutate(func(fw *config.FirewallConfig) error {
+		fw.TTLFix.Enabled = enabled
+		fw.TTLFix.Value = value
+		return nil
+	})
 }
 
+// GetCustomRules returns a copy of the custom rules.
 func (s *FirewallService) GetCustomRules() []config.FirewallRule {
-	return s.cfg.Firewall.Rules
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.cfg.Firewall.Rules)
 }
 
 // customRules holds the rendered custom rule lines, split by the chain
