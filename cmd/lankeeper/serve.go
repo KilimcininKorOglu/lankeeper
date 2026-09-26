@@ -23,8 +23,17 @@ func runServe() error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	configPath := fs.String("config", "/etc/lankeeper/router.yaml", "config file path")
 	socketPath := fs.String("socket", "/run/lankeeper/agent.sock", "agent UDS path")
+	cwd := fs.String("cwd", "/var/lib/lankeeper", "directory holding the configs/sysconf/ templates the services parse at runtime")
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		return err
+	}
+
+	// Every service parses configs/sysconf/*.tmpl relative to the working
+	// directory, and the installers put the templates only under the data
+	// directory. systemd starts the unit in /, where no service could
+	// render a config at runtime.
+	if err := os.Chdir(*cwd); err != nil {
+		return fmt.Errorf("chdir %s: %w", *cwd, err)
 	}
 
 	cfg, err := config.Load(*configPath)
