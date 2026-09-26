@@ -92,3 +92,16 @@ func TestChpasswdStdinOnlySetsRoot(t *testing.T) {
 		}
 	}
 }
+
+// The web process pre-creates the pre-update snapshot owner-only, so that
+// one name is writable in /var/backups and nothing else there is.
+func TestPreUpdateSnapshotIsTheOnlyWritableBackupsPath(t *testing.T) {
+	if !checkPathRules("/var/backups/lankeeper-pre-update-v1.2.3.tar.gz", allowedWriteRules) {
+		t.Error("pre-update snapshot path refused")
+	}
+	for _, p := range []string{"/var/backups/passwd.bak", "/var/backups/lankeeper-pre-update-x/../../../etc/shadow"} {
+		if checkPathRules(p, allowedWriteRules) {
+			t.Errorf("%s accepted", p)
+		}
+	}
+}

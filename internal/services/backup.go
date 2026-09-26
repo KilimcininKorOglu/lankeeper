@@ -102,15 +102,24 @@ func (s *BackupService) Export(ctx context.Context, outputPath, passphrase strin
 
 // exportPlain has the agent write the archive straight to outputPath,
 // which only the agent reads afterwards (the pre-update snapshot).
+//
+// The archive holds every secret on the device, and tar running under
+// systemd's default umask would create it 0644 for the whole run. So the
+// file is created owner-only first: tar truncates an existing archive and
+// keeps its mode. Any earlier file is removed so a stale 0644 copy cannot
+// lend its mode, and a failed run removes the partial archive.
 func (s *BackupService) exportPlain(ctx context.Context, outputPath string) error {
-	if _, err := netutil.Run(ctx, "tar", buildExportArgs(outputPath, s.configDir, backupExtraDirs)...); err != nil {
-		return fmt.Errorf("create backup: %w", err)
+	if _, err := netutil.Run(ctx, "rm", "-f", "--", outputPath); err != nil {
+		return fmt.Errorf("remove stale backup archive: %w", err)
 	}
-	// tar runs as root through the agent under systemd's default umask,
-	// so the archive would otherwise keep mode 0644 while holding every
-	// secret on the device.
-	if _, err := netutil.Run(ctx, "chmod", "600", outputPath); err != nil {
-		return fmt.Errorf("restrict backup archive: %w", err)
+	if err := netutil.WriteFile(outputPath, nil, 0o600); err != nil {
+		return fmt.Errorf("create backup archive: %w", err)
+	}
+	if _, err := netutil.Run(ctx, "tar", buildExportArgs(outputPath, s.configDir, backupExtraDirs)...); err != nil {
+		if _, rmErr := netutil.Run(ctx, "rm", "-f", "--", outputPath); rmErr != nil {
+			log.Printf("backup: remove partial archive %s: %v", outputPath, rmErr)
+		}
+		return fmt.Errorf("create backup: %w", err)
 	}
 	return nil
 }

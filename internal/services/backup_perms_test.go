@@ -14,7 +14,8 @@ import (
 	"github.com/KilimcininKorOglu/lankeeper/internal/services"
 )
 
-// exportAgent honours tar and chmod against the real filesystem so the
+// exportAgent honours file.write, rm, tar and chmod against the real
+// filesystem so the
 // mode the archive ends up with can be asserted, and records every
 // command for the ordering checks.
 type exportAgent struct {
@@ -26,6 +27,9 @@ type exportAgent struct {
 }
 
 func (a *exportAgent) Call(_ context.Context, method string, params any) (json.RawMessage, error) {
+	if method == "file.write" {
+		return fakeFileWrite(params)
+	}
 	if method != "exec.run" {
 		return []byte(`{}`), nil
 	}
@@ -50,6 +54,11 @@ func (a *exportAgent) Call(_ context.Context, method string, params any) (json.R
 		err = a.fakeTar(p.Args)
 	case "chmod":
 		err = fakeChmod(p.Args)
+	case "rm":
+		err = os.Remove(p.Args[len(p.Args)-1])
+		if os.IsNotExist(err) {
+			err = nil
+		}
 	}
 	if err != nil {
 		return nil, err
@@ -57,10 +66,35 @@ func (a *exportAgent) Call(_ context.Context, method string, params any) (json.R
 	return []byte(`{"stdout":"","stderr":"","exitCode":0}`), nil
 }
 
-// fakeTar creates the archive a czf invocation names, with tarMode.
+// fakeFileWrite creates the named file with the requested mode.
+func fakeFileWrite(params any) (json.RawMessage, error) {
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return nil, err
+	}
+	var p struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+		Mode    int    `json:"mode"`
+	}
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(p.Path, []byte(p.Content), os.FileMode(p.Mode)); err != nil {
+		return nil, err
+	}
+	return []byte(`{}`), os.Chmod(p.Path, os.FileMode(p.Mode))
+}
+
+// fakeTar writes the archive a czf invocation names. Like GNU tar it
+// truncates an existing file and keeps its mode, and creates a missing
+// one with tarMode.
 func (a *exportAgent) fakeTar(args []string) error {
 	if len(args) < 2 || args[0] != "czf" {
 		return nil
+	}
+	if _, err := os.Stat(args[1]); err == nil {
+		return os.WriteFile(args[1], []byte("archive"), 0)
 	}
 	if err := os.WriteFile(args[1], []byte("archive"), a.tarMode); err != nil {
 		return err
@@ -92,14 +126,8 @@ func useBackupStagingDir(t *testing.T) {
 	}
 }
 
-func (a *exportAgent) snapshot() []string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return append([]string(nil), a.calls...)
-}
-
 // TestExportRestrictsAnUnencryptedArchive is the regression test. The
-// only chmod in Export lived inside the encryption branch, so the one
+// plain branch once left the archive with tar's mode, so the one
 // caller that passes no passphrase, the pre-update snapshot, left a
 // world-readable archive holding router.yaml: the session secret, the
 // admin password hash, the PPPoE password and every backup credential.
@@ -123,16 +151,6 @@ func TestExportRestrictsAnUnencryptedArchive(t *testing.T) {
 	}
 	if got := info.Mode().Perm(); got != 0o600 {
 		t.Errorf("archive mode = %o, want 600; it holds every secret on the device", got)
-	}
-
-	var sawChmod bool
-	for _, c := range agent.snapshot() {
-		if strings.HasPrefix(c, "chmod 600 ") {
-			sawChmod = true
-		}
-	}
-	if !sawChmod {
-		t.Errorf("the archive was not restricted through the agent; calls: %v", agent.snapshot())
 	}
 }
 

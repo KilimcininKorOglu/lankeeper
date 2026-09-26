@@ -197,6 +197,7 @@ var allowedWriteRules = []pathRule{
 	{"/etc/pppoe-server-options", exactFile},
 	{"/var/lib/lankeeper/", dirPrefix},
 	{"/var/log/", dirPrefix},
+	{"/var/backups/lankeeper-pre-update-", filenamePrefix},
 	{"/tmp/nftables-", filenamePrefix},
 	{"/tmp/lankeeper-", filenamePrefix},
 }

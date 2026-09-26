@@ -348,8 +348,8 @@ func (s *UpdateService) snapshotConfig(ctx context.Context, version string) stri
 	return backupPath
 }
 
-// preUpdateSnapshotDir holds the pre-update config snapshot. Root's tar
-// writes the archive and chmod follows it, both by a name built from the
+// preUpdateSnapshotDir holds the pre-update config snapshot. The agent
+// creates the archive owner-only and root's tar fills it, both by a name built from the
 // release tag, so the directory must be one the service account cannot
 // create entries in. /var/lib/lankeeper/backups is owned by that account,
 // which could plant a symlink there and have root overwrite any file.
