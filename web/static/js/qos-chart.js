@@ -97,8 +97,15 @@
         var tbody = document.getElementById(TBODY_ID);
         if (!tbody) return;
         if (!clients || !clients.length) {
-            tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-secondary);">' +
-                (window.qosI18n && window.qosI18n.empty ? window.qosI18n.empty : '') + '</td></tr>';
+            // The text comes from the template: the CSP blocks the inline
+            // script a window global would need.
+            var cell = document.createElement('td');
+            cell.colSpan = 5;
+            cell.style.color = 'var(--text-secondary)';
+            cell.textContent = tbody.getAttribute('data-empty') || '';
+            var row = document.createElement('tr');
+            row.appendChild(cell);
+            tbody.replaceChildren(row);
             return;
         }
 

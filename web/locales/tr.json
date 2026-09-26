@@ -262,6 +262,7 @@
     "qos.perClient.download": "İndirme",
     "qos.perClient.upload": "Yükleme",
     "qos.perClient.spark": "Trend",
+    "qos.perClient.empty": "Gösterilecek cihaz trafiği yok",
     "qos.perClient.waiting": "Veri bekleniyor…",
     "nas.title": "NAS Dosya Paylaşımı",
     "nas.addShare": "Paylaşım Ekle",

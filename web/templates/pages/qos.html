@@ -106,7 +106,7 @@
                         <th>{{ t $.Lang "qos.perClient.spark" }}</th>
                     </tr>
                 </thead>
-                <tbody id="qos-clients-tbody">
+                <tbody id="qos-clients-tbody" data-empty="{{ t $.Lang "qos.perClient.empty" }}">
                     <tr><td colspan="5" style="color:var(--text-secondary);">{{ t $.Lang "qos.perClient.waiting" }}</td></tr>
                 </tbody>
             </table>

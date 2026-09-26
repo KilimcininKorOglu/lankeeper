@@ -262,6 +262,7 @@
     "qos.perClient.download": "Download",
     "qos.perClient.upload": "Upload",
     "qos.perClient.spark": "Trend",
+    "qos.perClient.empty": "No client traffic to show",
     "qos.perClient.waiting": "Waiting for data…",
     "nas.title": "NAS File Sharing",
     "nas.addShare": "Add Share",
