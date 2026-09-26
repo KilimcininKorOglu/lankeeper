@@ -260,12 +260,12 @@ func (s *OpenVPNService) GenerateClientOVPN(name string) (string, error) {
 		return "", err
 	}
 
-	pki, err := readClientPKI(name)
+	srv := s.cfg.OpenVPN.Server
+
+	pki, err := readClientPKI(name, srv.TLSAuth)
 	if err != nil {
 		return "", err
 	}
-
-	srv := s.cfg.OpenVPN.Server
 
 	endpoint := srv.PublicEndpoint
 	if endpoint == "" {
@@ -288,7 +288,6 @@ func (s *OpenVPNService) GenerateClientOVPN(name string) (string, error) {
 		// whether data packets carry a compression header.
 		fmt.Fprintf(&sb, "compress\n")
 	}
-	fmt.Fprintf(&sb, "key-direction 1\n")
 	fmt.Fprintf(&sb, "verb 3\n")
 
 	if entry := findServerClient(srv.Clients, name); entry != nil && entry.IsSiteToSite {
@@ -299,12 +298,20 @@ func (s *OpenVPNService) GenerateClientOVPN(name string) (string, error) {
 		writeRoute(&sb, "route %s %s\n", srv.Subnet)
 	}
 
-	fmt.Fprintf(&sb, "\n<ca>\n%s</ca>\n\n", pki.ca)
-	fmt.Fprintf(&sb, "<cert>\n%s</cert>\n\n", pki.cert)
-	fmt.Fprintf(&sb, "<key>\n%s</key>\n\n", pki.key)
-	fmt.Fprintf(&sb, "<tls-auth>\n%s</tls-auth>\n", pki.ta)
-
+	writeClientKeys(&sb, pki)
 	return sb.String(), nil
+}
+
+// writeClientKeys embeds the key material. tls-auth goes in only when
+// the server uses it, as the server template decides: a client that
+// HMAC-wraps its control packets cannot talk to a server that does not.
+func writeClientKeys(sb *strings.Builder, pki *clientPKI) {
+	fmt.Fprintf(sb, "\n<ca>\n%s</ca>\n\n", pki.ca)
+	fmt.Fprintf(sb, "<cert>\n%s</cert>\n\n", pki.cert)
+	fmt.Fprintf(sb, "<key>\n%s</key>\n", pki.key)
+	if pki.ta != nil {
+		fmt.Fprintf(sb, "\nkey-direction 1\n<tls-auth>\n%s</tls-auth>\n", pki.ta)
+	}
 }
 
 // clientPKI is the key material embedded in a client profile.
@@ -313,8 +320,9 @@ type clientPKI struct {
 }
 
 // readClientPKI reads the CA, the client's certificate and key, and the
-// TLS auth key. name must already be validated: it indexes two files.
-func readClientPKI(name string) (*clientPKI, error) {
+// TLS auth key when withTA is set. name must already be validated: it
+// indexes two files.
+func readClientPKI(name string, withTA bool) (*clientPKI, error) {
 	const pkiDir = "/etc/openvpn/pki"
 	files := []struct {
 		path, label string
@@ -322,7 +330,9 @@ func readClientPKI(name string) (*clientPKI, error) {
 		{pkiDir + "/ca.crt", "CA"},
 		{fmt.Sprintf("%s/issued/%s.crt", pkiDir, name), "cert"},
 		{fmt.Sprintf("%s/private/%s.key", pkiDir, name), "key"},
-		{pkiDir + "/ta.key", "ta.key"},
+	}
+	if withTA {
+		files = append(files, struct{ path, label string }{pkiDir + "/ta.key", "ta.key"})
 	}
 	contents := make([][]byte, len(files))
 	for i, f := range files {
@@ -335,7 +345,11 @@ func readClientPKI(name string) (*clientPKI, error) {
 		}
 		contents[i] = b
 	}
-	return &clientPKI{ca: contents[0], cert: contents[1], key: contents[2], ta: contents[3]}, nil
+	pki := &clientPKI{ca: contents[0], cert: contents[1], key: contents[2]}
+	if withTA {
+		pki.ta = contents[3]
+	}
+	return pki, nil
 }
 
 // findServerClient returns the server client whose name or common name
