@@ -21,8 +21,8 @@ var allowedCommands = map[string]bool{
 	"mdadm": true, "mkfs.ext4": true, "mount": true, "lsblk": true, "findmnt": true,
 	"smartctl": true, "hdparm": true, "tar": true,
 	"dig": true, "ping": true, "pgrep": true, "pkill": true, "killall": true,
-	"dhclient": true, "chpasswd": true, "df": true,
-	"cp": true, "chmod": true, "mv": true, "rm": true, "kill": true,
+	"dhclient": true, "df": true,
+	"cp": true, "chmod": true, "rm": true, "kill": true,
 	"openssl": true, "usermod": true, "localectl": true, "loadkeys": true,
 	"easyrsa": true, "mkdir": true, "tail": true, "update-grub": true,
 	"dhcp6c": true, "dhcp6ctl": true, "mkcert": true, "systemd-run": true,
@@ -30,9 +30,18 @@ var allowedCommands = map[string]bool{
 
 // argValidators constrain the argv of a command whose name alone would
 // hand the caller root. systemd-run starts any command line as a root
-// unit, so it is accepted only in the one shape the OTA guard uses.
+// unit, so it is accepted only in the one shape the OTA guard uses; the
+// file, account and service commands are checked in argrules.go.
 var argValidators = map[string]func([]string) error{
 	"systemd-run": validateUpdateGuardArgs,
+	"cp":          validateCpArgs,
+	"rm":          validateRmArgs,
+	"chmod":       validateChmodArgs,
+	"usermod":     validateUsermodArgs,
+	"systemctl":   validateSystemctlArgs,
+	"mkdir":       validateMkdirArgs,
+	"mount":       validateMountArgs,
+	"tar":         validateTarArgs,
 }
 
 // UpdateGuardUnit names the transient unit that rolls an unconfirmed OTA
