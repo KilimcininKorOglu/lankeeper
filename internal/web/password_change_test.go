@@ -72,6 +72,7 @@ func TestPasswordChangeTakesEffectImmediately(t *testing.T) {
 
 	// Change the password through the route the operator uses.
 	changeRec := post("/settings/web-password", url.Values{
+		"currentPassword": {"old-password"},
 		"newPassword":     {"brand-new-password"},
 		"confirmPassword": {"brand-new-password"},
 	}, session)
@@ -154,4 +155,31 @@ func (c *formClient) post(path string, form url.Values, extra []*http.Cookie) *h
 	rec := httptest.NewRecorder()
 	c.handler.ServeHTTP(rec, req)
 	return rec
+}
+
+// A session alone must not be enough to replace the admin password.
+func TestPasswordChangeRequiresTheCurrentPassword(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
+	cfg.System.SessionSecret = "test-secret"
+	cfg.System.AdminPasswordHash = hashOf(t, "old-password")
+	t.Setenv("LANKEEPER_FIREWALL_STATE", filepath.Join(t.TempDir(), "firewall-pending.json"))
+
+	srv := newServerWithConfig(t, cfg)
+	post := newFormClient(t, srv.Handler()).post
+	session := post("/login", url.Values{"password": {"old-password"}}, nil).Result().Cookies()
+
+	for _, current := range []string{"", "wrong-password"} {
+		rec := post("/settings/web-password", url.Values{
+			"currentPassword": {current},
+			"newPassword":     {"brand-new-password"},
+			"confirmPassword": {"brand-new-password"},
+		}, session)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("current=%q: status %d, want 403", current, rec.Code)
+		}
+	}
+	if post("/login", url.Values{"password": {"old-password"}}, nil).Result().Cookies() == nil {
+		t.Error("the old password stopped working after refused changes")
+	}
 }

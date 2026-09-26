@@ -141,6 +141,7 @@ func TestAPasswordChangeRotatesTheToken(t *testing.T) {
 	const before = "beforebeforebeforebeforebeforebeforebeforebeforebeforebefore0000"
 
 	form := url.Values{
+		"currentPassword": {"correct-horse"},
 		"newPassword":     {"brand-new-password"},
 		"confirmPassword": {"brand-new-password"},
 	}
@@ -171,6 +172,7 @@ func TestARejectedPasswordChangeDoesNotRotate(t *testing.T) {
 	const held = "heldheldheldheldheldheldheldheldheldheldheldheldheldheldheld0000"
 
 	form := url.Values{
+		"currentPassword": {"correct-horse"},
 		"newPassword":     {"one-password"},
 		"confirmPassword": {"a-different-one"},
 	}

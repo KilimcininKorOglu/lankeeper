@@ -99,9 +99,26 @@ func (h *SystemHandler) HandleSettingsPage(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+// currentPasswordMatches re-checks the admin password before a
+// credential change. A session cookie alone is not enough to replace
+// the admin password or set the OS root password: an unattended browser
+// or a copied cookie would otherwise take the device over.
+func (h *SystemHandler) currentPasswordMatches(r *http.Request) bool {
+	current := r.FormValue("currentPassword")
+	if current == "" || h.cfg.System.AdminPasswordHash == "" {
+		return false
+	}
+	return bcrypt.CompareHashAndPassword([]byte(h.cfg.System.AdminPasswordHash), []byte(current)) == nil
+}
+
 func (h *SystemHandler) HandleChangeWebPassword(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		clientError(w, r, http.StatusBadRequest, "error.badForm")
+		return
+	}
+
+	if !h.currentPasswordMatches(r) {
+		clientError(w, r, http.StatusForbidden, "error.currentPasswordWrong")
 		return
 	}
 
@@ -151,6 +168,11 @@ func (h *SystemHandler) HandleChangeWebPassword(w http.ResponseWriter, r *http.R
 func (h *SystemHandler) HandleChangeRootPassword(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		clientError(w, r, http.StatusBadRequest, "error.badForm")
+		return
+	}
+
+	if !h.currentPasswordMatches(r) {
+		clientError(w, r, http.StatusForbidden, "error.currentPasswordWrong")
 		return
 	}
 
