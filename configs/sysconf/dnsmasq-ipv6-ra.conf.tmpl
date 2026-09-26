@@ -15,7 +15,9 @@ enable-ra
 # RA on {{ $iface.Device }} (sla-id {{ $iface.SLAID }})
 interface={{ $iface.Device }}
 dhcp-range=set:ra-{{ $iface.Device }},::,constructor:{{ $iface.Device }},ra-names,slaac,64,{{ $.LeaseTime }}
-ra-param={{ $iface.Device }},mtu:{{ $.MTU }},{{ $.RAInterval }},0
+{{- /* No router lifetime field: a 0 there advertises the prefix but
+       not a route via this router, so clients get no default route. */}}
+ra-param={{ $iface.Device }},mtu:{{ $.MTU }},{{ $.RAInterval }}
 {{- range $.RDNSSAddrs }}
 dhcp-option=tag:ra-{{ $iface.Device }},option6:dns-server,[{{ . }}]
 {{- end }}

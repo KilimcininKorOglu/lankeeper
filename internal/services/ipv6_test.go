@@ -41,7 +41,7 @@ const testDnsmasqRATmpl = `enable-ra
 {{- $iface := . -}}
 interface={{ $iface.Device }}
 dhcp-range=set:ra-{{ $iface.Device }},::,constructor:{{ $iface.Device }},ra-names,slaac,64,{{ $.LeaseTime }}
-ra-param={{ $iface.Device }},mtu:{{ $.MTU }},{{ $.RAInterval }},0
+ra-param={{ $iface.Device }},mtu:{{ $.MTU }},{{ $.RAInterval }}
 {{- range $.RDNSSAddrs }}
 dhcp-option=tag:ra-{{ $iface.Device }},option6:dns-server,[{{ . }}]
 {{- end }}
@@ -360,7 +360,7 @@ func TestIPv6RenderRAConfigCustomInterval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render RA: %v", err)
 	}
-	if !strings.Contains(out, ",60,0") {
+	if !strings.Contains(out, ",60\n") {
 		t.Errorf("expected custom RA interval 60, got:\n%s", out)
 	}
 }
@@ -774,5 +774,29 @@ func TestIPv6IsDisabledRendersStub(t *testing.T) {
 	}
 	if out == "" {
 		t.Error("RenderConfig should return content even when disabled")
+	}
+}
+
+// TestShippedRADropInAdvertisesADefaultRoute is the regression test, run
+// against the shipped template. The last ra-param field is the router
+// lifetime, and the drop-in set it to 0, which advertises the prefix but
+// no route via the router, so LAN clients had no IPv6 default route.
+func TestShippedRADropInAdvertisesADefaultRoute(t *testing.T) {
+	cfg := newIPv6TestConfig(t)
+	t.Chdir("../..")
+	out, err := services.NewIPv6Service(cfg).RenderRAConfig()
+	if err != nil {
+		t.Fatalf("render RA: %v", err)
+	}
+	for line := range strings.SplitSeq(out, "\n") {
+		if !strings.HasPrefix(line, "ra-param=") {
+			continue
+		}
+		if fields := strings.Split(line, ","); len(fields) > 3 && fields[len(fields)-1] == "0" {
+			t.Errorf("ra-param advertises a zero router lifetime: %q", line)
+		}
+	}
+	if !strings.Contains(out, "ra-param=") {
+		t.Fatalf("no ra-param rendered:\n%s", out)
 	}
 }
