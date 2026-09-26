@@ -313,35 +313,56 @@ func (s *RoutingService) resolveDomains(ctx context.Context, setName string, dom
 			// Best-effort: missing set is logged at apply time. Per-IP
 			// add failures are tolerated (next refresh will retry).
 			_, _ = netutil.Run(ctx, "nft", "add", "element", "inet", "filter", setName,
-				"{", ip, "timeout", "300s", "}")
+				"{", ip, "timeout", domainElementTimeout, "}")
 		}
 	}
 }
 
-func (s *RoutingService) StartDomainRefresh(ctx context.Context) {
+// domainRefreshInterval is how often the policy domain sets are
+// re-resolved. domainElementTimeout is three intervals, so an address
+// stays in its set across two failed refreshes before it expires.
+const (
+	domainRefreshInterval = 5 * time.Minute
+	domainElementTimeout  = "900s"
+)
+
+// StartDomainRefresh re-resolves every policy domain on a ticker until
+// ctx ends or Clear cancels it. Without it every element added by Apply
+// expires and the policy stops matching its domains.
+func (s *RoutingService) StartDomainRefresh(ctx context.Context, wg *sync.WaitGroup) {
+	s.mu.Lock()
 	ctx, s.domainCancel = context.WithCancel(ctx)
+	s.mu.Unlock()
 
-	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
+	wg.Go(func() {
+		ticker := time.NewTicker(domainRefreshInterval)
 		defer ticker.Stop()
-
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				s.mu.RLock()
-				for setName, domainMap := range s.domainSets {
-					var domains []string
-					for d := range domainMap {
-						domains = append(domains, d)
-					}
-					s.resolveDomains(ctx, setName, domains)
-				}
-				s.mu.RUnlock()
+				s.refreshDomainSets(ctx)
 			}
 		}
-	}()
+	})
+}
+
+// refreshDomainSets resolves a snapshot of the sets, so the lock is not
+// held across the DNS lookups.
+func (s *RoutingService) refreshDomainSets(ctx context.Context) {
+	s.mu.RLock()
+	snapshot := make(map[string][]string, len(s.domainSets))
+	for setName, domainMap := range s.domainSets {
+		for d := range domainMap {
+			snapshot[setName] = append(snapshot[setName], d)
+		}
+	}
+	s.mu.RUnlock()
+
+	for setName, domains := range snapshot {
+		s.resolveDomains(ctx, setName, domains)
+	}
 }
 
 func buildScheduleMatch(schedule string) string {

@@ -459,6 +459,9 @@ func (s *Server) Serve(ctx context.Context) error {
 
 	s.loadSavedState(ctx)
 
+	// Keeps the policy-routing domain sets filled; their elements expire.
+	s.routingSvc.StartDomainRefresh(ctx, &bg)
+
 	// Backup scheduler: ticks every 30s, fires runOnce when the
 	// configured cron schedule next matches. No-op when disabled.
 	s.backupSvc.StartScheduler(ctx, s.backupOrch.SnapshotProvider(), &bg)
