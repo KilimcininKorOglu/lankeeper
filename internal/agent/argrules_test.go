@@ -20,7 +20,6 @@ func TestArgRulesAcceptTheServiceCalls(t *testing.T) {
 		{"chmod", "600", "/var/backups/lankeeper-pre-update-v1.2.0.tar.gz"},
 		{"chmod", "640", "/var/lib/lankeeper/staging/export-1.tar.gz"},
 		{"chmod", "+x", "/usr/local/bin/lankeeper"},
-		{"usermod", "-p", "$6$salt$hash", "root"},
 		{"systemctl", "reboot"},
 		{"systemctl", "restart", "lankeeper.target"},
 		{"systemctl", "stop", "lankeeper-update-guard.timer"},
@@ -54,8 +53,7 @@ func TestArgRulesRefuseEscalation(t *testing.T) {
 		{"chmod", "4755", "/usr/local/bin/lankeeper"},
 		{"chmod", "600", "/etc/shadow"},
 		{"chmod", "+x", "/var/lib/lankeeper/x"},
-		{"usermod", "-aG", "sudo", "lankeeper"},
-		{"usermod", "-p", "$6$x", "lankeeper"},
+		{"chpasswd", "-e"},
 		{"systemctl", "start", "foo"},
 		{"systemctl", "enable", "--now", "evil.service"},
 		{"systemctl", "link", "/var/lib/lankeeper/x.service"},
@@ -75,9 +73,22 @@ func TestArgRulesRefuseEscalation(t *testing.T) {
 }
 
 func TestUnusedRootCommandsAreNotWhitelisted(t *testing.T) {
-	for _, c := range []string{"chpasswd", "mv"} {
+	for _, c := range []string{"mv", "usermod", "openssl"} {
 		if allowedCommands[c] {
 			t.Errorf("%s is still whitelisted", c)
+		}
+	}
+}
+
+// chpasswd sets whatever accounts its stdin names, so only one root line
+// is accepted.
+func TestChpasswdStdinOnlySetsRoot(t *testing.T) {
+	if err := validateChpasswdStdin("root:a-long-password\n"); err != nil {
+		t.Errorf("the service's own input was refused: %v", err)
+	}
+	for _, bad := range []string{"lankeeper:x\n", "root:x\nlankeeper:y\n", "root:\n", "root:x", ""} {
+		if err := validateChpasswdStdin(bad); err == nil {
+			t.Errorf("stdin %q was accepted", bad)
 		}
 	}
 }

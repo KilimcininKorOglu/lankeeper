@@ -5,13 +5,14 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 )
 
 // Argument rules for the whitelisted commands that act on files, accounts
 // or services.
 //
 // The command name alone does not bound what a caller can do with cp, rm,
-// chmod, tar, mount, mkdir, usermod or systemctl: each of them turns the
+// chmod, tar, mount, mkdir, chpasswd or systemctl: each of them turns the
 // right arguments into root. The agent is the privilege boundary, and the
 // caller is the unprivileged process that boundary exists to distrust, so
 // the argv is checked here against the shapes the services actually send
@@ -122,14 +123,29 @@ func validateChmodArgs(args []string) error {
 	return fmt.Errorf("chmod: %s %s is not permitted", args[0], args[1])
 }
 
-// validateUsermodArgs accepts only setting root's password hash.
-func validateUsermodArgs(args []string) error {
-	if len(args) != 3 || args[0] != "-p" || args[2] != "root" {
-		return fmt.Errorf("usermod: only -p <hash> root is permitted")
+// validateChpasswdArgs accepts chpasswd with no arguments; the account
+// and password come on stdin.
+func validateChpasswdArgs(args []string) error {
+	if len(args) != 0 {
+		return fmt.Errorf("chpasswd: no arguments are permitted")
 	}
-	hash := args[1]
-	if !strings.HasPrefix(hash, "$") || strings.ContainsFunc(hash, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
-		return fmt.Errorf("usermod: the password hash is not a crypt string")
+	return nil
+}
+
+// stdinValidators check the stdin of commands whose input decides what
+// they change.
+var stdinValidators = map[string]func(string) error{
+	"chpasswd": validateChpasswdStdin,
+}
+
+// validateChpasswdStdin accepts exactly one "root:<password>" line. Any
+// other account, or a second line, would let the caller set a password
+// the services never set.
+func validateChpasswdStdin(stdin string) error {
+	line, ok := strings.CutSuffix(stdin, "\n")
+	pw, isRoot := strings.CutPrefix(line, "root:")
+	if !ok || !isRoot || pw == "" || strings.ContainsFunc(pw, unicode.IsControl) {
+		return fmt.Errorf("chpasswd: only one root:<password> line is permitted")
 	}
 	return nil
 }

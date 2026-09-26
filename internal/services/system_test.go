@@ -17,6 +17,7 @@ type recordingAgent struct {
 	mu     sync.Mutex
 	calls  [][]string
 	stdout map[string]string
+	stdin  map[string]string
 	failOn string
 }
 
@@ -30,8 +31,9 @@ func (a *recordingAgent) Call(_ context.Context, method string, params any) (jso
 		return nil, err
 	}
 	var req struct {
-		Cmd  string   `json:"cmd"`
-		Args []string `json:"args"`
+		Cmd   string   `json:"cmd"`
+		Args  []string `json:"args"`
+		Stdin string   `json:"stdin"`
 	}
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return nil, err
@@ -39,6 +41,10 @@ func (a *recordingAgent) Call(_ context.Context, method string, params any) (jso
 
 	a.mu.Lock()
 	a.calls = append(a.calls, append([]string{req.Cmd}, req.Args...))
+	if a.stdin == nil {
+		a.stdin = map[string]string{}
+	}
+	a.stdin[req.Cmd] = req.Stdin
 	out := a.stdout[req.Cmd]
 	fail := a.failOn != "" && a.failOn == req.Cmd
 	a.mu.Unlock()
@@ -64,6 +70,12 @@ func (a *recordingAgent) argvFor(command string) []string {
 	return nil
 }
 
+func (a *recordingAgent) stdinFor(command string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.stdin[command]
+}
+
 func (a *recordingAgent) all() [][]string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -86,62 +98,38 @@ func newSystemTest(t *testing.T, stdout map[string]string) (*SystemService, *rec
 	return NewSystemService(), agent
 }
 
-// TestSetRootPasswordInstallsTheHash is the coverage the finding says
-// was missing entirely. This path rewrites the root account's password
-// through two privileged commands and had no test of any kind.
-func TestSetRootPasswordInstallsTheHash(t *testing.T) {
-	const hash = "$6$rounds$abcdefghijklmnop"
-	svc, agent := newSystemTest(t, map[string]string{"openssl": hash + "\n"})
-
-	if err := svc.SetRootPassword(context.Background(), "a-long-enough-password"); err != nil {
-		t.Fatalf("SetRootPassword: %v", err)
-	}
-
-	argv := agent.argvFor("usermod")
-	if argv == nil {
-		t.Fatal("usermod was never called, so no password was installed")
-	}
-	want := []string{"usermod", "-p", hash, "root"}
-	if strings.Join(argv, " ") != strings.Join(want, " ") {
-		t.Errorf("usermod argv = %v, want %v", argv, want)
-	}
-}
-
-// TestSetRootPasswordNeverLeaksThePlaintext keeps the plaintext out of
-// everything except the hashing command that needs it.
-func TestSetRootPasswordNeverLeaksThePlaintext(t *testing.T) {
+// TestSetRootPasswordSendsItOnStdin checks the password reaches chpasswd
+// as one root line on stdin and appears in no command line, which any
+// local account can read through /proc.
+func TestSetRootPasswordSendsItOnStdin(t *testing.T) {
 	const secret = "correct-horse-battery-staple"
-	svc, agent := newSystemTest(t, map[string]string{"openssl": "$6$hash\n"})
+	svc, agent := newSystemTest(t, nil)
 
 	if err := svc.SetRootPassword(context.Background(), secret); err != nil {
 		t.Fatalf("SetRootPassword: %v", err)
 	}
-
+	if argv := agent.argvFor("chpasswd"); strings.Join(argv, " ") != "chpasswd" {
+		t.Fatalf("chpasswd argv = %v, want no arguments", argv)
+	}
+	if got := agent.stdinFor("chpasswd"); got != "root:"+secret+"\n" {
+		t.Errorf("chpasswd stdin = %q, want one root line", got)
+	}
 	for _, argv := range agent.all() {
-		if argv[0] == "openssl" {
-			continue
-		}
 		if strings.Contains(strings.Join(argv, " "), secret) {
-			t.Errorf("the plaintext password reached %v", argv)
+			t.Errorf("the plaintext password reached a command line: %v", argv)
 		}
 	}
 }
 
-// TestSetRootPasswordRefusesAnEmptyHash is the dangerous edge: usermod
-// -p with an empty value writes an empty password field, which is a
-// passwordless root account.
-func TestSetRootPasswordRefusesAnEmptyHash(t *testing.T) {
-	svc, agent := newSystemTest(t, map[string]string{"openssl": "   \n"})
-
-	err := svc.SetRootPassword(context.Background(), "a-long-enough-password")
-	if err == nil {
-		t.Fatal("an empty hash was accepted")
+// A newline in the password would add a chpasswd line for another
+// account.
+func TestSetRootPasswordRefusesControlCharacters(t *testing.T) {
+	svc, agent := newSystemTest(t, nil)
+	if err := svc.SetRootPassword(context.Background(), "long-enough\nlankeeper:x"); !errors.Is(err, ErrPasswordInvalid) {
+		t.Fatalf("got %v, want ErrPasswordInvalid", err)
 	}
-	if !errors.Is(err, ErrPasswordNotHashed) {
-		t.Errorf("got %v, want ErrPasswordNotHashed", err)
-	}
-	if argv := agent.argvFor("usermod"); argv != nil {
-		t.Errorf("usermod ran with an empty hash: %v", argv)
+	if agent.count() != 0 {
+		t.Errorf("a refused password still ran %d privileged commands", agent.count())
 	}
 }
 
@@ -158,19 +146,15 @@ func TestSetRootPasswordRefusesAShortPassword(t *testing.T) {
 	}
 }
 
-// TestSetRootPasswordSurfacesAFailedHash confirms a failure is reported
-// rather than swallowed and followed by a usermod call.
-func TestSetRootPasswordSurfacesAFailedHash(t *testing.T) {
-	agent := &recordingAgent{failOn: "openssl"}
+// TestSetRootPasswordSurfacesAFailure confirms a chpasswd failure is
+// reported rather than swallowed.
+func TestSetRootPasswordSurfacesAFailure(t *testing.T) {
+	agent := &recordingAgent{failOn: "chpasswd"}
 	netutil.SetAgentClient(agent)
 	t.Cleanup(func() { netutil.SetAgentClient(nil) })
 
-	err := NewSystemService().SetRootPassword(context.Background(), "a-long-enough-password")
-	if err == nil {
-		t.Fatal("a failed hashing command was ignored")
-	}
-	if argv := agent.argvFor("usermod"); argv != nil {
-		t.Errorf("usermod ran after hashing failed: %v", argv)
+	if err := NewSystemService().SetRootPassword(context.Background(), "a-long-enough-password"); err == nil {
+		t.Fatal("a failed chpasswd was ignored")
 	}
 }
 

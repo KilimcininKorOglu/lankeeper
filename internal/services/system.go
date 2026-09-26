@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 )
@@ -57,11 +58,11 @@ const maxDomainLength = 253
 const minRootPasswordLength = 8
 
 var (
-	ErrInvalidHostname   = fmt.Errorf("hostname must be 1-63 characters of letters, digits and interior hyphens")
-	ErrInvalidDomain     = fmt.Errorf("domain must be dot-separated labels of letters, digits and interior hyphens")
-	ErrInvalidTimezone   = fmt.Errorf("timezone must be a tz database name such as Europe/Istanbul")
-	ErrPasswordTooShort  = fmt.Errorf("password must be at least %d characters", minRootPasswordLength)
-	ErrPasswordNotHashed = fmt.Errorf("password hashing produced no output")
+	ErrInvalidHostname  = fmt.Errorf("hostname must be 1-63 characters of letters, digits and interior hyphens")
+	ErrInvalidDomain    = fmt.Errorf("domain must be dot-separated labels of letters, digits and interior hyphens")
+	ErrInvalidTimezone  = fmt.Errorf("timezone must be a tz database name such as Europe/Istanbul")
+	ErrPasswordTooShort = fmt.Errorf("password must be at least %d characters", minRootPasswordLength)
+	ErrPasswordInvalid  = fmt.Errorf("password must not contain control characters")
 )
 
 // ValidateHostname reports whether s is usable as the system hostname.
@@ -93,30 +94,23 @@ func ValidateTimezone(s string) error {
 	return nil
 }
 
-// SetRootPassword hashes plaintext with the system's crypt
-// implementation and installs it on the root account.
+// SetRootPassword installs plaintext as the root password through
+// chpasswd, which hashes it with the system's crypt settings.
 //
-// The hash is produced by openssl rather than in Go because it has to
-// match what /etc/shadow expects, and usermod is what writes it. The
-// plaintext never reaches a config file or a log line.
+// The password travels on stdin, never in an argument: /proc on Debian
+// 12 has no hidepid, so any local account can read the command line of a
+// root process, and that exposed the plaintext to openssl and the crypt
+// hash to usermod. It reaches no config file or log line either.
 func (s *SystemService) SetRootPassword(ctx context.Context, plaintext string) error {
 	if len(plaintext) < minRootPasswordLength {
 		return ErrPasswordTooShort
 	}
-
-	out, err := netutil.RunSimple(ctx, "openssl", "passwd", "-6", plaintext)
-	if err != nil {
-		return fmt.Errorf("hash password: %w", err)
+	// chpasswd reads one "user:password" line; a newline would start a
+	// second line naming another account.
+	if strings.ContainsFunc(plaintext, unicode.IsControl) {
+		return ErrPasswordInvalid
 	}
-	hash := strings.TrimSpace(out)
-	// An empty hash would be installed as an empty password field,
-	// which is a passwordless root account, so refuse rather than
-	// proceed on a command that reported success with no output.
-	if hash == "" {
-		return ErrPasswordNotHashed
-	}
-
-	if _, err := netutil.Run(ctx, "usermod", "-p", hash, "root"); err != nil {
+	if _, err := netutil.RunWithStdin(ctx, "root:"+plaintext+"\n", "chpasswd"); err != nil {
 		return fmt.Errorf("set root password: %w", err)
 	}
 	return nil

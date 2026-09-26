@@ -23,7 +23,7 @@ var allowedCommands = map[string]bool{
 	"dig": true, "ping": true, "pgrep": true, "pkill": true, "killall": true,
 	"dhclient": true, "df": true,
 	"cp": true, "chmod": true, "rm": true, "kill": true,
-	"openssl": true, "usermod": true, "localectl": true, "loadkeys": true,
+	"chpasswd": true, "localectl": true, "loadkeys": true,
 	"easyrsa": true, "mkdir": true, "tail": true, "update-grub": true,
 	"dhcp6c": true, "dhcp6ctl": true, "mkcert": true, "systemd-run": true,
 }
@@ -37,7 +37,7 @@ var argValidators = map[string]func([]string) error{
 	"cp":          validateCpArgs,
 	"rm":          validateRmArgs,
 	"chmod":       validateChmodArgs,
-	"usermod":     validateUsermodArgs,
+	"chpasswd":    validateChpasswdArgs,
 	"systemctl":   validateSystemctlArgs,
 	"mkdir":       validateMkdirArgs,
 	"mount":       validateMountArgs,
@@ -71,6 +71,20 @@ func resolveExistingPrefix(path string) string {
 		rest = filepath.Join(filepath.Base(dir), rest)
 		dir = parent
 	}
+}
+
+// validateInvocation applies the argument and stdin rules registered for
+// the command, if any.
+func validateInvocation(baseName string, params ExecParams) error {
+	if validate, ok := argValidators[baseName]; ok {
+		if err := validate(params.Args); err != nil {
+			return err
+		}
+	}
+	if validate, ok := stdinValidators[baseName]; ok {
+		return validate(params.Stdin)
+	}
+	return nil
 }
 
 func validateUpdateGuardArgs(args []string) error {
@@ -311,10 +325,8 @@ func opExecRun(ctx context.Context, raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if validate, ok := argValidators[baseName]; ok {
-		if err := validate(params.Args); err != nil {
-			return nil, err
-		}
+	if err := validateInvocation(baseName, params); err != nil {
+		return nil, err
 	}
 
 	if _, ok := ctx.Deadline(); !ok {
@@ -324,7 +336,7 @@ func opExecRun(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	// The variable command IS the design. cmdPath comes from
-	// allowedCommands above, a 48-entry whitelist checked before
+	// allowedCommands above, a 45-entry whitelist checked before
 	// this line, and arguments are validated at the service
 	// boundary because the whitelist matches the base name only.
 	// #nosec G204
