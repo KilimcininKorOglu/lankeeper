@@ -67,6 +67,7 @@ type Server struct {
 	networkSvc *services.NetworkService
 	// dnsSvc is retained so Serve can start the query log tail.
 	dnsSvc  *services.DNSService
+	nasSvc  *services.NASService
 	monitor *services.MonitorService
 	dhcpSvc *services.DHCPService
 	ipv6Svc *services.IPv6Service
@@ -244,6 +245,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 		vpnSvc:     vpnSvc,
 		routingSvc: routingSvc,
 		dnsSvc:     dnsSvc,
+		nasSvc:     nasSvc,
 		networkSvc: networkSvc,
 		monitor:    monitorSvc,
 		ipv6Svc:    ipv6Svc,
@@ -493,6 +495,9 @@ func (s *Server) Serve(ctx context.Context) error {
 
 	// Refreshes the DNS blocklist on its configured schedule.
 	s.dnsSvc.StartBlocklistSchedule(ctx, &bg)
+
+	// Syncs each M3U source on its own schedule.
+	s.nasSvc.StartScheduledSync(ctx, &bg)
 
 	// Backup scheduler: ticks every 30s, fires runOnce when the
 	// configured cron schedule next matches. No-op when disabled.

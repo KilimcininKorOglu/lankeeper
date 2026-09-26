@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -36,7 +37,6 @@ type NASService struct {
 	// from disk. Only the FromFS constructor sets it.
 	tmplContent string
 	mu          sync.RWMutex
-	cancel      context.CancelFunc
 	// m3uMu guards m3uStatus, which the sync goroutine writes and page
 	// requests read.
 	m3uMu     sync.Mutex
@@ -259,6 +259,15 @@ func (s *NASService) M3USyncRunning() bool {
 }
 
 func (s *NASService) SyncM3U(ctx context.Context) error {
+	s.mu.RLock()
+	sources := slices.Clone(s.cfg.NAS.M3USources)
+	s.mu.RUnlock()
+	return s.syncSources(ctx, sources)
+}
+
+// syncSources syncs the given sources as one run, refusing to start
+// while another run is in progress.
+func (s *NASService) syncSources(ctx context.Context, sources []config.M3USourceConfig) error {
 	s.m3uMu.Lock()
 	if s.m3uStatus.Running {
 		s.m3uMu.Unlock()
@@ -268,7 +277,7 @@ func (s *NASService) SyncM3U(ctx context.Context) error {
 	s.m3uMu.Unlock()
 
 	var totalItems, totalErrors int
-	for _, source := range s.cfg.NAS.M3USources {
+	for _, source := range sources {
 		items, errs := syncM3USource(ctx, source)
 		totalItems += items
 		totalErrors += errs
@@ -342,36 +351,70 @@ func writeStrm(downloadPath, sourceURL string, item M3UItem) error {
 	return os.WriteFile(strmPath, []byte(item.URL+"\n"), 0o644)
 }
 
-func (s *NASService) StartScheduledSync(ctx context.Context) {
-	ctx, s.cancel = context.WithCancel(ctx)
+// StartScheduledSync syncs each M3U source on its own cron expression,
+// in the router's local time, until ctx ends. The sources are re-read on
+// every tick, so an edit takes effect without a restart.
+func (s *NASService) StartScheduledSync(ctx context.Context, wg *sync.WaitGroup) {
+	wg.Go(func() {
+		t := time.NewTicker(time.Minute)
+		defer t.Stop()
+		next := map[string]time.Time{}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-t.C:
+				s.m3uScheduleTick(ctx, now, next)
+			}
+		}
+	})
+}
 
-	for _, source := range s.cfg.NAS.M3USources {
-		if source.Schedule == "" {
+// m3uScheduleTick syncs the scheduled sources that are due. next holds
+// each source's fire time, keyed so an edited source starts over.
+func (s *NASService) m3uScheduleTick(ctx context.Context, now time.Time, next map[string]time.Time) {
+	s.mu.RLock()
+	sources := slices.Clone(s.cfg.NAS.M3USources)
+	s.mu.RUnlock()
+
+	seen := make(map[string]bool, len(sources))
+	for _, src := range sources {
+		if src.Schedule == "" {
 			continue
 		}
-
-		go func(src config.M3USourceConfig) {
-			ticker := time.NewTicker(24 * time.Hour)
-			defer ticker.Stop()
-
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					if err := s.SyncM3U(ctx); err != nil {
-						log.Printf("m3u scheduled sync: %v", err)
-					}
-				}
-			}
-		}(source)
+		key := src.URL + "|" + src.DownloadPath + "|" + src.Schedule
+		seen[key] = true
+		s.m3uSourceTick(ctx, now, src, key, next)
+	}
+	for key := range next {
+		if !seen[key] {
+			delete(next, key)
+		}
 	}
 }
 
-func (s *NASService) StopScheduledSync() {
-	if s.cancel != nil {
-		s.cancel()
+// m3uSourceTick syncs one source when it is due and schedules its next run.
+func (s *NASService) m3uSourceTick(ctx context.Context, now time.Time, src config.M3USourceConfig, key string, next map[string]time.Time) {
+	at, known := next[key]
+	sched, err := ParseSchedule(src.Schedule, time.Local)
+	if err != nil {
+		if !known {
+			log.Printf("m3u: schedule %q for %s: %v", src.Schedule, src.URL, err)
+			next[key] = time.Time{}
+		}
+		return
 	}
+	if !known || at.IsZero() {
+		next[key] = sched.Next(now)
+		return
+	}
+	if now.Before(at) {
+		return
+	}
+	if err := s.syncSources(ctx, []config.M3USourceConfig{src}); err != nil {
+		log.Printf("m3u scheduled sync %s: %v", src.URL, err)
+	}
+	next[key] = sched.Next(now)
 }
 
 type M3UItem struct {
