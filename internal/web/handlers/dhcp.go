@@ -74,6 +74,9 @@ func (h *DHCPHandler) HandleAddStatic(w http.ResponseWriter, r *http.Request) {
 	if err := h.dhcp.ApplyConfig(r.Context()); err != nil {
 		log.Printf("dhcp apply after add: %v", err)
 	}
+	if err := h.dhcp.ApplyDNSMirror(r.Context()); err != nil {
+		log.Printf("dns apply after static lease add: %v", err)
+	}
 
 	respondRefresh(w, r, "/dhcp")
 }
@@ -91,6 +94,9 @@ func (h *DHCPHandler) HandleDeleteStatic(w http.ResponseWriter, r *http.Request)
 	}
 	if err := h.dhcp.ApplyConfig(r.Context()); err != nil {
 		log.Printf("dhcp apply after delete: %v", err)
+	}
+	if err := h.dhcp.ApplyDNSMirror(r.Context()); err != nil {
+		log.Printf("dns apply after static lease delete: %v", err)
 	}
 
 	respondRefresh(w, r, "/dhcp")

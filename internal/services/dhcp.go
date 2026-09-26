@@ -366,6 +366,17 @@ func (s *DHCPService) RemoveStaticLease(index int) error {
 	return nil
 }
 
+// ApplyDNSMirror reloads Unbound after a static lease changed its mirrored
+// record. The record lives in unbound.conf as local-data, and saving it to
+// router.yaml alone left Unbound serving the old name until something else
+// re-rendered it.
+func (s *DHCPService) ApplyDNSMirror(ctx context.Context) error {
+	if s.dns == nil {
+		return nil
+	}
+	return s.dns.ApplyConfig(ctx)
+}
+
 // SyncStaticDNSRecords rebuilds all Source="dhcp-static" StaticDNSRecord
 // entries from the current static lease list. Idempotent. Triggered when
 // the system domain changes (FQDNs need to be rewritten under the new
