@@ -337,8 +337,14 @@ table inet bootstrap {
         log prefix "BOOTSTRAP_DROP: " drop
     }
 
+    # Both installers enable IP forwarding, so an accepting forward chain
+    # would route anything between every interface until the live
+    # ruleset is confirmed. Only replies to connections the router
+    # already carries pass.
     chain forward {
-        type filter hook forward priority 0; policy accept;
+        type filter hook forward priority 0; policy drop;
+
+        ct state established,related accept
     }
 
     chain output {
