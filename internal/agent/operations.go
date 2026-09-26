@@ -54,8 +54,6 @@ const (
 	UpdateGuardBinary = "/usr/local/bin/lankeeper.bak"
 )
 
-// validateUpdateGuardArgs accepts exactly
-// --unit=lankeeper-update-guard --on-active=<seconds> <backup binary> update-guard.
 // resolveExistingPrefix resolves symlinks in the longest prefix of path
 // that exists and appends the rest. Resolving only the full path or its
 // parent let a missing intermediate directory hide a symlink above it:
@@ -90,6 +88,8 @@ func validateInvocation(baseName string, params ExecParams) error {
 	return nil
 }
 
+// validateUpdateGuardArgs accepts exactly
+// --unit=lankeeper-update-guard --on-active=<seconds> <backup binary> update-guard.
 func validateUpdateGuardArgs(args []string) error {
 	if len(args) != 4 ||
 		args[0] != "--unit="+UpdateGuardUnit ||
@@ -444,10 +444,6 @@ func opFileWrite(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
 
-	if !checkPathRules(params.Path, allowedWriteRules) {
-		return nil, refuse(fmt.Errorf("write not allowed to path: %s", params.Path))
-	}
-
 	// params.Mode is a JSON field from an authenticated peer
 	// (root or the service account), and a zero or oversized
 	// value falls back to the 0o644 default on the next line.
@@ -460,18 +456,22 @@ func opFileWrite(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, refuse(err)
 	}
 
-	if params.MkdirP {
+	root, rel, err := openBeneath(params.Path, allowedWriteRules, "write not allowed to path")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+
+	if params.MkdirP && filepath.Dir(rel) != "." {
 		// 0755, not 0750: these are /etc directories whose files the
 		// system daemons read as their own unprivileged users.
-		// The path is confined by allowedWriteRules beforehand.
-		// #nosec G301
-		if err := os.MkdirAll(filepath.Dir(params.Path), 0o755); err != nil {
+		if err := root.MkdirAll(filepath.Dir(rel), 0o755); err != nil {
 			return nil, fmt.Errorf("mkdir parent: %w", err)
 		}
 	}
 
 	body := FileContent{Content: params.Content, ContentBytes: params.ContentBytes}.Bytes()
-	if err := os.WriteFile(params.Path, body, mode); err != nil {
+	if err := root.WriteFile(rel, body, mode); err != nil {
 		return nil, fmt.Errorf("write file: %w", err)
 	}
 
@@ -484,11 +484,13 @@ func opFileRead(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
 
-	if !checkPathRules(params.Path, allowedReadRules) {
-		return nil, refuse(fmt.Errorf("read not allowed for path: %s", params.Path))
+	root, rel, err := openBeneath(params.Path, allowedReadRules, "read not allowed for path")
+	if err != nil {
+		return nil, err
 	}
+	defer func() { _ = root.Close() }()
 
-	data, err := os.ReadFile(params.Path)
+	data, err := root.ReadFile(rel)
 	if err != nil {
 		return nil, fmt.Errorf("read file: %w", err)
 	}
@@ -505,10 +507,6 @@ func opFileMkdir(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
 
-	if !checkPathRules(params.Path, allowedWriteRules) {
-		return nil, refuse(fmt.Errorf("mkdir not allowed for path: %s", params.Path))
-	}
-
 	// Same as the write path: an authenticated peer's mode,
 	// with a 0o755 default when it is zero.
 	// #nosec G115
@@ -520,7 +518,12 @@ func opFileMkdir(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, refuse(err)
 	}
 
-	if err := os.MkdirAll(params.Path, mode); err != nil {
+	root, rel, err := openBeneath(params.Path, allowedWriteRules, "mkdir not allowed for path")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	if err := root.MkdirAll(rel, mode); err != nil {
 		return nil, fmt.Errorf("mkdir: %w", err)
 	}
 
@@ -528,29 +531,69 @@ func opFileMkdir(_ context.Context, raw json.RawMessage) (any, error) {
 }
 
 func checkPathRules(path string, rules []pathRule) bool {
-	// The syscalls receive the caller's string, so that is the string
-	// that has to be checked. filepath.Clean removes ".." lexically while
-	// the kernel resolves it after following symlinks, so a path that is
-	// not already in clean absolute form is refused instead of normalised.
+	_, _, ok := ruleMatch(path, rules)
+	return ok
+}
+
+// ruleMatch returns path with its existing prefix resolved, and the
+// directory of the rule that admits it.
+func ruleMatch(path string, rules []pathRule) (resolved, base string, ok bool) {
+	// filepath.Clean removes ".." lexically while the kernel resolves it
+	// after following symlinks, so a path that is not already in clean
+	// absolute form is refused instead of normalised.
 	if !filepath.IsAbs(path) || path != filepath.Clean(path) {
-		return false
+		return "", "", false
 	}
-	clean := resolveExistingPrefix(path)
+	resolved = resolveExistingPrefix(path)
 	for _, r := range rules {
-		switch r.kind {
-		case dirPrefix:
-			if strings.HasPrefix(clean, r.pattern) {
-				return true
-			}
-		case exactFile:
-			if clean == r.pattern {
-				return true
-			}
-		case filenamePrefix:
-			if strings.HasPrefix(clean, r.pattern) {
-				return true
-			}
+		if r.admits(resolved) {
+			return resolved, r.base(), true
 		}
 	}
-	return false
+	return "", "", false
+}
+
+func (r pathRule) admits(p string) bool {
+	if r.kind == exactFile {
+		return p == r.pattern
+	}
+	return strings.HasPrefix(p, r.pattern)
+}
+
+// base is the directory a rule confines access to.
+func (r pathRule) base() string {
+	if r.kind == dirPrefix {
+		return strings.TrimSuffix(r.pattern, "/")
+	}
+	return filepath.Dir(r.pattern)
+}
+
+// openBeneath opens the directory of the rule that admits path and
+// returns it with path relative to it. Every syscall then goes through
+// the returned root, which refuses any symlink or ".." that leads out of
+// it, so the file operated on is the file that was checked: the service
+// account owns /var/lib/lankeeper and could otherwise swap a directory
+// for a symlink to /etc between the check and a root write.
+// refusal is the message a refused path is reported with.
+func openBeneath(path string, rules []pathRule, refusal string) (*os.Root, string, error) {
+	resolved, base, ok := ruleMatch(path, rules)
+	if !ok {
+		return nil, "", refuse(fmt.Errorf("%s: %s", refusal, path))
+	}
+	rel, err := filepath.Rel(base, resolved)
+	if err != nil {
+		return nil, "", err
+	}
+	// The base comes from the rule table, not the caller. A directory a
+	// package would normally ship may not exist yet, and the write used
+	// to create it; the rule's own directory is created the same way.
+	// #nosec G301
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return nil, "", fmt.Errorf("create %s: %w", base, err)
+	}
+	root, err := os.OpenRoot(base)
+	if err != nil {
+		return nil, "", fmt.Errorf("open %s: %w", base, err)
+	}
+	return root, rel, nil
 }
