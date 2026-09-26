@@ -355,11 +355,24 @@ func uploadS3(ctx context.Context, srcPath string, t config.BackupTarget) (strin
 	return key, nil
 }
 
-// cleanupS3 lists objects under the configured prefix, sorts by
-// LastModified descending, deletes everything past `keep`. We
-// intentionally don't filter by name prefix the way local does:
-// the configured Prefix is already isolation, and objects under it
-// are by construction lankeeper backups.
+// ownBackupObjects keeps only the lankeeper backup archives directly
+// under prefix. The prefix is optional and a bucket can be shared, so
+// every other key under it belongs to someone else and retention must
+// never see it.
+func ownBackupObjects(objects []s3Object, prefix string) []s3Object {
+	var own []s3Object
+	for _, o := range objects {
+		name, ok := strings.CutPrefix(o.Key, prefix)
+		if ok && !strings.Contains(name, "/") && strings.HasPrefix(name, "lankeeper-backup-") {
+			own = append(own, o)
+		}
+	}
+	return own
+}
+
+// cleanupS3 lists the lankeeper backup objects under the configured
+// prefix, sorts them by LastModified descending, and deletes everything
+// past `keep`.
 func cleanupS3(ctx context.Context, t config.BackupTarget, keep int) ([]string, error) {
 	if keep < 1 {
 		return nil, fmt.Errorf("retention must be >= 1")
@@ -369,10 +382,11 @@ func cleanupS3(ctx context.Context, t config.BackupTarget, keep int) ([]string, 
 	if prefix != "" && !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
 	}
-	objects, err := c.listObjects(ctx, t.Bucket, prefix)
+	listed, err := c.listObjects(ctx, t.Bucket, prefix)
 	if err != nil {
 		return nil, err
 	}
+	objects := ownBackupObjects(listed, prefix)
 	sort.Slice(objects, func(i, j int) bool {
 		return objects[i].LastModified.After(objects[j].LastModified)
 	})

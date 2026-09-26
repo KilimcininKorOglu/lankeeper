@@ -115,3 +115,23 @@ func TestS3ListObjectsParsesXML(t *testing.T) {
 		t.Errorf("size = %d", objects[1].Size)
 	}
 }
+
+// TestOwnBackupObjectsKeepsOnlyBackupsDirectlyUnderPrefix pins the
+// retention filter. The prefix is optional and a bucket can be shared,
+// so retention used to delete every other object in the bucket.
+func TestOwnBackupObjectsKeepsOnlyBackupsDirectlyUnderPrefix(t *testing.T) {
+	objects := []s3Object{
+		{Key: "lankeeper-backup-1.tar.gz"},
+		{Key: "photos/cat.jpg"},
+		{Key: "report.pdf"},
+		{Key: "other/lankeeper-backup-2.tar.gz"},
+	}
+	got := ownBackupObjects(objects, "")
+	if len(got) != 1 || got[0].Key != "lankeeper-backup-1.tar.gz" {
+		t.Errorf("empty prefix: got %v, want only the root backup", got)
+	}
+	got = ownBackupObjects(objects, "other/")
+	if len(got) != 1 || got[0].Key != "other/lankeeper-backup-2.tar.gz" {
+		t.Errorf("prefix other/: got %v, want only other/lankeeper-backup-2.tar.gz", got)
+	}
+}
