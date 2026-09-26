@@ -99,6 +99,9 @@ func TestPasswordChangeTakesEffectImmediately(t *testing.T) {
 // English localizer.
 func newServerWithConfig(t *testing.T, cfg *config.Config) *web.Server {
 	t.Helper()
+	// NewServer parses configs/sysconf/*.tmpl relative to the working
+	// directory, as serve does from the data directory.
+	t.Chdir("../..")
 	loc, err := i18n.New("en")
 	if err != nil {
 		t.Fatalf("init i18n: %v", err)

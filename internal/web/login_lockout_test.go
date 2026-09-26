@@ -22,6 +22,9 @@ import (
 // so the login path is exercised through its actual wiring.
 func newLockoutTestServer(t *testing.T, password string) *Server {
 	t.Helper()
+	// NewServer parses configs/sysconf/*.tmpl relative to the working
+	// directory, as serve does from the data directory.
+	t.Chdir("../..")
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
 	if err != nil {

@@ -124,7 +124,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	pppoeHandler := handlers.NewPPPoEHandler(renderer, pppoeSvc)
 	healthHandler := handlers.NewHealthCheckHandler(renderer, healthSvc)
 
-	firewallSvc, err := services.NewFirewallServiceFromFS(cfg, nftablesTemplate(webFS))
+	firewallSvc, err := services.NewFirewallService(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("init firewall service: %w", err)
 	}
@@ -287,16 +287,6 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 	}
 
 	return s, nil
-}
-
-// nftablesTemplate returns the embedded nftables template, or a ruleset
-// that only flushes when the file is absent from the embedded tree.
-func nftablesTemplate(webFS fs.FS) string {
-	nftTmpl, _ := fs.ReadFile(webFS, "../configs/sysconf/nftables.conf.tmpl")
-	if nftTmpl == nil {
-		return "flush ruleset\n"
-	}
-	return string(nftTmpl)
 }
 
 // initDoH brings the dnscrypt-proxy state in line with the config at

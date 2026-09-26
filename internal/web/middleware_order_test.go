@@ -20,6 +20,9 @@ import (
 // the shipped middleware chain rather than a hand-rebuilt copy.
 func newTestServer(t *testing.T) *web.Server {
 	t.Helper()
+	// NewServer parses configs/sysconf/*.tmpl relative to the working
+	// directory, as serve does from the data directory.
+	t.Chdir("../..")
 
 	cfg := &config.Config{}
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
