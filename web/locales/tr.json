@@ -676,5 +676,6 @@
     "tls.acmeManualPending": "Aşağıdaki TXT kaydını yayınlayın, yayıldıktan sonra bu formu tekrar gönderin.",
     "error.network": "Sunucuya ulaşılamadı.",
     "error.backupRunFailed": "Yedekleme başarısız oldu. Ayrıntılar yedekleme geçmişinde.",
-    "error.currentPasswordWrong": "Mevcut yönetici parolası yanlış"
+    "error.currentPasswordWrong": "Mevcut yönetici parolası yanlış",
+    "error.peerSubnetNotPrivate": "Uzak subnet özel bir LAN aralığı olmalı (RFC 1918 veya ULA)."
 }

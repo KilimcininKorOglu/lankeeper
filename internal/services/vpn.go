@@ -270,8 +270,8 @@ func (s *VPNService) AddPeer(ctx context.Context, name string, siteToSite bool, 
 	// the LAN subnet here is authoritative for LAN traffic in WireGuard's
 	// routing table. Checked before the keypair so a rejected request
 	// costs no privileged commands.
-	if conflict, bad := s.subnetsConflict(remoteSubnets); bad {
-		return nil, "", fmt.Errorf("%w: %s", ErrPeerSubnetConflict, conflict)
+	if err := s.checkRemoteSubnets(remoteSubnets); err != nil {
+		return nil, "", err
 	}
 	if endpoint != "" {
 		if err := ValidatePeerEndpoint(endpoint); err != nil {

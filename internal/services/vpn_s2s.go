@@ -329,6 +329,42 @@ func (s *VPNService) reservedSubnets() []string {
 	return out
 }
 
+// ErrPeerSubnetNotPrivate is returned for a remote subnet outside the
+// private LAN ranges.
+var ErrPeerSubnetNotPrivate = errors.New("a remote subnet must be a private LAN range")
+
+// checkRemoteSubnets refuses remote subnets a LAN-to-LAN link must not
+// route. wg-quick installs a route for every AllowedIPs entry, so a /0
+// or a public prefix sends that traffic into the tunnel; only private
+// ranges (RFC 1918, and ULA for IPv6) are accepted, whole networks
+// included, and none may overlap anything this router already routes.
+func (s *VPNService) checkRemoteSubnets(remote []string) error {
+	for _, r := range remote {
+		if !privateLANPrefix(r) {
+			return fmt.Errorf("%w: %s", ErrPeerSubnetNotPrivate, r)
+		}
+	}
+	if conflict, bad := s.subnetsConflict(remote); bad {
+		return fmt.Errorf("%w: %s", ErrPeerSubnetConflict, conflict)
+	}
+	return nil
+}
+
+// privateLANPrefix reports whether both ends of cidr are private
+// addresses, which also refuses /0 and any prefix wider than a private
+// block.
+func privateLANPrefix(cidr string) bool {
+	_, n, err := net.ParseCIDR(strings.TrimSpace(cidr))
+	if err != nil {
+		return false
+	}
+	last := slices.Clone(n.IP)
+	for i := range last {
+		last[i] |= ^n.Mask[i]
+	}
+	return n.IP.IsPrivate() && last.IsPrivate()
+}
+
 // claimedSubnets is everything a new peer's subnets must stay clear of:
 // the reserved subnets, every VLAN, the OpenVPN server subnet while that
 // server runs, and every network an existing peer or pending invite
@@ -534,10 +570,7 @@ func (s *VPNService) validateInviteRequest(peerName, endpoint string, expectedRe
 	if len(expectedRemote) == 0 || len(s.lanSubnets()) == 0 {
 		return errors.New("a site-to-site link needs a LAN subnet on each side")
 	}
-	if conflict, ok := s.subnetsConflict(expectedRemote); ok {
-		return fmt.Errorf("%w: %s", ErrPeerSubnetConflict, conflict)
-	}
-	return nil
+	return s.checkRemoteSubnets(expectedRemote)
 }
 
 // ConsumeInvite is invoked on the joining side. It parses and validates
@@ -616,10 +649,7 @@ func (s *VPNService) checkInviteSubnets(inv *S2SInvite) error {
 		return fmt.Errorf("%w: the invite expects %s, this router's LANs are %s",
 			ErrPeerSubnetMismatch, strings.Join(inv.ExpectedSubnets, ", "), strings.Join(local, ", "))
 	}
-	if conflict, ok := s.subnetsConflict(inv.RemoteSubnets); ok {
-		return fmt.Errorf("%w: %s", ErrPeerSubnetConflict, conflict)
-	}
-	return nil
+	return s.checkRemoteSubnets(inv.RemoteSubnets)
 }
 
 // FinalizeInvite is invoked on the originating side once the

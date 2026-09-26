@@ -93,6 +93,8 @@ func addPeerFailed(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, services.ErrPeerSubnetConflict):
 		clientError(w, r, http.StatusBadRequest, "error.peerSubnetConflict")
+	case errors.Is(err, services.ErrPeerSubnetNotPrivate):
+		clientError(w, r, http.StatusBadRequest, "error.peerSubnetNotPrivate")
 	case errors.Is(err, services.ErrPeerNameInUse):
 		clientError(w, r, http.StatusBadRequest, "error.duplicateName")
 	default:

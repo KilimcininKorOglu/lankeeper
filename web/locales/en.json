@@ -676,5 +676,6 @@
     "tls.acmeManualPending": "Publish the TXT record below, then submit this form again once it has propagated.",
     "error.network": "The router could not be reached.",
     "error.backupRunFailed": "The backup failed. See the backup history for details.",
-    "error.currentPasswordWrong": "The current admin password is wrong"
+    "error.currentPasswordWrong": "The current admin password is wrong",
+    "error.peerSubnetNotPrivate": "A remote subnet must be a private LAN range (RFC 1918 or ULA)."
 }
