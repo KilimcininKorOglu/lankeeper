@@ -677,6 +677,7 @@
     "tls.acmeRequest": "Sertifika iste",
     "tls.acmeHint": "Doğrulama DNS-01 ile yapılır; 80 numaralı portun internete açılması gerekmez. Production haftada beş sertifika ile sınırlıdır, önce staging ile deneyin.",
     "tls.acmeManualPending": "Aşağıdaki TXT kaydını yayınlayın, yayıldıktan sonra bu formu tekrar gönderin.",
+    "tls.acmeRenewalFailed": "Otomatik sertifika yenileme başarısız oldu",
     "error.network": "Sunucuya ulaşılamadı.",
     "error.backupRunFailed": "Yedekleme başarısız oldu. Ayrıntılar yedekleme geçmişinde.",
     "error.currentPasswordWrong": "Mevcut yönetici parolası yanlış",

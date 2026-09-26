@@ -188,6 +188,14 @@
                     {{ end }}
                 {{ end }}
             </div>
+            {{ with .TLSACMERenewal }}
+                {{ if .Error }}
+                    <div class="alert alert-error">{{ t $.Lang "tls.acmeRenewalFailed" }}: {{ .Error }}</div>
+                {{ end }}
+                {{ with .Pending }}
+                    <div class="alert alert-error">{{ t $.Lang "tls.acmeManualPending" }}<br><code>{{ .Name }} TXT {{ .Value }}</code></div>
+                {{ end }}
+            {{ end }}
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:var(--space-md); margin-top:var(--space-md);">
                 <div class="input-group">
                     <label class="input-label">{{ t $.Lang "tls.acmeDomain" }}</label>

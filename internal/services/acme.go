@@ -104,6 +104,10 @@ type ACMEService struct {
 	// cloudflareAPI is the Cloudflare v4 base. Settable for the same
 	// reason.
 	cloudflareAPI string
+	// renewal records the last automatic renewal attempt for the
+	// settings page, under renewalMu.
+	renewalMu sync.Mutex
+	renewal   RenewalStatus
 	// ownMu stands in for the TLS service lock when there is no TLS
 	// service, which only tests construct.
 	ownMu sync.Mutex
@@ -491,6 +495,36 @@ func (s *ACMEService) StartRenewal(ctx context.Context) {
 	}
 }
 
+// RenewalStatus is the outcome of the last automatic renewal attempt.
+// Pending carries the TXT record a manual-provider renewal is waiting
+// for: that renewal cannot finish unattended, so the record has to reach
+// the operator rather than only the journal.
+type RenewalStatus struct {
+	At      time.Time
+	Error   string
+	Pending *ManualRecord
+}
+
+// RenewalStatus returns the last automatic renewal attempt.
+func (s *ACMEService) RenewalStatus() RenewalStatus {
+	s.renewalMu.Lock()
+	defer s.renewalMu.Unlock()
+	return s.renewal
+}
+
+// recordRenewal stores the outcome of an automatic renewal.
+func (s *ACMEService) recordRenewal(err error) {
+	status := RenewalStatus{At: time.Now()}
+	if manual, ok := errors.AsType[*ManualChallengeError](err); ok {
+		status.Pending = &manual.Record
+	} else if err != nil {
+		status.Error = err.Error()
+	}
+	s.renewalMu.Lock()
+	s.renewal = status
+	s.renewalMu.Unlock()
+}
+
 // acmeActive reports whether tlsCfg serves an ACME certificate.
 func acmeActive(tlsCfg config.TLSConfig) bool {
 	return tlsCfg.Mode == "acme" && tlsCfg.ACME.Enabled
@@ -515,7 +549,9 @@ func (s *ACMEService) RenewIfDue(ctx context.Context) {
 	}
 
 	log.Printf("acme: certificate expires %s, renewing", info.NotAfter)
-	if _, err := s.issue(ctx, true); err != nil {
+	_, err = s.issue(ctx, true)
+	s.recordRenewal(err)
+	if err != nil {
 		// Logged and dropped on purpose. The loop retries twice a day
 		// and the renewal window is thirty days wide, so a transient
 		// failure has sixty more chances before anything is served an

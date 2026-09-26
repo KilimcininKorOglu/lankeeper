@@ -80,6 +80,10 @@ func (h *SystemHandler) HandleSettingsPage(w http.ResponseWriter, r *http.Reques
 		"PendingVersion": h.update.PendingVersion(),
 	}
 
+	if h.acme != nil {
+		fields["TLSACMERenewal"] = h.acme.RenewalStatus()
+	}
+
 	// A missing or unreadable certificate is a state the page has to be
 	// able to show, not a reason to fail the whole render: the operator
 	// reaches this page precisely when TLS is in a bad way.
