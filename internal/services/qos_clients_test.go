@@ -54,12 +54,18 @@ func generateMAC(i int) string {
 
 func TestRenderQoSTableShape(t *testing.T) {
 	macs := []string{"aa:bb:cc:dd:ee:01"}
-	got := renderQoSTable(macs)
+	got := renderQoSTable(macs, map[string]string{"aa:bb:cc:dd:ee:01": "10.10.10.50"})
 	if !strings.Contains(got, "table inet "+qosTableName) {
 		t.Errorf("missing table declaration: %s", got)
 	}
-	if !strings.Contains(got, "ether daddr aa:bb:cc:dd:ee:01") {
-		t.Errorf("missing ingress rule: %s", got)
+	// A routed download does not carry the client MAC as its received
+	// destination, so it is counted by the leased address.
+	inName0, _ := counterNames("aa:bb:cc:dd:ee:01")
+	if !strings.Contains(got, "ip daddr 10.10.10.50 counter name "+inName0) {
+		t.Errorf("missing download rule on the leased address: %s", got)
+	}
+	if strings.Contains(got, "ether daddr") {
+		t.Errorf("download still matched on ether daddr: %s", got)
 	}
 	if !strings.Contains(got, "ether saddr aa:bb:cc:dd:ee:01") {
 		t.Errorf("missing egress rule: %s", got)
@@ -140,5 +146,14 @@ func TestAppendHistoryRingBufferTrimsAndPrunes(t *testing.T) {
 	}
 	if _, ok := s.history[other]; !ok {
 		t.Errorf("expected %q to be present", other)
+	}
+}
+
+// A lease address reaches the nft script, so anything that is not an
+// IPv4 address must not produce a rule.
+func TestRenderQoSTableSkipsAnInvalidLeaseAddress(t *testing.T) {
+	got := renderQoSTable([]string{"aa:bb:cc:dd:ee:02"}, map[string]string{"aa:bb:cc:dd:ee:02": "10.0.0.1 accept\n"})
+	if strings.Contains(got, "ip daddr") {
+		t.Fatalf("an invalid lease address produced a rule: %s", got)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"sort"
 	"strings"
 	"sync"
@@ -85,7 +86,13 @@ func counterNames(mac string) (inName, outName string) {
 // seen before the firewall's filter chain (priority 0) drops them,
 // but the table is kept independent so a flush of one does not
 // affect the other.
-func renderQoSTable(macs []string) string {
+//
+// Download is counted on the client's leased IPv4 address. In the
+// forward hook the link-layer header is the frame as it was received, so
+// a download arrives with the WAN side's addressing (and a PPPoE WAN has
+// no Ethernet header at all); an ether daddr match never saw a byte.
+// Upload keeps ether saddr, which is the client's own frame on the LAN.
+func renderQoSTable(macs []string, ips map[string]string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "table inet %s {\n", qosTableName)
 	for _, mac := range macs {
@@ -97,7 +104,9 @@ func renderQoSTable(macs []string) string {
 	b.WriteString("\t\ttype filter hook forward priority -200; policy accept;\n")
 	for _, mac := range macs {
 		inName, outName := counterNames(mac)
-		fmt.Fprintf(&b, "\t\tether daddr %s counter name %s\n", strings.ToLower(mac), inName)
+		if ip := net.ParseIP(ips[mac]).To4(); ip != nil {
+			fmt.Fprintf(&b, "\t\tip daddr %s counter name %s\n", ip, inName)
+		}
 		fmt.Fprintf(&b, "\t\tether saddr %s counter name %s\n", strings.ToLower(mac), outName)
 	}
 	b.WriteString("\t}\n")
@@ -130,13 +139,17 @@ func dedupAndCap(macs []string) []string {
 
 // applyClientCounters atomically replaces the lankeeper_qos table
 // with one counter pair per MAC. Empty input flushes the table.
-func (s *QoSService) applyClientCounters(ctx context.Context, macs []string) error {
+func (s *QoSService) applyClientCounters(ctx context.Context, ips map[string]string) error {
+	macs := make([]string, 0, len(ips))
+	for mac := range ips {
+		macs = append(macs, mac)
+	}
 	macs = dedupAndCap(macs)
 
 	var script strings.Builder
 	fmt.Fprintf(&script, "table inet %s\ndelete table inet %s\n", qosTableName, qosTableName)
 	if len(macs) > 0 {
-		script.WriteString(renderQoSTable(macs))
+		script.WriteString(renderQoSTable(macs, ips))
 	}
 
 	if err := netutil.WriteFile(qosTmpPath, []byte(script.String()), 0o600); err != nil {
@@ -153,17 +166,17 @@ func (s *QoSService) applyClientCounters(ctx context.Context, macs []string) err
 // every lease change or on a periodic resync without checking
 // whether anything actually changed.
 func (s *QoSService) RebuildClientCounters(ctx context.Context, leases []Lease) error {
-	macs := make([]string, 0, len(leases))
+	ips := make(map[string]string, len(leases))
 	for _, l := range leases {
 		if l.MAC == "" {
 			continue
 		}
-		macs = append(macs, l.MAC)
+		ips[strings.ToLower(strings.TrimSpace(l.MAC))] = l.IP
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.applyClientCounters(ctx, macs); err != nil {
+	if err := s.applyClientCounters(ctx, ips); err != nil {
 		return err
 	}
 	s.clientLeases = make(map[string]Lease, len(leases))
