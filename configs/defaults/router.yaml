@@ -31,7 +31,6 @@ system:
         provider: "manual"
         apiToken: ""
     mkcert:
-      caInstalled: false
       sans: []
 
 interfaces:
@@ -68,14 +67,12 @@ healthCheck:
       interval: "30s"
       timeout: "5s"
       failureThreshold: 3
-      failureWindow: "5m"
       actions:
         - type: "restartInterface"
           delay: "0s"
         - type: "restartPppoe"
           delay: "30s"
       cooldown: "5m"
-      notify: true
 
 pppoe:
   username: ""
@@ -91,13 +88,9 @@ pppoe:
 usbTethering:
   enabled: false
   autoFailover: true
-  autoFailback: true
-  failoverDelay: "10s"
-  failbackDelay: "30s"
   interface: "usb0"
   metric: 100
   nat: true
-  ttlFix: true
 
 firewall:
   defaultPolicy: "drop"
@@ -105,9 +98,6 @@ firewall:
     enabled: false
     value: 64
   portForwards: []
-  rateLimits:
-    ssh: "3/minute"
-    web: "30/minute"
 
 qos:
   enabled: false
@@ -133,7 +123,6 @@ dns:
     logPath: "/var/log/unbound/queries.log"
     maxSize: "100M"
     retention: "7d"
-    logBlocked: true
 
 dhcp:
   rangeStart: "10.10.10.100"

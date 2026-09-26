@@ -60,7 +60,7 @@ func DefaultConfig() *Config {
 			BlocklistURLs:           []string{"https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"},
 			BlocklistUpdateSchedule: "0 3 * * *",
 			CacheSize:               50000,
-			QueryLog:                QueryLogConfig{Enabled: true, LogPath: "/var/log/unbound/queries.log", MaxSize: "100M", Retention: "7d", LogBlocked: true},
+			QueryLog:                QueryLogConfig{Enabled: true, LogPath: "/var/log/unbound/queries.log", MaxSize: "100M", Retention: "7d"},
 		},
 	}
 }

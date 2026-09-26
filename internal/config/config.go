@@ -146,7 +146,6 @@ type DNSChallengeConfig struct {
 }
 
 type MkcertConfig struct {
-	CAInstalled bool `yaml:"caInstalled"`
 	// SANs are the names the last mkcert certificate was issued for.
 	// Kept so the settings form comes back filled in with what is
 	// actually being served rather than an empty box.
@@ -199,10 +198,8 @@ type HealthCheckEntry struct {
 	Interval         string              `yaml:"interval"`
 	Timeout          string              `yaml:"timeout"`
 	FailureThreshold int                 `yaml:"failureThreshold"`
-	FailureWindow    string              `yaml:"failureWindow"`
 	Actions          []HealthCheckAction `yaml:"actions"`
 	Cooldown         string              `yaml:"cooldown"`
-	Notify           bool                `yaml:"notify"`
 }
 
 type HealthCheckTarget struct {
@@ -230,15 +227,11 @@ type PPPoEConfig struct {
 }
 
 type USBTetherConfig struct {
-	Enabled       bool   `yaml:"enabled"`
-	AutoFailover  bool   `yaml:"autoFailover"`
-	AutoFailback  bool   `yaml:"autoFailback"`
-	FailoverDelay string `yaml:"failoverDelay"`
-	FailbackDelay string `yaml:"failbackDelay"`
-	Interface     string `yaml:"interface"`
-	Metric        int    `yaml:"metric"`
-	NAT           bool   `yaml:"nat"`
-	TTLFix        bool   `yaml:"ttlFix"`
+	Enabled      bool   `yaml:"enabled"`
+	AutoFailover bool   `yaml:"autoFailover"`
+	Interface    string `yaml:"interface"`
+	Metric       int    `yaml:"metric"`
+	NAT          bool   `yaml:"nat"`
 }
 
 type FirewallConfig struct {
@@ -346,11 +339,10 @@ const (
 )
 
 type QueryLogConfig struct {
-	Enabled    bool   `yaml:"enabled"`
-	LogPath    string `yaml:"logPath"`
-	MaxSize    string `yaml:"maxSize"`
-	Retention  string `yaml:"retention"`
-	LogBlocked bool   `yaml:"logBlocked"`
+	Enabled   bool   `yaml:"enabled"`
+	LogPath   string `yaml:"logPath"`
+	MaxSize   string `yaml:"maxSize"`
+	Retention string `yaml:"retention"`
 }
 
 type DHCPConfig struct {
@@ -508,19 +500,18 @@ type OpenVPNConfig struct {
 }
 
 type OVPNClientConfig struct {
-	Name        string `yaml:"name"`
-	ConfigFile  string `yaml:"configFile,omitempty"`
-	RemoteHost  string `yaml:"remoteHost,omitempty"`
-	RemotePort  int    `yaml:"remotePort,omitempty"`
-	Protocol    string `yaml:"protocol,omitempty"`
-	Cipher      string `yaml:"cipher,omitempty"`
-	Auth        string `yaml:"auth,omitempty"`
-	TLSAuth     bool   `yaml:"tlsAuth,omitempty"`
-	Username    string `yaml:"username,omitempty"`
-	Password    string `yaml:"password,omitempty"`
-	AutoConnect bool   `yaml:"autoConnect,omitempty"`
-	Table       int    `yaml:"table,omitempty"`
-	Fwmark      int    `yaml:"fwmark,omitempty"`
+	Name       string `yaml:"name"`
+	ConfigFile string `yaml:"configFile,omitempty"`
+	RemoteHost string `yaml:"remoteHost,omitempty"`
+	RemotePort int    `yaml:"remotePort,omitempty"`
+	Protocol   string `yaml:"protocol,omitempty"`
+	Cipher     string `yaml:"cipher,omitempty"`
+	Auth       string `yaml:"auth,omitempty"`
+	TLSAuth    bool   `yaml:"tlsAuth,omitempty"`
+	Username   string `yaml:"username,omitempty"`
+	Password   string `yaml:"password,omitempty"`
+	Table      int    `yaml:"table,omitempty"`
+	Fwmark     int    `yaml:"fwmark,omitempty"`
 }
 
 type OVPNServerConfig struct {
