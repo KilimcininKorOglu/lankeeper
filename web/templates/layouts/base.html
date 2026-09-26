@@ -32,7 +32,7 @@
             {{ block "panel" . }}{{ end }}
         </aside>
     </div>
-    <div class="toast-container" id="toast-container"></div>
+    <div class="toast-container" id="toast-container" data-network-error="{{ t .Lang "error.network" }}"></div>
     <div class="modal-overlay" id="qr-modal" hidden
          data-title="{{ t .Lang "qr.title" }}"
          data-loading="{{ t .Lang "qr.loading" }}"

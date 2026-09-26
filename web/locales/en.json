@@ -673,5 +673,6 @@
     "tls.acmeTokenPlaceholder": "Leave blank to keep the stored token",
     "tls.acmeRequest": "Request certificate",
     "tls.acmeHint": "Validation uses DNS-01, so port 80 does not have to be open to the internet. Production allows five certificates per week, so try staging first.",
-    "tls.acmeManualPending": "Publish the TXT record below, then submit this form again once it has propagated."
+    "tls.acmeManualPending": "Publish the TXT record below, then submit this form again once it has propagated.",
+    "error.network": "The router could not be reached."
 }

@@ -673,5 +673,6 @@
     "tls.acmeTokenPlaceholder": "Boş bırakılırsa kayıtlı token korunur",
     "tls.acmeRequest": "Sertifika iste",
     "tls.acmeHint": "Doğrulama DNS-01 ile yapılır; 80 numaralı portun internete açılması gerekmez. Production haftada beş sertifika ile sınırlıdır, önce staging ile deneyin.",
-    "tls.acmeManualPending": "Aşağıdaki TXT kaydını yayınlayın, yayıldıktan sonra bu formu tekrar gönderin."
+    "tls.acmeManualPending": "Aşağıdaki TXT kaydını yayınlayın, yayıldıktan sonra bu formu tekrar gönderin.",
+    "error.network": "Sunucuya ulaşılamadı."
 }

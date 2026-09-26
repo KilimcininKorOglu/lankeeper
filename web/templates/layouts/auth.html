@@ -24,6 +24,6 @@
     <div class="auth-layout">
         {{ block "content" . }}{{ end }}
     </div>
-    <div class="toast-container" id="toast-container"></div>
+    <div class="toast-container" id="toast-container" data-network-error="{{ t .Lang "error.network" }}"></div>
 </body>
 </html>

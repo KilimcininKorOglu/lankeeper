@@ -49,6 +49,24 @@
         if (token) evt.detail.headers['X-CSRF-Token'] = token;
     });
 
+    // htmx 2 does not swap a 4xx or 5xx response, and only fires
+    // htmx:responseError. The server writes a translated plain-text
+    // message for every refusal, so show it; otherwise a failed change
+    // looks exactly like a click that did nothing. textContent in
+    // showToast keeps the body from being parsed as HTML.
+    document.addEventListener('htmx:responseError', function(evt) {
+        var xhr = evt.detail.xhr;
+        var text = xhr && xhr.responseText ? xhr.responseText.trim() : '';
+        window.showToast(text || ('HTTP ' + (xhr ? xhr.status : '?')), 'error');
+    });
+
+    // The text comes from the layout, because it has to be translated.
+    document.addEventListener('htmx:sendError', function() {
+        var container = document.getElementById('toast-container');
+        var text = container ? container.getAttribute('data-network-error') : '';
+        window.showToast(text || 'HTTP 0', 'error');
+    });
+
     // Exposed because every fetch() that mutates state needs the same
     // token htmx gets above, and reading the cookie in a second place
     // would be a second thing to keep in step with the server.
