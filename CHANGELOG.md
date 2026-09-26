@@ -10,6 +10,20 @@ git history.
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-09-27
+
+A maintenance release with no change in router behaviour. Updating is
+optional.
+
+### Changed
+
+- The CI, release and cleanup workflows run on `actions/checkout`
+  v7.0.1, `actions/setup-go` v7.0.0 and `actions/github-script` v9.0.0,
+  each pinned to its commit.
+- Code flagged by the `modernize` analyzer uses the current standard
+  library idioms. The backup history still replaces an error from a
+  privileged command with a generic message.
+
 ## [0.5.6] - 2026-09-26
 
 A release-pipeline release. The router code is unchanged from 0.5.5;
