@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/scrypt"
 
@@ -573,6 +574,22 @@ const (
 
 func deriveKey(passphrase string, salt []byte) ([]byte, error) {
 	return scrypt.Key([]byte(passphrase), salt, scryptN, scryptR, scryptP, scryptKeyLen)
+}
+
+// MinBackupPassphraseLen is the shortest passphrase accepted for a new
+// encrypted archive. The archive leaves the box (S3, SFTP, a download),
+// so the passphrase is the only thing between an offline attacker and
+// router.yaml and the OpenVPN CA key.
+const MinBackupPassphraseLen = 12
+
+// ValidateBackupPassphrase refuses a passphrase shorter than
+// MinBackupPassphraseLen characters. Decryption does not call it, so an
+// archive made under an older, shorter passphrase still restores.
+func ValidateBackupPassphrase(passphrase string) error {
+	if utf8.RuneCountInString(passphrase) < MinBackupPassphraseLen {
+		return fmt.Errorf("backup passphrase must be at least %d characters", MinBackupPassphraseLen)
+	}
+	return nil
 }
 
 func encryptBackup(plaintext []byte, passphrase string) ([]byte, error) {

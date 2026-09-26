@@ -616,6 +616,7 @@
     "error.noUpdateAvailable": "Güncelleme yok",
     "error.noWANIPv4": "Geçerli WAN IPv4 adresi yok",
     "error.passphraseRequired": "Şifreli yedek için parola gerekli",
+    "error.passphraseTooShort": "Parola en az 12 karakter olmalı",
     "error.passwordHashFailed": "Parola özeti oluşturulamadı",
     "error.passwordMismatchOrShort": "Parolalar eşleşmiyor veya 8 karakterden kısa",
     "error.pathCharacters": "Yol izin verilmeyen karakterler içeriyor",

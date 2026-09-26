@@ -616,6 +616,7 @@
     "error.noUpdateAvailable": "No update is available",
     "error.noWANIPv4": "No current WAN IPv4 address",
     "error.passphraseRequired": "A passphrase is required for an encrypted backup",
+    "error.passphraseTooShort": "The passphrase must be at least 12 characters",
     "error.passwordHashFailed": "The password could not be hashed",
     "error.passwordMismatchOrShort": "The passwords do not match, or are shorter than 8 characters",
     "error.pathCharacters": "The path contains characters that are not allowed",

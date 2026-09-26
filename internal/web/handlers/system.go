@@ -568,6 +568,10 @@ func (h *SystemHandler) HandleExport(w http.ResponseWriter, r *http.Request) {
 		clientError(w, r, http.StatusBadRequest, "error.passphraseRequired")
 		return
 	}
+	if services.ValidateBackupPassphrase(passphrase) != nil {
+		clientError(w, r, http.StatusBadRequest, "error.passphraseTooShort")
+		return
+	}
 
 	outputPath := filepath.Join(os.TempDir(), fmt.Sprintf("lankeeper-backup-%s.tar.gz.enc", time.Now().Format("20060102-150405")))
 

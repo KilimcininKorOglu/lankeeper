@@ -65,6 +65,10 @@ func (h *BackupHandler) HandleSaveSchedule(w http.ResponseWriter, r *http.Reques
 	}
 	passphrase := r.FormValue("passphrase")
 
+	if passphrase != "" && services.ValidateBackupPassphrase(passphrase) != nil {
+		clientError(w, r, http.StatusBadRequest, "error.passphraseTooShort")
+		return
+	}
 	if schedule != "" {
 		if _, err := services.ParseSchedule(schedule, nil); err != nil {
 			clientErrorf(w, r, http.StatusBadRequest, "error.invalidSchedule", err.Error())
