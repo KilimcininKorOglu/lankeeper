@@ -170,3 +170,43 @@ func TestExpositionStillRendersFromTheCache(t *testing.T) {
 		t.Errorf("the cached snapshot did not render exposition output:\n%s", sb.String())
 	}
 }
+
+// ctxAgent fails every call made on a done context, as the real agent
+// client does.
+type ctxAgent struct {
+	mu        sync.Mutex
+	cancelled int
+	ok        int
+}
+
+func (a *ctxAgent) Call(ctx context.Context, _ string, _ any) (json.RawMessage, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if ctx.Err() != nil {
+		a.cancelled++
+		return nil, ctx.Err()
+	}
+	a.ok++
+	return []byte(`{"stdout":"","stderr":"","exitCode":0}`), nil
+}
+
+// TestSnapshotIgnoresTheTriggeringRequestsCancellation is the regression
+// test. The shared cache was filled on the context of whichever request
+// found it stale, so a client that disconnected made every agent call
+// fail and the resulting zeros were served to every scraper.
+func TestSnapshotIgnoresTheTriggeringRequestsCancellation(t *testing.T) {
+	agent := &ctxAgent{}
+	netutil.SetAgentClient(agent)
+	t.Cleanup(func() { netutil.SetAgentClient(nil) })
+
+	cfg := &config.Config{}
+	svc := NewMetricsService(cfg, nil, NewDNSService(cfg), nil, nil, nil, nil, nil, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	svc.Snapshot(ctx)
+
+	if agent.cancelled != 0 || agent.ok == 0 {
+		t.Errorf("collection ran on the cancelled request context: %d cancelled, %d ok", agent.cancelled, agent.ok)
+	}
+}

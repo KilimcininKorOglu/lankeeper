@@ -53,6 +53,10 @@ type MetricsService struct {
 // while capping the privileged work an abusive one can cause.
 const metricsCacheTTL = 10 * time.Second
 
+// metricsCollectTimeout bounds one collection, which no longer inherits a
+// request's deadline.
+const metricsCollectTimeout = 10 * time.Second
+
 // NewMetricsService takes nil-safe references; the snapshot
 // gracefully degrades when any contributor is missing (handy for
 // tests that only exercise a subset).
@@ -181,7 +185,13 @@ func (s *MetricsService) Snapshot(ctx context.Context) MetricsSnapshot {
 		return s.cached
 	}
 
-	snap := s.collect(ctx)
+	// The cache serves every scraper, so it is filled on a context no
+	// single request owns. A client that disconnected mid-collection
+	// otherwise failed every later agent call, and the zeros the
+	// collectors fall back to were cached for the whole TTL.
+	collectCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), metricsCollectTimeout)
+	defer cancel()
+	snap := s.collect(collectCtx)
 	s.cached = snap
 	s.cachedAt = time.Now()
 	return snap
