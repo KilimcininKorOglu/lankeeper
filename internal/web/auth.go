@@ -39,6 +39,11 @@ func NewAuth(secret, passwordHash string) *Auth {
 		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 	}
+	// Options.MaxAge sets only the browser's Max-Age. The codecs keep
+	// their own server-side limit, 30 days by default, and only
+	// CookieStore.MaxAge updates it, so a copied cookie stayed valid long
+	// after the browser dropped its own.
+	store.MaxAge(store.Options.MaxAge)
 	return &Auth{
 		store:        store,
 		passwordHash: passwordHash,
