@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"text/template"
 	"unicode"
 
@@ -298,13 +299,15 @@ func (s *PPPoEService) readPID() (int, error) {
 	return pid, nil
 }
 
+// processExists probes pid with signal 0. pppd runs as root and this
+// process does not, so EPERM also means the process is alive.
+// os.Signal(nil) is not the probe: Go refuses it before any syscall.
 func processExists(pid int) bool {
-	proc, err := os.FindProcess(pid)
-	if err != nil {
+	if pid <= 0 {
 		return false
 	}
-	err = proc.Signal(os.Signal(nil))
-	return err == nil
+	err := syscall.Kill(pid, syscall.Signal(0))
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 type SniffStatus struct {
