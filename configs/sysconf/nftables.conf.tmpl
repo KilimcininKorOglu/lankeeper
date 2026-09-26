@@ -92,13 +92,14 @@ table inet filter {
 {{- end }}
 {{- end }}
 
-        # LAN ↔ 6in4 tunnel (IPv6 only, NEVER MASQUERADE'd below).
-        # Mirror direction so HE-originated replies make it back to
-        # the LAN client.
+        # LAN → 6in4 tunnel (IPv6 only, NEVER MASQUERADE'd below). The
+        # tunnel is a WAN: replies return through the established,related
+        # accept above, and LAN hosts hold global addresses with no NAT66,
+        # so an unconditional reverse rule would admit every inbound
+        # connection from the IPv6 internet.
 {{- range .LANInterfaces }}
 {{- range $.IPv6WANInterfaces }}
         iifname "{{ $.LANDevice }}" oifname "{{ .Device }}" accept
-        iifname "{{ .Device }}" oifname "{{ $.LANDevice }}" accept
 {{- end }}
 {{- end }}
 

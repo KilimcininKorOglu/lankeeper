@@ -24,7 +24,6 @@ table inet filter {
 {{- range .LANInterfaces }}
 {{- range $.IPv6WANInterfaces }}
         iifname "{{ $.LANDevice }}" oifname "{{ .Device }}" accept
-        iifname "{{ .Device }}" oifname "{{ $.LANDevice }}" accept
 {{- end }}
 {{- end }}
     }
@@ -71,12 +70,8 @@ func TestFirewallSixInFourAddsTunnelInterfaceAndProto41(t *testing.T) {
 	if !strings.Contains(out, "ip saddr 216.66.80.30 ip protocol 41 accept") {
 		t.Errorf("expected protocol-41 ingress rule, got:\n%s", out)
 	}
-	// LAN → tunnel forward (and reverse) must appear once each.
 	if !strings.Contains(out, `iifname "enp0s25" oifname "lkt6in4" accept`) {
 		t.Errorf("missing LAN → tunnel forward, got:\n%s", out)
-	}
-	if !strings.Contains(out, `iifname "lkt6in4" oifname "enp0s25" accept`) {
-		t.Errorf("missing tunnel → LAN forward, got:\n%s", out)
 	}
 	// MASQUERADE block must NOT carry the tunnel device — no NAT66.
 	if strings.Contains(out, `oifname "lkt6in4" masquerade`) {
@@ -132,5 +127,29 @@ func TestFirewallSixInFourSkipsProto41WithoutServer(t *testing.T) {
 	}
 	if strings.Contains(out, "protocol 41") {
 		t.Errorf("protocol-41 rule emitted without ServerIPv4:\n%s", out)
+	}
+}
+
+// TestShippedTemplateAdmitsNoNewConnectionsFromThe6in4Tunnel is the
+// regression test, run against the production template. The forward chain
+// accepted tunnel → LAN with no conntrack match, and in 6in4 mode LAN
+// hosts hold global addresses with no NAT66, so every LAN host was open to
+// the IPv6 internet. Replies already pass the established,related accept.
+func TestShippedTemplateAdmitsNoNewConnectionsFromThe6in4Tunnel(t *testing.T) {
+	cfg := newFirewall6in4Config(t)
+	t.Chdir(repoRoot(t))
+	svc, err := services.NewFirewallService(cfg)
+	if err != nil {
+		t.Fatalf("NewFirewallService: %v", err)
+	}
+	out, err := svc.RenderConfig()
+	if err != nil {
+		t.Fatalf("RenderConfig: %v", err)
+	}
+	if strings.Contains(out, `iifname "lkt6in4" oifname "enp0s25" accept`) {
+		t.Errorf("the forward chain accepts new connections from the tunnel into the LAN:\n%s", out)
+	}
+	if !strings.Contains(out, `iifname "enp0s25" oifname "lkt6in4" accept`) {
+		t.Errorf("LAN → tunnel forward is missing:\n%s", out)
 	}
 }
