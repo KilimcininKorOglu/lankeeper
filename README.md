@@ -220,7 +220,7 @@ Metric families exposed (all prefixed `lankeeper_`):
 | `dns_queries_total` / `cache_hits_total` / `cache_misses_total` / `blocked_total` | counter | - |
 | `client_rx_bytes_total` / `_tx_` / `_rx_bps` / `_tx_bps` | counter+gauge | mac (hashed) |
 | `wireguard_peer_online` / `_handshake_age_seconds` / `_rx_bytes_total` / `_tx_` | gauge+counter | peer (hashed) |
-| `s2s_peer_online` / `_handshake_age_seconds` | gauge | peer (hashed) |
+| `s2s_peer_online` / `_handshake_age_seconds` / `_rx_bytes_total` / `_tx_` | gauge+counter | peer (hashed) |
 | `openvpn_active_sessions`               | gauge   | -              |
 | `backup_last_run_timestamp` / `_last_status_ok` / `_history_total` | gauge | - |
 | `pppoe_connected` / `ipv6_active` / `firewall_active` | gauge | - |

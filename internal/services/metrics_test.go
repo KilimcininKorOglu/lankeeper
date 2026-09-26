@@ -31,7 +31,7 @@ func TestExpositionSnapshotShapesAreStable(t *testing.T) {
 			{Name: "alice", HandshakeAge: 30, Online: 1, RxBytes: 10, TxBytes: 20},
 		},
 		S2SPeers: []S2SPeerMetric{
-			{Name: "branch-a", HandshakeAge: -1, Online: 0},
+			{Name: "branch-a", HandshakeAge: -1, Online: 0, RxBytes: 30, TxBytes: 40},
 		},
 		PPPoEConnected:    1,
 		IPv6Active:        1,
@@ -64,6 +64,8 @@ func TestExpositionSnapshotShapesAreStable(t *testing.T) {
 		`lankeeper_wireguard_peer_handshake_age_seconds{peer="alice"} 30`,
 		`lankeeper_s2s_peer_online{peer="branch-a"} 0`,
 		`lankeeper_s2s_peer_handshake_age_seconds{peer="branch-a"} -1`,
+		`lankeeper_s2s_peer_rx_bytes_total{peer="branch-a"} 30`,
+		`lankeeper_s2s_peer_tx_bytes_total{peer="branch-a"} 40`,
 		`lankeeper_pppoe_connected 1`,
 		`lankeeper_ipv6_mode_info{mode="6in4"} 1`,
 		`lankeeper_firewall_active 1`,

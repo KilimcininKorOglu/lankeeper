@@ -129,6 +129,14 @@ func (snap MetricsSnapshot) writeS2SPeers(w io.Writer) {
 		snap.S2SPeers, func(p S2SPeerMetric) (map[string]string, float64) {
 			return map[string]string{"peer": p.Name}, float64(p.HandshakeAge)
 		})
+	writeFamily(w, "lankeeper_s2s_peer_rx_bytes_total", "Cumulative bytes received from the site-to-site peer.", metricCounter,
+		snap.S2SPeers, func(p S2SPeerMetric) (map[string]string, float64) {
+			return map[string]string{"peer": p.Name}, float64(p.RxBytes)
+		})
+	writeFamily(w, "lankeeper_s2s_peer_tx_bytes_total", "Cumulative bytes transmitted to the site-to-site peer.", metricCounter,
+		snap.S2SPeers, func(p S2SPeerMetric) (map[string]string, float64) {
+			return map[string]string{"peer": p.Name}, float64(p.TxBytes)
+		})
 }
 
 // writeSubsystems writes the OpenVPN, backup, PPPoE, IPv6 and firewall
