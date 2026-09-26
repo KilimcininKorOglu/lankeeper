@@ -91,8 +91,9 @@ func TestIPv6RenderConfigPPPoE(t *testing.T) {
 	if !strings.Contains(out, "prefix-interface eth1") {
 		t.Errorf("expected prefix-interface eth1 (LAN) in output, got:\n%s", out)
 	}
-	if !strings.Contains(out, "send rapid-commit") {
-		t.Errorf("rapid-commit should be enabled by default, got:\n%s", out)
+	// The shipped config leaves rapid-commit off.
+	if strings.Contains(out, "send rapid-commit") {
+		t.Errorf("rapid-commit rendered although the shipped config leaves it off:\n%s", out)
 	}
 	// /56 default delegation -> SLA len = 64-56 = 8.
 	if !strings.Contains(out, "sla-len 8") {

@@ -1,66 +1,28 @@
 package config
 
+import (
+	"fmt"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/KilimcininKorOglu/lankeeper/configs"
+)
+
+// DefaultConfig returns the shipped router.yaml, parsed from the copy
+// embedded in the binary. There is one set of defaults: a second copy
+// written out in Go drifted from the shipped file, and every test built
+// on it exercised values no installed router has.
+//
+// It panics when the embedded file does not parse, which only a broken
+// build can cause, and every test that calls it reports that at once.
 func DefaultConfig() *Config {
-	return &Config{
-		System: SystemConfig{
-			Hostname: "hermes",
-			Domain:   "lan",
-			Timezone: "Europe/Istanbul",
-			Language: "en",
-			WebPort:  8443,
-			WebBind:  "10.10.10.1",
-			TLS: TLSConfig{
-				Mode: "self-signed",
-				SelfSigned: SelfSignedConfig{
-					CN:        "hermes.lan",
-					ValidDays: 3650,
-					SANs:      []string{"hermes.lan", "10.10.10.1", "router.local"},
-				},
-			},
-		},
-		PPPoE: PPPoEConfig{
-			MTU:             1492,
-			MRU:             1492,
-			LCPEchoInterval: 10,
-			LCPEchoFailure:  3,
-			Persist:         true,
-			Holdoff:         5,
-			IPv6CP:          true,
-		},
-		Firewall: FirewallConfig{
-			DefaultPolicy: "drop",
-			TTLFix:        TTLFixConfig{Value: 64},
-		},
-		QoS: QoSConfig{
-			Profile:           "cake",
-			UploadKbps:        40000,
-			DownloadKbps:      950000,
-			CongestionControl: "bbr",
-		},
-		DHCP: DHCPConfig{
-			RangeStart: "10.10.10.100",
-			RangeEnd:   "10.10.10.250",
-			LeaseTime:  "12h",
-			Gateway:    "10.10.10.1",
-			DNSServer:  "10.10.10.1",
-		},
-		IPv6: IPv6Config{
-			Enabled: "auto",
-			Mode:    "dhcpv6-pd",
-			WAN:     IPv6WANConfig{AcceptRA: true, RequestPrefix: true, PrefixHint: "/56", RapidCommit: true},
-			LAN:     IPv6LANConfig{Mode: "slaac", ULA: IPv6ULAConfig{Enabled: true, Prefix: "fd00:abcd:1234::/48"}, RAInterval: 30, RDNSS: true},
-			Tunnel: IPv6TunnelConfig{
-				Provider:   "he.net",
-				Device:     "lkt6in4",
-				AutoUpdate: true,
-			},
-			Privacy: true,
-		},
-		DNS: DNSConfig{
-			BlocklistURLs:           []string{"https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"},
-			BlocklistUpdateSchedule: "0 3 * * *",
-			CacheSize:               50000,
-			QueryLog:                QueryLogConfig{Enabled: true, LogPath: "/var/log/unbound/queries.log", MaxSize: "100M", Retention: "7d"},
-		},
+	raw, err := configs.DefaultsFS.ReadFile("defaults/router.yaml")
+	if err != nil {
+		panic(fmt.Sprintf("read embedded router.yaml: %v", err))
 	}
+	var cfg Config
+	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+		panic(fmt.Sprintf("parse embedded router.yaml: %v", err))
+	}
+	return &cfg
 }

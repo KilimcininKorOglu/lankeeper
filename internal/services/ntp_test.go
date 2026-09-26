@@ -53,6 +53,8 @@ func TestNTPAddSourceAcceptsValidHosts(t *testing.T) {
 	} {
 		cfg := config.DefaultConfig()
 		cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
+		// The shipped config already lists some of these sources.
+		cfg.NTP.Client.Sources = nil
 		svc := services.NewNTPService(cfg)
 		if err := svc.AddSource(h); err != nil {
 			t.Fatalf("expected accept for %q, got %v", h, err)
@@ -115,6 +117,7 @@ func TestNTPSaveSettingsAcceptsValidListenAddress(t *testing.T) {
 func TestNTPAddSourceEnforcesCap(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
+	cfg.NTP.Client.Sources = nil
 	svc := services.NewNTPService(cfg)
 	for i := range services.MaxNTPSources {
 		host := fmt.Sprintf("s%d.ntp.example", i)
@@ -132,6 +135,7 @@ func TestNTPAddSourceEnforcesCap(t *testing.T) {
 func TestNTPAddAllowSubnetEnforcesCap(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
+	cfg.NTP.AllowSubnets = nil
 	svc := services.NewNTPService(cfg)
 	for i := range services.MaxNTPAllowSubnets {
 		cidr := fmt.Sprintf("10.%d.0.0/16", i)
