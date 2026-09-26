@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -288,7 +289,11 @@ func (s *IPv6Service) RenderRAConfig() (string, error) {
 		Privacy:      s.cfg.IPv6.Privacy,
 	}
 	if s.cfg.IPv6.LAN.ULA.Enabled {
-		data.ULAPrefix = s.ulaPrefix()
+		start, err := ulaRangeStart(s.ulaPrefix())
+		if err != nil {
+			return "", err
+		}
+		data.ULAPrefix = start
 	}
 
 	tmpl, err := s.parseRATemplate()
@@ -300,6 +305,20 @@ func (s *IPv6Service) RenderRAConfig() (string, error) {
 		return "", fmt.Errorf("render dnsmasq RA: %w", err)
 	}
 	return buf.String(), nil
+}
+
+// ulaRangeStart turns the configured ULA prefix into the start address
+// dnsmasq's dhcp-range takes. dnsmasq refuses a CIDR there, and one bad
+// line in /etc/dnsmasq.d stops the whole daemon, DHCPv4 included.
+func ulaRangeStart(prefix string) (string, error) {
+	if prefix == "" {
+		return "", nil
+	}
+	_, network, err := net.ParseCIDR(prefix)
+	if err != nil {
+		return "", fmt.Errorf("ULA prefix %q: %w", prefix, err)
+	}
+	return network.IP.String(), nil
 }
 
 // dhcpLeaseTime returns the DHCP lease time string from config or a

@@ -375,8 +375,13 @@ func TestIPv6RenderRAConfigULA(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render RA: %v", err)
 	}
-	if !strings.Contains(out, "fd00:abcd:1234::/48") {
-		t.Errorf("expected ULA prefix in RA config, got:\n%s", out)
+	// dnsmasq's dhcp-range takes a start address and refuses a CIDR,
+	// which would stop the daemon, DHCPv4 included.
+	if !strings.Contains(out, "dhcp-range=fd00:abcd:1234::,ra-only") {
+		t.Errorf("expected the bare ULA network address in the RA config, got:\n%s", out)
+	}
+	if strings.Contains(out, "/48") {
+		t.Errorf("the ULA range carries a prefix length dnsmasq refuses:\n%s", out)
 	}
 }
 
