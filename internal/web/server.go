@@ -530,7 +530,12 @@ func (s *Server) Serve(ctx context.Context) error {
 		}
 	}
 
-	err = s.http.ListenAndServeTLS(certFile, keyFile)
+	reloader, err := newCertReloader(certFile, keyFile)
+	if err != nil {
+		return err
+	}
+	s.http.TLSConfig.GetCertificate = reloader.GetCertificate
+	err = s.http.ListenAndServeTLS("", "")
 
 	// Only drain on an ordered shutdown. If the listener died for some
 	// other reason the background goroutines are still running against
