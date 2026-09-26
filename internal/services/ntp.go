@@ -141,31 +141,33 @@ func (s *NTPService) getSources(ctx context.Context) ([]NTPSource, error) {
 		return nil, err
 	}
 
+	return parseChronySources(out), nil
+}
+
+// parseChronySources reads `chronyc sources` output. A source line starts
+// with a two-character column: the mode (^ server, = peer, # refclock)
+// and the state (* selected, + combined, - excluded, ? unreachable, x
+// falseticker, ~ too variable). The chrony 4 header, the separator and
+// the chrony 3 "210 Number of sources" line all fail that shape.
+func parseChronySources(out string) []NTPSource {
 	var sources []NTPSource
 	for line := range strings.SplitSeq(out, "\n") {
-		if len(line) < 3 || line[0] == '=' || line[0] == '2' {
-			continue
-		}
-
 		fields := strings.Fields(line)
-		if len(fields) < 8 {
+		if len(fields) < 7 || len(fields[0]) != 2 || !strings.ContainsRune("^=#", rune(fields[0][0])) {
 			continue
 		}
-
 		src := NTPSource{
-			State: string(line[0]),
+			State: fields[0][1:],
 			Name:  fields[1],
 			Poll:  fields[3],
 		}
 		_, _ = fmt.Sscanf(fields[2], "%d", &src.Stratum)
-		if len(fields) >= 8 {
-			src.Offset = fields[7]
-		}
-
+		// "Last sample" is the adjusted offset, followed by the measured
+		// one in brackets that may or may not be separated by a space.
+		src.Offset, _, _ = strings.Cut(fields[6], "[")
 		sources = append(sources, src)
 	}
-
-	return sources, nil
+	return sources
 }
 
 func (s *NTPService) RenderConfig() (string, error) {
