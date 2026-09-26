@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/acme"
@@ -47,6 +48,7 @@ var (
 	ErrACMEEmailRequired   = errors.New("an account email is required to register with the CA")
 	ErrACMEUnknownProvider = errors.New("unknown DNS-01 provider")
 	ErrACMENoDNSChallenge  = errors.New("the CA offered no dns-01 challenge for this domain")
+	ErrACMEModeChanged     = errors.New("the TLS mode changed during renewal, so the renewed certificate was discarded")
 	// ErrManualRecordPending is not a failure. It reports that the
 	// operator has to publish a TXT record before issuance can carry
 	// on, and it carries the record to publish.
@@ -102,6 +104,41 @@ type ACMEService struct {
 	// cloudflareAPI is the Cloudflare v4 base. Settable for the same
 	// reason.
 	cloudflareAPI string
+	// ownMu stands in for the TLS service lock when there is no TLS
+	// service, which only tests construct.
+	ownMu sync.Mutex
+}
+
+// lock returns the mutex that covers cfg.System.TLS and the key pair,
+// shared with TLSService so a mode switch cannot interleave with an
+// issuance.
+func (s *ACMEService) lock() *sync.Mutex {
+	if s.tls != nil {
+		return &s.tls.mu
+	}
+	return &s.ownMu
+}
+
+// tlsSettings returns a copy of the TLS settings.
+func (s *ACMEService) tlsSettings() config.TLSConfig {
+	mu := s.lock()
+	mu.Lock()
+	defer mu.Unlock()
+	return s.cfg.System.TLS
+}
+
+// SetSettings replaces the ACME settings and returns the previous ones,
+// persisting the config when persist is set.
+func (s *ACMEService) SetSettings(next config.ACMEConfig, persist bool) (config.ACMEConfig, error) {
+	mu := s.lock()
+	mu.Lock()
+	defer mu.Unlock()
+	previous := s.cfg.System.TLS.ACME
+	s.cfg.System.TLS.ACME = next
+	if !persist {
+		return previous, nil
+	}
+	return previous, s.cfg.SaveToFile()
 }
 
 func NewACMEService(cfg *config.Config, tlsSvc *TLSService) *ACMEService {
@@ -202,17 +239,17 @@ func loadOrCreateAccountKey() (*ecdsa.PrivateKey, error) {
 }
 
 // provider builds the DNS-01 publisher named in the config.
-func (s *ACMEService) provider() (dnsProvider, error) {
-	switch s.cfg.System.TLS.ACME.DNSChallenge.Provider {
+func (s *ACMEService) provider(acmeCfg config.ACMEConfig) (dnsProvider, error) {
+	switch acmeCfg.DNSChallenge.Provider {
 	case "cloudflare":
 		return &cloudflareProvider{
 			apiBase: s.cloudflareAPI,
-			token:   s.cfg.System.TLS.ACME.DNSChallenge.APIToken,
+			token:   acmeCfg.DNSChallenge.APIToken,
 		}, nil
 	case "manual", "":
 		return &manualProvider{}, nil
 	default:
-		return nil, fmt.Errorf("%w: %q", ErrACMEUnknownProvider, s.cfg.System.TLS.ACME.DNSChallenge.Provider)
+		return nil, fmt.Errorf("%w: %q", ErrACMEUnknownProvider, acmeCfg.DNSChallenge.Provider)
 	}
 }
 
@@ -223,13 +260,21 @@ func (s *ACMEService) provider() (dnsProvider, error) {
 // the server cannot bind against, and the only way to correct it is the
 // interface that would then be down.
 func (s *ACMEService) Issue(ctx context.Context) (*config.TLSCertInfo, error) {
-	acmeCfg := s.cfg.System.TLS.ACME
+	return s.issue(ctx, false)
+}
+
+// issue runs the flow without holding the TLS lock, since the CA and DNS
+// round trips take minutes, and takes it only to install. A renewal
+// installs only while the mode is still acme: the operator may have
+// switched away while the CA was answering.
+func (s *ACMEService) issue(ctx context.Context, renewal bool) (*config.TLSCertInfo, error) {
+	acmeCfg := s.tlsSettings().ACME
 	domain, err := validateACMEConfig(acmeCfg)
 	if err != nil {
 		return nil, err
 	}
 
-	prov, err := s.provider()
+	prov, err := s.provider(acmeCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +293,7 @@ func (s *ACMEService) Issue(ctx context.Context) (*config.TLSCertInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.installACMEPair(certPEM, keyPEM)
+	return s.installACMEPair(certPEM, keyPEM, renewal)
 }
 
 // validateACMEConfig checks the domain and contact address before any
@@ -343,7 +388,13 @@ func finalizeOrder(ctx context.Context, client *acme.Client, order *acme.Order, 
 }
 
 // installACMEPair installs the issued pair, then records the acme mode.
-func (s *ACMEService) installACMEPair(certPEM, keyPEM []byte) (*config.TLSCertInfo, error) {
+func (s *ACMEService) installACMEPair(certPEM, keyPEM []byte, renewal bool) (*config.TLSCertInfo, error) {
+	mu := s.lock()
+	mu.Lock()
+	defer mu.Unlock()
+	if renewal && !acmeActive(s.cfg.System.TLS) {
+		return nil, ErrACMEModeChanged
+	}
 	next := s.cfg.System.TLS
 	next.Mode = "acme"
 	next.ACME.Enabled = true
@@ -435,15 +486,21 @@ func (s *ACMEService) StartRenewal(ctx context.Context) {
 	}
 }
 
+// acmeActive reports whether tlsCfg serves an ACME certificate.
+func acmeActive(tlsCfg config.TLSConfig) bool {
+	return tlsCfg.Mode == "acme" && tlsCfg.ACME.Enabled
+}
+
 // RenewIfDue reissues when the certificate is inside the renewal window,
 // and does nothing otherwise. Exported because it is the loop's whole
 // body: a test that drives it directly checks the decision without
 // waiting twelve hours for a tick.
 func (s *ACMEService) RenewIfDue(ctx context.Context) {
-	if s.cfg.System.TLS.Mode != "acme" || !s.cfg.System.TLS.ACME.Enabled {
+	tlsCfg := s.tlsSettings()
+	if !acmeActive(tlsCfg) {
 		return
 	}
-	info, err := config.ReadTLSCertInfo(&s.cfg.System.TLS, s.dataDir)
+	info, err := config.ReadTLSCertInfo(&tlsCfg, s.dataDir)
 	if err != nil {
 		log.Printf("acme: read current certificate: %v", err)
 		return
@@ -453,7 +510,7 @@ func (s *ACMEService) RenewIfDue(ctx context.Context) {
 	}
 
 	log.Printf("acme: certificate expires %s, renewing", info.NotAfter)
-	if _, err := s.Issue(ctx); err != nil {
+	if _, err := s.issue(ctx, true); err != nil {
 		// Logged and dropped on purpose. The loop retries twice a day
 		// and the renewal window is thirty days wide, so a transient
 		// failure has sixty more chances before anything is served an

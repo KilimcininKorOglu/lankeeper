@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
@@ -45,6 +46,10 @@ var (
 // request. The handler is not the place to own an ordering whose wrong
 // half locks the operator out of their own router.
 type TLSService struct {
+	// mu covers cfg.System.TLS and the serving key pair. Every mode
+	// shares one pair of files, so a change to either happens under it,
+	// and ACMEService takes the same lock for issuance and renewal.
+	mu      sync.Mutex
 	cfg     *config.Config
 	dataDir string
 }
@@ -79,7 +84,16 @@ func tlsDataDir() string {
 // generates: the settings page must be able to say "there is no
 // certificate" without creating one as a side effect of being looked at.
 func (s *TLSService) Info() (*config.TLSCertInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return config.ReadTLSCertInfo(&s.cfg.System.TLS, s.dataDir)
+}
+
+// Settings returns a copy of the TLS settings.
+func (s *TLSService) Settings() config.TLSConfig {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg.System.TLS
 }
 
 // ValidateSAN reports whether s can go in a certificate as a subject
@@ -125,6 +139,8 @@ func ParseSANs(raw string) ([]string, error) {
 // fail to bind on the way back up with the operator locked out of the
 // only interface that could fix it.
 func (s *TLSService) Regenerate(ctx context.Context, cn string, sans []string, validDays int) (*config.TLSCertInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	// The guard is on this entry point rather than on the issuance
 	// below, because switching modes deliberately is a different act
 	// from pressing regenerate on a page that is showing a certificate
@@ -143,11 +159,13 @@ func (s *TLSService) Regenerate(ctx context.Context, cn string, sans []string, v
 // only interface that could correct it is the one that just stopped
 // answering.
 func (s *TLSService) SwitchMode(ctx context.Context, mode, cn string, sans []string, validDays int) (*config.TLSCertInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	switch mode {
 	case "self-signed", "":
 		return s.issueSelfSigned(ctx, cn, sans, validDays)
 	case "mkcert":
-		return s.EnableMkcert(ctx, sans)
+		return s.enableMkcert(ctx, sans)
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnknownTLSMode, mode)
 	}
@@ -203,6 +221,13 @@ func (s *TLSService) issueSelfSigned(_ context.Context, cn string, sans []string
 // client. The CA is created on first issuance either way, and the
 // operator installs it on their own devices from the download below.
 func (s *TLSService) EnableMkcert(ctx context.Context, sans []string) (*config.TLSCertInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.enableMkcert(ctx, sans)
+}
+
+// enableMkcert is EnableMkcert for a caller that holds s.mu.
+func (s *TLSService) enableMkcert(ctx context.Context, sans []string) (*config.TLSCertInfo, error) {
 	if err := validateSANs(sans); err != nil {
 		return nil, err
 	}

@@ -62,6 +62,7 @@ func NewSystemHandler(renderer *tmpl.Renderer, cfg *config.Config, loc *i18n.I18
 
 func (h *SystemHandler) HandleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	lang := i18n.LangFromContext(r.Context())
+	tlsCfg := h.tlsSettings()
 
 	fields := map[string]any{
 		"Hostname":       h.cfg.System.Hostname,
@@ -69,11 +70,11 @@ func (h *SystemHandler) HandleSettingsPage(w http.ResponseWriter, r *http.Reques
 		"FQDN":           h.cfg.System.Hostname + "." + h.cfg.System.Domain,
 		"Timezone":       h.cfg.System.Timezone,
 		"Language":       h.cfg.System.Language,
-		"TLSMode":        h.cfg.System.TLS.Mode,
-		"TLSSelfSigned":  h.cfg.System.TLS.SelfSigned,
-		"TLSMkcert":      h.cfg.System.TLS.Mkcert,
-		"TLSACME":        h.cfg.System.TLS.ACME,
-		"TLSACMEStaging": h.cfg.System.TLS.ACME.DirectoryURL != services.LetsEncryptProductionURL,
+		"TLSMode":        tlsCfg.Mode,
+		"TLSSelfSigned":  tlsCfg.SelfSigned,
+		"TLSMkcert":      tlsCfg.Mkcert,
+		"TLSACME":        tlsCfg.ACME,
+		"TLSACMEStaging": tlsCfg.ACME.DirectoryURL != services.LetsEncryptProductionURL,
 		"Version":        h.update.GetVersionInfo(),
 		"PendingUpdate":  h.update.HasPendingUpdate(),
 		"PendingVersion": h.update.PendingVersion(),
@@ -372,7 +373,7 @@ func (h *SystemHandler) HandleSetTLSMode(w http.ResponseWriter, r *http.Request)
 
 	// Only the self-signed branch reads a validity, and it is the one
 	// branch that has a sensible default: mkcert decides its own.
-	validDays := h.cfg.System.TLS.SelfSigned.ValidDays
+	validDays := h.tlsSettings().SelfSigned.ValidDays
 	if raw := r.FormValue("validDays"); raw != "" {
 		parsed, convErr := strconv.Atoi(raw)
 		if convErr != nil {
@@ -436,6 +437,43 @@ func (h *SystemHandler) HandleDownloadMkcertCA(w http.ResponseWriter, r *http.Re
 	}
 }
 
+// acmeIssueFailed answers a failed issuance. The inputs staged for it
+// are restored, since leaving a rejected ACME block behind would make the
+// next renewal use it. A pending manual challenge is not a failure: the
+// operator has to publish a record, so the settings are kept and saved
+// and the record is returned.
+func (h *SystemHandler) acmeIssueFailed(w http.ResponseWriter, r *http.Request, err error, previous, next config.ACMEConfig) {
+	manual, isManual := errors.AsType[*services.ManualChallengeError](err)
+	keep := previous
+	if isManual {
+		keep = next
+	}
+	if _, saveErr := h.acme.SetSettings(keep, isManual); saveErr != nil {
+		log.Printf("acme: store settings after issuance attempt: %v", saveErr)
+	}
+	if !isManual {
+		log.Printf("acme: issue certificate: %v", err)
+		fail(w, r, http.StatusBadGateway, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusAccepted)
+	if _, err := fmt.Fprintf(w, "%s\n%s TXT %s\n",
+		i18n.T(i18n.LangFromContext(r.Context()), "tls.acmeManualPending"),
+		manual.Record.Name, manual.Record.Value); err != nil {
+		log.Printf("acme: write manual challenge instructions: %v", err)
+	}
+}
+
+// tlsSettings returns a copy of the TLS settings, read under the TLS
+// service lock when there is one.
+func (h *SystemHandler) tlsSettings() config.TLSConfig {
+	if h.tls == nil {
+		return h.cfg.System.TLS
+	}
+	return h.tls.Settings()
+}
+
 // HandleConfigureACME records the ACME settings and requests the first
 // certificate.
 //
@@ -461,7 +499,7 @@ func (h *SystemHandler) HandleConfigureACME(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	previous := h.cfg.System.TLS.ACME
+	previous := h.tlsSettings().ACME
 	next := previous
 	next.Domain = domain
 	next.Email = r.FormValue("email")
@@ -473,34 +511,14 @@ func (h *SystemHandler) HandleConfigureACME(w http.ResponseWriter, r *http.Reque
 	if token := r.FormValue("apiToken"); token != "" {
 		next.DNSChallenge.APIToken = token
 	}
-	h.cfg.System.TLS.ACME = next
+	if _, err := h.acme.SetSettings(next, false); err != nil {
+		fail(w, r, http.StatusInternalServerError, err)
+		return
+	}
 
 	info, err := h.acme.Issue(r.Context())
 	if err != nil {
-		// Restore the inputs that were staged for issuance. The mode
-		// was never touched, but leaving a half-applied ACME block
-		// behind would make the next renewal use settings that were
-		// rejected.
-		h.cfg.System.TLS.ACME = previous
-
-		if manual, ok := errors.AsType[*services.ManualChallengeError](err); ok {
-			// Not a failure: the operator has to publish a record. The
-			// settings are kept so the retry does not need retyping.
-			h.cfg.System.TLS.ACME = next
-			if saveErr := h.cfg.SaveToFile(); saveErr != nil {
-				log.Printf("acme: persist settings for manual challenge: %v", saveErr)
-			}
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			w.WriteHeader(http.StatusAccepted)
-			if _, err := fmt.Fprintf(w, "%s\n%s TXT %s\n",
-				i18n.T(i18n.LangFromContext(r.Context()), "tls.acmeManualPending"),
-				manual.Record.Name, manual.Record.Value); err != nil {
-				log.Printf("acme: write manual challenge instructions: %v", err)
-			}
-			return
-		}
-		log.Printf("acme: issue certificate: %v", err)
-		fail(w, r, http.StatusBadGateway, err)
+		h.acmeIssueFailed(w, r, err, previous, next)
 		return
 	}
 	log.Printf("acme: certificate issued, expires %s", info.NotAfter)

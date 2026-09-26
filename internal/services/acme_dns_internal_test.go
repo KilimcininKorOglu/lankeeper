@@ -248,7 +248,7 @@ func TestCloudflareProductionPathIsGuarded(t *testing.T) {
 	}
 	svc.cfg.System.TLS.ACME.DNSChallenge.Provider = "cloudflare"
 
-	prov, err := svc.provider()
+	prov, err := svc.provider(svc.cfg.System.TLS.ACME)
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
