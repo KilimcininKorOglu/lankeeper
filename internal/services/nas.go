@@ -37,6 +37,10 @@ type NASService struct {
 	tmplContent string
 	mu          sync.RWMutex
 	cancel      context.CancelFunc
+	// m3uMu guards m3uStatus, which the sync goroutine writes and page
+	// requests read.
+	m3uMu     sync.Mutex
+	m3uStatus M3USyncStatus
 }
 
 func NewNASService(cfg *config.Config) *NASService {
@@ -57,8 +61,6 @@ type M3USyncStatus struct {
 	TotalItems int
 	Errors     int
 }
-
-var m3uStatus M3USyncStatus
 
 func (s *NASService) persist() error {
 	return s.cfg.SaveToFile()
@@ -240,82 +242,104 @@ func (s *NASService) ApplyConfig(ctx context.Context) error {
 }
 
 func (s *NASService) GetM3UStatus() M3USyncStatus {
-	return m3uStatus
+	s.m3uMu.Lock()
+	defer s.m3uMu.Unlock()
+	return s.m3uStatus
+}
+
+// ErrM3USyncRunning reports that a sync is already in progress. Two
+// syncs would write the same .strm files and interleave their counts.
+var ErrM3USyncRunning = errors.New("an M3U sync is already running")
+
+// M3USyncRunning reports whether a sync is in progress.
+func (s *NASService) M3USyncRunning() bool {
+	s.m3uMu.Lock()
+	defer s.m3uMu.Unlock()
+	return s.m3uStatus.Running
 }
 
 func (s *NASService) SyncM3U(ctx context.Context) error {
-	m3uStatus.Running = true
-	defer func() {
-		m3uStatus.Running = false
-		m3uStatus.LastSync = time.Now()
-	}()
+	s.m3uMu.Lock()
+	if s.m3uStatus.Running {
+		s.m3uMu.Unlock()
+		return ErrM3USyncRunning
+	}
+	s.m3uStatus.Running = true
+	s.m3uMu.Unlock()
 
 	var totalItems, totalErrors int
-
 	for _, source := range s.cfg.NAS.M3USources {
-		// downloadPath, not source.DownloadPath, is used from here on:
-		// the cleaned form is the one that was checked.
-		downloadPath, err := ValidateMediaPath(source.DownloadPath)
-		if err != nil {
-			log.Printf("m3u download path rejected: %v", err)
-			totalErrors++
-			continue
-		}
-
-		items, err := downloadAndParseM3U(ctx, source.URL)
-		if err != nil {
-			log.Printf("m3u download %s: %v", source.URL, err)
-			totalErrors++
-			continue
-		}
-
-		filtered := filterM3UItems(items, source.IncludeGroups, source.ExcludeGroups)
-		// Media directories are served by smbd to LAN clients, so
-		// they have to be world-readable. Confined to /srv or /mnt
-		// by ValidateMediaPath.
-		// #nosec G301
-		if err := os.MkdirAll(downloadPath, 0o755); err != nil {
-			log.Printf("m3u sync: mkdir %s: %v", downloadPath, err)
-			continue
-		}
-
-		for _, item := range filtered {
-			groupDir, err := containedJoin(downloadPath, sanitizePath(item.Group))
-			if err != nil {
-				log.Printf("m3u sync: rejected group from %s: %v", source.URL, err)
-				totalErrors++
-				continue
-			}
-			// Same: served by smbd, confined by ValidateMediaPath.
-			// #nosec G301
-			if err := os.MkdirAll(groupDir, 0o755); err != nil {
-				log.Printf("m3u sync: mkdir %s: %v", groupDir, err)
-				totalErrors++
-				continue
-			}
-
-			strmPath, err := containedJoin(groupDir, sanitizePath(item.Title)+".strm")
-			if err != nil {
-				log.Printf("m3u sync: rejected title from %s: %v", source.URL, err)
-				totalErrors++
-				continue
-			}
-			// A .strm file is a playlist entry Kodi and smbd clients read.
-			// It holds a stream URL, not a credential.
-			// #nosec G306
-			if err := os.WriteFile(strmPath, []byte(item.URL+"\n"), 0o644); err != nil {
-				totalErrors++
-				continue
-			}
-			totalItems++
-		}
+		items, errs := syncM3USource(ctx, source)
+		totalItems += items
+		totalErrors += errs
 	}
 
-	m3uStatus.TotalItems = totalItems
-	m3uStatus.Errors = totalErrors
+	s.m3uMu.Lock()
+	s.m3uStatus = M3USyncStatus{LastSync: time.Now(), TotalItems: totalItems, Errors: totalErrors}
+	s.m3uMu.Unlock()
 
 	log.Printf("m3u sync complete: %d items, %d errors", totalItems, totalErrors)
 	return nil
+}
+
+// syncM3USource writes the .strm files for one source and returns the
+// items written and the errors met.
+func syncM3USource(ctx context.Context, source config.M3USourceConfig) (items, errs int) {
+	// downloadPath, not source.DownloadPath, is used from here on:
+	// the cleaned form is the one that was checked.
+	downloadPath, err := ValidateMediaPath(source.DownloadPath)
+	if err != nil {
+		log.Printf("m3u download path rejected: %v", err)
+		return 0, 1
+	}
+
+	list, err := downloadAndParseM3U(ctx, source.URL)
+	if err != nil {
+		log.Printf("m3u download %s: %v", source.URL, err)
+		return 0, 1
+	}
+
+	filtered := filterM3UItems(list, source.IncludeGroups, source.ExcludeGroups)
+	// Media directories are served by smbd to LAN clients, so
+	// they have to be world-readable. Confined to /srv or /mnt
+	// by ValidateMediaPath.
+	// #nosec G301
+	if err := os.MkdirAll(downloadPath, 0o755); err != nil {
+		log.Printf("m3u sync: mkdir %s: %v", downloadPath, err)
+		return 0, 0
+	}
+
+	for _, item := range filtered {
+		if err := writeStrm(downloadPath, source.URL, item); err != nil {
+			log.Printf("m3u sync: %v", err)
+			errs++
+			continue
+		}
+		items++
+	}
+	return items, errs
+}
+
+// writeStrm writes one playlist entry under its group directory.
+func writeStrm(downloadPath, sourceURL string, item M3UItem) error {
+	groupDir, err := containedJoin(downloadPath, sanitizePath(item.Group))
+	if err != nil {
+		return fmt.Errorf("rejected group from %s: %w", sourceURL, err)
+	}
+	// Same: served by smbd, confined by ValidateMediaPath.
+	// #nosec G301
+	if err := os.MkdirAll(groupDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", groupDir, err)
+	}
+
+	strmPath, err := containedJoin(groupDir, sanitizePath(item.Title)+".strm")
+	if err != nil {
+		return fmt.Errorf("rejected title from %s: %w", sourceURL, err)
+	}
+	// A .strm file is a playlist entry Kodi and smbd clients read.
+	// It holds a stream URL, not a credential.
+	// #nosec G306
+	return os.WriteFile(strmPath, []byte(item.URL+"\n"), 0o644)
 }
 
 func (s *NASService) StartScheduledSync(ctx context.Context) {

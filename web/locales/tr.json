@@ -278,6 +278,7 @@
     "nas.readOnly": "Salt Okunur",
     "nas.pathExample": "ör: /mnt/raid/share",
     "nas.m3u.urlExample": "ör: http://example.com/playlist.m3u",
+    "nas.m3uSyncRunning": "Bir M3U senkronizasyonu zaten çalışıyor.",
     "storage.title": "Depolama Yönetimi",
     "storage.raid": "RAID Durumu",
     "storage.smart": "Disk Sağlığı",

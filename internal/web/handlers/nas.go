@@ -132,6 +132,10 @@ func backgroundContext(r *http.Request, d time.Duration) (context.Context, conte
 }
 
 func (h *NASHandler) HandleSyncM3U(w http.ResponseWriter, r *http.Request) {
+	if h.nas.M3USyncRunning() {
+		clientError(w, r, http.StatusConflict, "nas.m3uSyncRunning")
+		return
+	}
 	ctx, cancel := backgroundContext(r, m3uSyncTimeout)
 	go func() {
 		defer cancel()

@@ -278,6 +278,7 @@
     "nas.readOnly": "Read Only",
     "nas.pathExample": "e.g. /mnt/raid/share",
     "nas.m3u.urlExample": "e.g. http://example.com/playlist.m3u",
+    "nas.m3uSyncRunning": "An M3U sync is already running.",
     "storage.title": "Storage Management",
     "storage.raid": "RAID Status",
     "storage.smart": "Disk Health",
