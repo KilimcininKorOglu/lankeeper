@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -25,6 +26,14 @@ func AuthRequired(auth *Auth) func(http.Handler) http.Handler {
 				// navigate to the login page.
 				if r.Header.Get("HX-Request") == "true" {
 					w.Header().Set("HX-Redirect", "/login")
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				// An EventSource that follows a redirect to the HTML login
+				// page fails for good with no status the page can read. A
+				// plain 401 closes it the same way, and the page script
+				// then checks the session and navigates to the login page.
+				if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
 					w.WriteHeader(http.StatusUnauthorized)
 					return
 				}

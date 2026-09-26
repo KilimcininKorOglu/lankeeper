@@ -27,3 +27,19 @@ func TestAuthRequiredSendsHtmxToTheLoginPage(t *testing.T) {
 		t.Errorf("navigation: status %d, Location %q", rec.Code, rec.Header().Get("Location"))
 	}
 }
+
+// An EventSource that follows the 303 receives the HTML login page and
+// closes for good, so an SSE request with no session gets a plain 401.
+func TestAuthRequiredRefusesAnSSEStreamWithoutRedirect(t *testing.T) {
+	h := AuthRequired(NewAuth("test-secret-test-secret-test-secret", "unused"))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("the handler ran without a session")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/events/stats", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized || rec.Header().Get("Location") != "" {
+		t.Errorf("sse: status %d, Location %q", rec.Code, rec.Header().Get("Location"))
+	}
+}

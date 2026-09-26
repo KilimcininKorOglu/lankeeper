@@ -74,6 +74,23 @@
         return getCookie('csrf_token');
     };
 
+    // An EventSource the server refused stays closed and never
+    // reconnects. When the refusal was an ended session, send the operator
+    // to the login page rather than leave the last values on screen as if
+    // they were live; any other refusal leaves the page as it is.
+    window.lankeeperWatchStream = function(source) {
+        source.addEventListener('error', function() {
+            if (source.readyState !== EventSource.CLOSED) return;
+            fetch('/', {method: 'HEAD', headers: {'HX-Request': 'true'}, credentials: 'same-origin'})
+                .then(function(resp) {
+                    if (resp.status === 401) window.location.assign('/login');
+                })
+                .catch(function(err) {
+                    console.warn('lankeeper: session check failed', err);
+                });
+        });
+    };
+
     function getCookie(name) {
         var match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
         return match ? match[2] : null;

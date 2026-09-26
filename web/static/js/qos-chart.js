@@ -170,9 +170,7 @@
                 // but never break the page if they do.
             }
         });
-        es.addEventListener('error', function () {
-            // EventSource auto-reconnects; nothing to do here.
-        });
+        window.lankeeperWatchStream(es);
     }
 
     if (document.readyState === 'loading') {

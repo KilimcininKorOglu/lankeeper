@@ -29,6 +29,7 @@
     }
 
     var source = new EventSource('/events/stats');
+    window.lankeeperWatchStream(source);
     source.addEventListener('stats', function (evt) {
         var data;
         try {
