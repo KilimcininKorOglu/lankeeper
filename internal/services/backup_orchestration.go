@@ -7,7 +7,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
@@ -21,14 +23,76 @@ type BackupOrchestrator struct {
 	svc  *BackupService
 	cfg  *config.Config
 	save func() error // typically cfg.SaveToFile
+
+	// mu guards cfg.Backup for the page, the settings forms, the
+	// scheduler, the history writer and /metrics. runMu serializes whole
+	// runs and is held for minutes, so it cannot serve that role.
+	mu sync.Mutex
 }
+
+var (
+	ErrBackupTargetExists   = errors.New("a backup target with this name already exists")
+	ErrBackupTargetNotFound = errors.New("backup target not found")
+)
 
 // NewBackupOrchestrator installs the runner callback on the service
 // and returns a snapshot provider for StartScheduler.
 func NewBackupOrchestrator(svc *BackupService, cfg *config.Config) *BackupOrchestrator {
 	o := &BackupOrchestrator{svc: svc, cfg: cfg, save: cfg.SaveToFile}
 	svc.SetRunner(o.runOnce)
+	svc.settings = o.Settings
 	return o
+}
+
+// Settings returns a copy of the backup config taken under o.mu.
+func (o *BackupOrchestrator) Settings() config.BackupConfig {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	b := o.cfg.Backup
+	b.Targets = slices.Clone(b.Targets)
+	b.History = slices.Clone(b.History)
+	return b
+}
+
+// SaveSchedule stores the schedule settings and persists them. An empty
+// passphrase keeps the stored one.
+func (o *BackupOrchestrator) SaveSchedule(enabled bool, schedule string, retention int, passphrase string) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.cfg.Backup.Enabled = enabled
+	o.cfg.Backup.Schedule = schedule
+	o.cfg.Backup.Retention = retention
+	if passphrase != "" {
+		o.cfg.Backup.Passphrase = passphrase
+	}
+	return o.save()
+}
+
+// AddTarget appends a target whose name no other target holds. The
+// check and the append are one critical section, so two submits cannot
+// both pass the check.
+func (o *BackupOrchestrator) AddTarget(target config.BackupTarget) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for _, t := range o.cfg.Backup.Targets {
+		if t.Name == target.Name {
+			return fmt.Errorf("%w: %s", ErrBackupTargetExists, target.Name)
+		}
+	}
+	o.cfg.Backup.Targets = append(slices.Clip(o.cfg.Backup.Targets), target)
+	return o.save()
+}
+
+// RemoveTarget deletes the named target.
+func (o *BackupOrchestrator) RemoveTarget(name string) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	i := slices.IndexFunc(o.cfg.Backup.Targets, func(t config.BackupTarget) bool { return t.Name == name })
+	if i < 0 {
+		return fmt.Errorf("%w: %s", ErrBackupTargetNotFound, name)
+	}
+	o.cfg.Backup.Targets = slices.Delete(slices.Clone(o.cfg.Backup.Targets), i, i+1)
+	return o.save()
 }
 
 // SnapshotProvider returns the live config slice the scheduler uses.
@@ -42,11 +106,12 @@ func (o *BackupOrchestrator) SnapshotProvider() *backupSchedulerConfig {
 				loc = l
 			}
 		}
+		b := o.Settings()
 		return backupSnapshot{
-			Enabled:  o.cfg.Backup.Enabled,
-			Schedule: o.cfg.Backup.Schedule,
+			Enabled:  b.Enabled,
+			Schedule: b.Schedule,
 			Location: loc,
-			LastRun:  o.cfg.Backup.LastRun,
+			LastRun:  b.LastRun,
 		}
 	}}
 }
@@ -64,7 +129,7 @@ func (o *BackupOrchestrator) runOnce(ctx context.Context) error {
 	defer o.svc.runMu.Unlock()
 
 	started := time.Now()
-	bcfg := o.cfg.Backup
+	bcfg := o.Settings()
 
 	if bcfg.Passphrase == "" {
 		return o.failRun(started, errors.New("backup passphrase not configured"))
@@ -218,7 +283,9 @@ func (o *BackupOrchestrator) recordHistory(entry historyEntry) {
 		Status:      entry.Status,
 		Message:     entry.Message,
 	}
-	hist := append(o.cfg.Backup.History, cfgEntry)
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	hist := append(slices.Clip(o.cfg.Backup.History), cfgEntry)
 	if len(hist) > MaxBackupHistory {
 		hist = hist[len(hist)-MaxBackupHistory:]
 	}

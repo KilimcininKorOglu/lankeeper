@@ -197,7 +197,7 @@ func NewServer(cfg *config.Config, loc *i18n.I18n, webFS fs.FS, updateSvc *servi
 		_, err := rotateCSRFToken(w)
 		return err
 	})
-	backupHandler := handlers.NewBackupHandler(renderer, cfg, loc, backupSvc)
+	backupHandler := handlers.NewBackupHandler(renderer, loc, backupSvc, backupOrch)
 	// MetricsService composes runtime state from every domain
 	// service into a single Prometheus-shaped snapshot. We wire
 	// every contributor we have - the snapshot itself is nil-safe

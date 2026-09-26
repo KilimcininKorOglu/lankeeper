@@ -33,6 +33,7 @@ type BackupService struct {
 	defaults  fs.FS
 	runMu     sync.Mutex
 	runner    func(context.Context) error
+	settings  func() config.BackupConfig
 }
 
 func NewBackupService(configDir string) *BackupService {
@@ -52,6 +53,15 @@ func NewBackupServiceWithDefaults(configDir string, defaults fs.FS) *BackupServi
 // config dependency.
 func (s *BackupService) SetRunner(fn func(context.Context) error) {
 	s.runner = fn
+}
+
+// Settings returns a locked copy of the backup config, or false when no
+// orchestrator is wired.
+func (s *BackupService) Settings() (config.BackupConfig, bool) {
+	if s.settings == nil {
+		return config.BackupConfig{}, false
+	}
+	return s.settings(), true
 }
 
 // backupExtraDirs are the system directories archived alongside the

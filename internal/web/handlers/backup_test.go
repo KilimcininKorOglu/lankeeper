@@ -19,8 +19,8 @@ func newBackupHandler(t *testing.T) (*handlers.BackupHandler, *config.Config) {
 	cfg := &config.Config{}
 	cfg.SetFilePath(filepath.Join(tmp, "router.yaml"))
 	svc := services.NewBackupService(tmp)
-	services.NewBackupOrchestrator(svc, cfg)
-	return handlers.NewBackupHandler(nil, cfg, nil, svc), cfg
+	orch := services.NewBackupOrchestrator(svc, cfg)
+	return handlers.NewBackupHandler(nil, nil, svc, orch), cfg
 }
 
 func TestSaveScheduleRejectsBadCron(t *testing.T) {

@@ -291,11 +291,15 @@ func (s *MetricsService) collectBackup(snap *MetricsSnapshot) {
 	if s.backup == nil {
 		return
 	}
-	snap.BackupLastRunUnix = s.cfg.Backup.LastRun.Unix()
-	if s.cfg.Backup.LastStatus == "ok" {
+	b, ok := s.backup.Settings()
+	if !ok {
+		b = s.cfg.Backup
+	}
+	snap.BackupLastRunUnix = b.LastRun.Unix()
+	if b.LastStatus == "ok" {
 		snap.BackupLastStatusOK = 1
 	}
-	snap.BackupHistorySize = len(s.cfg.Backup.History)
+	snap.BackupHistorySize = len(b.History)
 }
 
 // ifaceMetricsFromMonitor flattens the monitor's per-iface map into

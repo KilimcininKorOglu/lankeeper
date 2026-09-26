@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -21,26 +22,27 @@ import (
 // concern per handler" convention.
 type BackupHandler struct {
 	renderer *tmpl.Renderer
-	cfg      *config.Config
 	loc      *i18n.I18n
 	backup   *services.BackupService
+	orch     *services.BackupOrchestrator
 }
 
-func NewBackupHandler(renderer *tmpl.Renderer, cfg *config.Config, loc *i18n.I18n, backup *services.BackupService) *BackupHandler {
-	return &BackupHandler{renderer: renderer, cfg: cfg, loc: loc, backup: backup}
+func NewBackupHandler(renderer *tmpl.Renderer, loc *i18n.I18n, backup *services.BackupService, orch *services.BackupOrchestrator) *BackupHandler {
+	return &BackupHandler{renderer: renderer, loc: loc, backup: backup, orch: orch}
 }
 
 // HandleBackupPage renders the backup schedule + history page.
 func (h *BackupHandler) HandleBackupPage(w http.ResponseWriter, r *http.Request) {
 	lang := i18n.LangFromContext(r.Context())
+	b := h.orch.Settings()
 	data := &tmpl.PageData{
 		Lang: lang,
 		Page: "backup",
 		Data: map[string]any{
-			"Backup":  h.cfg.Backup,
-			"Targets": h.cfg.Backup.Targets,
-			"History": reverseHistory(h.cfg.Backup.History),
-			"HasPass": h.cfg.Backup.Passphrase != "",
+			"Backup":  b,
+			"Targets": b.Targets,
+			"History": reverseHistory(b.History),
+			"HasPass": b.Passphrase != "",
 		},
 	}
 	if err := h.renderer.Render(w, "backup", "default", data); err != nil {
@@ -76,13 +78,7 @@ func (h *BackupHandler) HandleSaveSchedule(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	h.cfg.Backup.Enabled = enabled
-	h.cfg.Backup.Schedule = schedule
-	h.cfg.Backup.Retention = retention
-	if passphrase != "" {
-		h.cfg.Backup.Passphrase = passphrase
-	}
-	if err := h.cfg.SaveToFile(); err != nil {
+	if err := h.orch.SaveSchedule(enabled, schedule, retention, passphrase); err != nil {
 		serverError(w, r, "error.saveFailed", err)
 		return
 	}
@@ -102,12 +98,6 @@ func (h *BackupHandler) HandleAddTarget(w http.ResponseWriter, r *http.Request) 
 	if name == "" {
 		clientError(w, r, http.StatusBadRequest, "error.nameRequired")
 		return
-	}
-	for _, t := range h.cfg.Backup.Targets {
-		if t.Name == name {
-			clientError(w, r, http.StatusBadRequest, "error.duplicateName")
-			return
-		}
 	}
 	target := config.BackupTarget{
 		Type: r.FormValue("type"),
@@ -136,8 +126,12 @@ func (h *BackupHandler) HandleAddTarget(w http.ResponseWriter, r *http.Request) 
 		clientError(w, r, http.StatusBadRequest, "error.invalidType")
 		return
 	}
-	h.cfg.Backup.Targets = append(h.cfg.Backup.Targets, target)
-	if err := h.cfg.SaveToFile(); err != nil {
+	err := h.orch.AddTarget(target)
+	if errors.Is(err, services.ErrBackupTargetExists) {
+		clientError(w, r, http.StatusBadRequest, "error.duplicateName")
+		return
+	}
+	if err != nil {
 		serverError(w, r, "error.saveFailed", err)
 		return
 	}
@@ -152,21 +146,12 @@ func (h *BackupHandler) HandleDeleteTarget(w http.ResponseWriter, r *http.Reques
 		clientError(w, r, http.StatusBadRequest, "error.nameRequired")
 		return
 	}
-	out := make([]config.BackupTarget, 0, len(h.cfg.Backup.Targets))
-	found := false
-	for _, t := range h.cfg.Backup.Targets {
-		if t.Name == name {
-			found = true
-			continue
-		}
-		out = append(out, t)
-	}
-	if !found {
+	err := h.orch.RemoveTarget(name)
+	if errors.Is(err, services.ErrBackupTargetNotFound) {
 		clientError(w, r, http.StatusNotFound, "error.targetNotFound")
 		return
 	}
-	h.cfg.Backup.Targets = out
-	if err := h.cfg.SaveToFile(); err != nil {
+	if err != nil {
 		serverError(w, r, "error.saveFailed", err)
 		return
 	}
@@ -191,7 +176,7 @@ func (h *BackupHandler) HandleRunNow(w http.ResponseWriter, r *http.Request) {
 // polling. Used by the page's auto-refreshing history table.
 func (h *BackupHandler) HandleHistory(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(reverseHistory(h.cfg.Backup.History))
+	_ = json.NewEncoder(w).Encode(reverseHistory(h.orch.Settings().History))
 }
 
 // reverseHistory returns the history slice with the newest entry
