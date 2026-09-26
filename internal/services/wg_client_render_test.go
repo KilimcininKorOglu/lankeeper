@@ -148,3 +148,33 @@ func TestShippedRulesetForwardsLANToTheUSBTether(t *testing.T) {
 		t.Fatalf("no LAN -> USB tether accept:\n%s", rendered)
 	}
 }
+
+// A nat chain sees only the first packet of a connection, so the TTL
+// rewrite has to live in a filter chain.
+func TestShippedRulesetRewritesTTLInAFilterChain(t *testing.T) {
+	t.Chdir("../..")
+	cfg := config.DefaultConfig()
+	cfg.Interfaces = []config.InterfaceConfig{
+		{ID: "wan", Device: "enp3s0", Role: "wan"},
+		{ID: "lan", Device: "enp0s25", Role: "lan"},
+	}
+	cfg.Firewall.TTLFix.Enabled = true
+	cfg.Firewall.TTLFix.Value = 65
+	svc, err := NewFirewallService(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.stopWatchdog)
+	rendered, err := svc.RenderConfig()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	rule := strings.Index(rendered, `oifname "enp3s0" ip ttl set 65`)
+	if rule < 0 {
+		t.Fatalf("TTL rule missing:\n%s", rendered)
+	}
+	chain := rendered[strings.LastIndex(rendered[:rule], "chain "):rule]
+	if !strings.Contains(chain, "type filter hook postrouting") {
+		t.Fatalf("TTL rule is not in a filter postrouting chain:\n%s", chain)
+	}
+}

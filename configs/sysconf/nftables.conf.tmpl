@@ -197,15 +197,20 @@ table ip nat {
 {{- if .USBNATEnabled }}
         oifname "{{ .USBInterface }}" masquerade
 {{- end }}
-
-        # TTL Fix (tethering bypass)
+    }
 {{- if .TTLFixEnabled }}
+
+    # TTL fix (tethering bypass). A filter chain, not the nat chain above:
+    # only the first packet of a connection traverses a nat-type chain,
+    # so a rewrite there left every later packet with its original TTL.
+    chain ttlfix {
+        type filter hook postrouting priority mangle; policy accept;
 {{- range .WANInterfaces }}
         oifname "{{ .Device }}" ip ttl set {{ $.TTLFixValue }}
 {{- end }}
 {{- if .USBNATEnabled }}
         oifname "{{ .USBInterface }}" ip ttl set {{ .TTLFixValue }}
 {{- end }}
-{{- end }}
     }
+{{- end }}
 }
