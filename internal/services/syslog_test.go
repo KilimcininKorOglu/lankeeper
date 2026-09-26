@@ -244,3 +244,20 @@ func TestSyslogSaveClientRejectsPathTraversalCAFile(t *testing.T) {
 		t.Errorf("error should name the rejected field, got %q", err.Error())
 	}
 }
+
+// TestSaveClientConfigRefusesAnInjectedRemoteHost is the regression test.
+// The host lands inside quoted RainerScript strings and after @ in
+// rsyslog.conf, so a quote or a line break added directives, including a
+// program-execution action, to a config the root daemon loads.
+func TestSaveClientConfigRefusesAnInjectedRemoteHost(t *testing.T) {
+	for _, host := range []string{
+		"logs.example.com\"\nmodule(load=\"omprog\")",
+		"logs.example.com\n*.* :omprog:",
+		"a b",
+	} {
+		svc := services.NewSyslogService(&config.Config{})
+		if err := svc.SaveClientConfig(config.SyslogClientConfig{RemoteHost: host}); err == nil {
+			t.Errorf("remote host %q was accepted", host)
+		}
+	}
+}

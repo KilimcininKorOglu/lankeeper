@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -193,8 +194,22 @@ func (s *SyslogService) SaveClientConfig(cfg config.SyslogClientConfig) error {
 	if err := validateTLSPath("tls_ca_file", cfg.TLSCAFile); err != nil {
 		return err
 	}
+	if err := validateSyslogRemoteHost(cfg.RemoteHost); err != nil {
+		return err
+	}
 	s.cfg.Syslog.Client = cfg
 	return s.cfg.SaveToFile()
+}
+
+// validateSyslogRemoteHost accepts an empty value (forwarding off), an IP
+// address or a DNS name. The host is written inside RainerScript quoted
+// strings and after @/@@ in rsyslog.conf, so a quote or a line break
+// would add directives the root rsyslog daemon loads.
+func validateSyslogRemoteHost(host string) error {
+	if host == "" || net.ParseIP(host) != nil || ValidateDomain(host) == nil {
+		return nil
+	}
+	return fmt.Errorf("syslog remote host %q must be an IP address or a DNS name", host)
 }
 
 // validateTLSPath enforces that a syslog TLS path is empty (operator
