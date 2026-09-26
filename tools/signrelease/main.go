@@ -3,7 +3,10 @@
 //
 // The router verifies the detached signature against the public key
 // compiled into the running binary before it installs an update, so the
-// private key never enters the repository.
+// private key never enters the repository. Signing checks its own output
+// against that same compiled-in key and writes nothing when they differ:
+// a release signed with any other key is one every router refuses, and
+// an immutable release cannot be corrected afterwards.
 //
 //	go run ./tools/signrelease -generate -key ~/.config/lankeeper/release-signing.key
 //	go run ./tools/signrelease -key ~/.config/lankeeper/release-signing.key dist/SHA256SUMS
@@ -19,6 +22,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/KilimcininKorOglu/lankeeper/internal/releasekey"
 )
 
 func main() {
@@ -35,7 +40,7 @@ func main() {
 	case flag.NArg() != 1:
 		err = errors.New("usage: signrelease -key FILE SHA256SUMS")
 	default:
-		err = sign(*keyPath, flag.Arg(0))
+		err = sign(*keyPath, flag.Arg(0), releasekey.PublicKey())
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "signrelease:", err)
@@ -69,8 +74,14 @@ func generateKey(path string) error {
 }
 
 // sign writes the base64 signature of the file at sumsPath to
-// sumsPath+".sig".
-func sign(keyPath, sumsPath string) error {
+// sumsPath+".sig", after checking that it verifies against trusted. Any
+// signature already beside sumsPath is removed first, so a failed run
+// never leaves an old signature next to a new SHA256SUMS.
+func sign(keyPath, sumsPath string, trusted ed25519.PublicKey) error {
+	sigPath := sumsPath + ".sig"
+	if err := os.Remove(sigPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	raw, err := os.ReadFile(keyPath) // #nosec G304 -- operator-supplied key path
 	if err != nil {
 		return err
@@ -83,8 +94,11 @@ func sign(keyPath, sumsPath string) error {
 	if err != nil {
 		return err
 	}
-	sig := ed25519.Sign(ed25519.NewKeyFromSeed(seed), sums)
+	sig := []byte(base64.StdEncoding.EncodeToString(ed25519.Sign(ed25519.NewKeyFromSeed(seed), sums)) + "\n")
+	if err := releasekey.Verify(trusted, sums, sig); err != nil {
+		return fmt.Errorf("the key at %s is not the release key compiled into the router: %w", keyPath, err)
+	}
 	// The signature is published with the release, so it is world-readable
 	// on purpose.
-	return os.WriteFile(sumsPath+".sig", []byte(base64.StdEncoding.EncodeToString(sig)+"\n"), 0o644) // #nosec G306 G703 -- operator-supplied release file
+	return os.WriteFile(sigPath, sig, 0o644) // #nosec G306 G703 -- operator-supplied release file
 }

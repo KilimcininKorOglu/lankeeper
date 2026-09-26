@@ -180,10 +180,3 @@ func TestVerifyChecksumRefusesAnAssetFromAnotherRelease(t *testing.T) {
 		t.Error("an archive built for v1.0.0 was accepted as v1.2.3")
 	}
 }
-
-// The embedded key has to decode, or every update fails.
-func TestTheEmbeddedReleaseKeyDecodes(t *testing.T) {
-	if len(mustDecodeSigningKey(releaseSigningKeyB64)) != ed25519.PublicKeySize {
-		t.Fatal("release signing key has the wrong size")
-	}
-}
