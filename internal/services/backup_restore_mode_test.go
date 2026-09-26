@@ -90,7 +90,10 @@ func writeArchiveWithModes(t *testing.T, path string, files map[string]int64, di
 		}
 	}
 	for name, mode := range files {
-		const body = "secret\n"
+		body := "secret\n"
+		if filepath.Base(name) == "router.yaml" {
+			body = validRouterYAML(t)
+		}
 		hdr := &tar.Header{
 			Name:     name,
 			Mode:     mode,

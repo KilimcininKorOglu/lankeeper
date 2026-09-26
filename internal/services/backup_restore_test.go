@@ -96,6 +96,7 @@ func writeTestArchive(t *testing.T, path string, members map[string]string) {
 //
 // Mutates the process-global agent client, so no t.Parallel here.
 func TestImportRestoresEachDirectoryToItsOwnRoot(t *testing.T) {
+	cfgYAML := validRouterYAML(t)
 	root := t.TempDir()
 	cfgDir := filepath.Join(root, "lankeeper")
 	unbound := filepath.Join(root, "unbound")
@@ -110,7 +111,7 @@ func TestImportRestoresEachDirectoryToItsOwnRoot(t *testing.T) {
 
 	archive := filepath.Join(root, "backup.tar.gz")
 	writeTestArchive(t, archive, map[string]string{
-		"lankeeper/router.yaml": "lan: 10.10.10.0/24\n",
+		"lankeeper/router.yaml": cfgYAML,
 		"unbound/unbound.conf":  "server:\n",
 		"openvpn/pki/ca.crt":    "CA CERT\n",
 	})
@@ -121,7 +122,7 @@ func TestImportRestoresEachDirectoryToItsOwnRoot(t *testing.T) {
 	}
 
 	want := map[string]string{
-		filepath.Join(cfgDir, "router.yaml"):    "lan: 10.10.10.0/24\n",
+		filepath.Join(cfgDir, "router.yaml"):    cfgYAML,
 		filepath.Join(unbound, "unbound.conf"):  "server:\n",
 		filepath.Join(openvpn, "pki", "ca.crt"): "CA CERT\n",
 	}
@@ -160,7 +161,7 @@ func TestImportSkipsUnknownTopLevelDirectory(t *testing.T) {
 
 	archive := filepath.Join(root, "backup.tar.gz")
 	writeTestArchive(t, archive, map[string]string{
-		"lankeeper/router.yaml":   "cfg\n",
+		"lankeeper/router.yaml":   validRouterYAML(t),
 		"somefuturething/data.db": "future\n",
 	})
 

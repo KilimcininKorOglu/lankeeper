@@ -91,7 +91,7 @@ func seedConfigOnly(t *testing.T, root string) string {
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(cfgDir, "router.yaml"), []byte("x: 1\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(cfgDir, "router.yaml"), []byte(validRouterYAML(t)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	origExtra := backupExtraDirs

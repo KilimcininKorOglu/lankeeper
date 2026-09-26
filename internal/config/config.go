@@ -693,6 +693,21 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
+// ValidateBytes checks a router.yaml read from somewhere other than its
+// live path, such as a backup archive, against the same rules Load
+// applies. Secrets are left encrypted: Validate does not read them, and
+// the key that decrypts them may not be installed yet.
+func ValidateBytes(data []byte) error {
+	cfg := &Config{}
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return fmt.Errorf("parse config: %w", err)
+	}
+	if errs := cfg.Validate(); len(errs) > 0 {
+		return fmt.Errorf("invalid config: %w", errors.Join(errs...))
+	}
+	return nil
+}
+
 func (c *Config) SetFilePath(path string) {
 	c.filePath = path
 }

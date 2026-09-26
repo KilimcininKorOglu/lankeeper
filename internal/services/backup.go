@@ -357,45 +357,109 @@ func decryptArchiveInPlace(archivePath, passphrase string) error {
 	return nil
 }
 
-// restoreArchive writes every member of tr under its restore root,
-// within the import budget. The credential key is taken only from an
-// encrypted archive, and installed only after every other member was
-// written, so a failed restore leaves the running key in place.
+// stagedMember is one archive member held in memory until the whole
+// archive has been checked.
+type stagedMember struct {
+	target string
+	isDir  bool
+	data   []byte
+}
+
+// restoreArchive restores tr in two passes. The first reads every member
+// into memory within the import budget and checks the archive as a
+// whole, including the restored router.yaml against config.Validate;
+// the second writes. A bad archive therefore leaves every live file as
+// it was, instead of a mix of old and restored files, and a config the
+// next start would refuse is never installed. The credential key is
+// taken only from an encrypted archive and installed last.
 func (s *BackupService) restoreArchive(tr *tar.Reader, encrypted bool) error {
+	members, key, err := s.stageArchive(tr, encrypted)
+	if err != nil {
+		return err
+	}
+	if err := validateStagedConfig(members, s.configDir); err != nil {
+		return err
+	}
+	for _, m := range members {
+		if err := installMember(m); err != nil {
+			return err
+		}
+	}
+	return installArchivedKey(key)
+}
+
+// stageArchive reads every member of tr without writing anything.
+func (s *BackupService) stageArchive(tr *tar.Reader, encrypted bool) ([]stagedMember, []byte, error) {
 	roots := restoreRoots(s.configDir, backupExtraDirs)
 	budget := newImportBudget()
+	var members []stagedMember
 	var key []byte
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
-			return installArchivedKey(key)
+			return members, key, nil
 		}
 		if err != nil {
-			return fmt.Errorf("read tar header: %w", err)
+			return nil, nil, fmt.Errorf("read tar header: %w", err)
 		}
 		if filepath.Clean(hdr.Name) == archiveKeyMember {
 			if key, err = readArchivedKey(tr, hdr, encrypted, budget); err != nil {
-				return err
+				return nil, nil, err
 			}
 			continue
 		}
-		if err := restoreMember(tr, hdr, roots, budget); err != nil {
-			return err
+		m, err := stageMember(tr, hdr, roots, budget)
+		if err != nil {
+			return nil, nil, err
+		}
+		if m != nil {
+			members = append(members, *m)
 		}
 	}
 }
 
-// restoreMember writes one archive member to its restore target.
-func restoreMember(tr io.Reader, hdr *tar.Header, roots map[string]string, budget *importBudget) error {
+// validateStagedConfig refuses an archive whose router.yaml the next
+// start would refuse. serve stops on an invalid config, and the web UI is
+// the only interface that could correct it.
+func validateStagedConfig(members []stagedMember, configDir string) error {
+	cfgPath := filepath.Join(configDir, "router.yaml")
+	for _, m := range members {
+		if m.isDir || m.target != cfgPath {
+			continue
+		}
+		if err := config.ValidateBytes(m.data); err != nil {
+			return fmt.Errorf("archived router.yaml: %w", err)
+		}
+	}
+	return nil
+}
+
+// installMember writes one staged member to its live path.
+func installMember(m stagedMember) error {
+	if m.isDir {
+		if err := netutil.MkdirAll(m.target, restoreDirMode); err != nil {
+			return fmt.Errorf("mkdir %s: %w", m.target, err)
+		}
+		return nil
+	}
+	if err := netutil.WriteFile(m.target, m.data, restoreFileMode); err != nil {
+		return fmt.Errorf("write %s: %w", m.target, err)
+	}
+	return nil
+}
+
+// stageMember checks one archive member and reads it, or returns nil for
+// a member this binary does not restore.
+func stageMember(tr io.Reader, hdr *tar.Header, roots map[string]string, budget *importBudget) (*stagedMember, error) {
 	// Counted before the skip below, so an archive padded with entries
 	// this binary does not restore is bounded too.
 	if err := budget.countEntry(); err != nil {
-		return err
+		return nil, err
 	}
 
 	clean := filepath.Clean(hdr.Name)
 	if strings.Contains(clean, "..") || filepath.IsAbs(clean) {
-		return fmt.Errorf("unsafe tar member rejected: %s", hdr.Name)
+		return nil, fmt.Errorf("unsafe tar member rejected: %s", hdr.Name)
 	}
 
 	target, ok := resolveRestoreTarget(roots, clean)
@@ -405,41 +469,39 @@ func restoreMember(tr io.Reader, hdr *tar.Header, roots map[string]string, budge
 		// is harmless, whereas failing would make that archive entirely
 		// unrestorable here.
 		log.Printf("backup: skipping unknown archive entry %s", hdr.Name)
-		return nil
+		return nil, nil
 	}
 
 	switch hdr.Typeflag {
 	case tar.TypeDir:
-		if err := netutil.MkdirAll(target, restoreDirMode); err != nil {
-			return fmt.Errorf("mkdir %s: %w", target, err)
-		}
-		return nil
+		return &stagedMember{target: target, isDir: true}, nil
 	case tar.TypeReg:
-		return restoreFile(tr, hdr.Name, target, budget)
+		data, err := readMember(tr, hdr.Name, budget)
+		if err != nil {
+			return nil, err
+		}
+		return &stagedMember{target: target, data: data}, nil
 	default:
-		return fmt.Errorf("unsupported tar member type %d: %s", hdr.Typeflag, hdr.Name)
+		return nil, fmt.Errorf("unsupported tar member type %d: %s", hdr.Typeflag, hdr.Name)
 	}
 }
 
-// restoreFile reads one regular member and writes it to target.
+// readMember reads one regular member within the budget.
 //
 // It reads one byte past the cap, so an oversized member is detected
 // rather than silently truncated. A plain LimitReader at the cap returns
 // exactly the cap with a nil error, and the member was written short with
 // nothing reported: a restored blocklist would come back cut off and look
 // restored.
-func restoreFile(tr io.Reader, name, target string, budget *importBudget) error {
-	memberData, err := io.ReadAll(io.LimitReader(tr, maxImportEntryBytes+1))
+func readMember(tr io.Reader, name string, budget *importBudget) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(tr, maxImportEntryBytes+1))
 	if err != nil {
-		return fmt.Errorf("read tar member %s: %w", name, err)
+		return nil, fmt.Errorf("read tar member %s: %w", name, err)
 	}
-	if err := budget.countBytes(name, int64(len(memberData))); err != nil {
-		return err
+	if err := budget.countBytes(name, int64(len(data))); err != nil {
+		return nil, err
 	}
-	if err := netutil.WriteFile(target, memberData, restoreFileMode); err != nil {
-		return fmt.Errorf("write tar member %s: %w", name, err)
-	}
-	return nil
+	return data, nil
 }
 
 // defaultsSubdir is the directory holding the factory YAML files inside

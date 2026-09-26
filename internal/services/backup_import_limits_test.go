@@ -202,7 +202,13 @@ func TestARealisticArchiveStillRestores(t *testing.T) {
 
 	archive := filepath.Join(root, "backup.tar.gz")
 	writeArchive(t, archive, func(tw *tar.Writer) {
-		addFile(t, tw, "lankeeper/router.yaml", 64<<10)
+		cfg := []byte(validRouterYAML(t))
+		if err := tw.WriteHeader(&tar.Header{Name: "lankeeper/router.yaml", Mode: 0o600, Size: int64(len(cfg)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write(cfg); err != nil {
+			t.Fatal(err)
+		}
 		for i := range 500 {
 			addFile(t, tw, fmt.Sprintf("lankeeper/pki/issued/client%03d.crt", i), 2<<10)
 			addFile(t, tw, fmt.Sprintf("lankeeper/pki/private/client%03d.key", i), 2<<10)
