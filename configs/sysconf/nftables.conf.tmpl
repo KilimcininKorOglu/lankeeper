@@ -111,10 +111,11 @@ table inet filter {
 {{- end }}
 {{- end }}
 
-        # WireGuard Client tunnels ↔ LAN forwarding
+        # LAN -> outbound WireGuard client tunnels. The far side is a
+        # third-party VPN, so nothing it opens toward the LAN is accepted;
+        # replies pass through the ct state rule above.
 {{- range $wg := .WGClientIfaces }}
 {{- range $.LANInterfaces }}
-        iifname "{{ $wg }}" oifname "{{ .Device }}" accept
         iifname "{{ .Device }}" oifname "{{ $wg }}" accept
 {{- end }}
 {{- end }}

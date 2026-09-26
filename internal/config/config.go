@@ -452,6 +452,11 @@ type WGClientTunnel struct {
 	DNS        string `yaml:"dns"`
 	Table      int    `yaml:"table"`
 	Fwmark     int    `yaml:"fwmark"`
+	// Address is the tunnel address the provider assigned, in CIDR form.
+	Address      string `yaml:"address,omitempty"`
+	MTU          int    `yaml:"mtu,omitempty"`
+	PresharedKey string `yaml:"presharedKey,omitempty"`
+	Keepalive    int    `yaml:"keepalive,omitempty"`
 }
 
 type WGServerConfig struct {

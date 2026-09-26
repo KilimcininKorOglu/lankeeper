@@ -215,7 +215,6 @@ table inet filter {
 {{- end }}
 {{- range $wg := .WGClientIfaces }}
 {{- range $.LANInterfaces }}
-        iifname "{{ $wg }}" oifname "{{ .Device }}" accept
         iifname "{{ .Device }}" oifname "{{ $wg }}" accept
 {{- end }}
 {{- end }}
@@ -247,11 +246,11 @@ func TestFirewallRenderWithWireGuard(t *testing.T) {
 	if !strings.Contains(rendered, `iifname "enp0s25" oifname "wgs0" accept`) {
 		t.Errorf("should contain LAN → WG server rule, got:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, `iifname "wg0" oifname "enp0s25" accept`) {
-		t.Errorf("should contain WG client 0 → LAN rule, got:\n%s", rendered)
+	if !strings.Contains(rendered, `iifname "enp0s25" oifname "wg0" accept`) {
+		t.Errorf("should contain LAN → WG client 0 rule, got:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, `iifname "wg1" oifname "enp0s25" accept`) {
-		t.Errorf("should contain WG client 1 → LAN rule, got:\n%s", rendered)
+	if !strings.Contains(rendered, `iifname "enp0s25" oifname "wg1" accept`) {
+		t.Errorf("should contain LAN → WG client 1 rule, got:\n%s", rendered)
 	}
 }
 
