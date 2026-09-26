@@ -259,7 +259,7 @@ var leaseTimePattern = regexp.MustCompile(`^([0-9]+[smhdw]?|infinite)$`)
 // was saved would stop the service from starting.
 func (s *NetworkService) ValidateVLAN(v config.VLANConfig) error {
 	for _, check := range []func(config.VLANConfig) error{
-		s.validateVLANIdentity, validateVLANFields, validateVLANDHCP,
+		s.validateVLANIdentity, validateVLANFields, validateVLANDHCP, s.validateVLANSubnet,
 	} {
 		if err := check(v); err != nil {
 			return fmt.Errorf("%w: %v", ErrInvalidVLAN, err)
@@ -289,6 +289,54 @@ func (s *NetworkService) validateVLANIdentity(v config.VLANConfig) error {
 		}
 	}
 	return nil
+}
+
+// validateVLANSubnet refuses a VLAN address whose subnet overlaps a
+// network the router already serves: a LAN interface, another VLAN, or
+// the WireGuard or OpenVPN server subnet. Two segments on one subnet get
+// duplicate DHCP pools and routing that depends on which connected route
+// the kernel picks.
+func (s *NetworkService) validateVLANSubnet(v config.VLANConfig) error {
+	if v.Address == "" {
+		return nil
+	}
+	_, vNet, err := net.ParseCIDR(v.Address)
+	if err != nil {
+		return nil // validateVLANFields reports it
+	}
+	for _, used := range s.servedSubnets() {
+		_, uNet, err := net.ParseCIDR(used)
+		if err != nil {
+			continue
+		}
+		if vNet.Contains(uNet.IP) || uNet.Contains(vNet.IP) {
+			return fmt.Errorf("address %s overlaps %s, which the router already serves", v.Address, uNet)
+		}
+	}
+	return nil
+}
+
+// servedSubnets lists the networks of the LAN interfaces, the VLANs and
+// the VPN server subnets.
+func (s *NetworkService) servedSubnets() []string {
+	var out []string
+	for _, iface := range s.cfg.Interfaces {
+		if iface.Role == "lan" && iface.Address != "" {
+			out = append(out, iface.Address)
+		}
+	}
+	for _, vlan := range s.cfg.VLANs {
+		if vlan.Address != "" {
+			out = append(out, vlan.Address)
+		}
+	}
+	if a := s.cfg.VPN.Server.Address; a != "" {
+		out = append(out, a)
+	}
+	if n := s.cfg.OpenVPN.Server.Subnet; n != "" {
+		out = append(out, n)
+	}
+	return out
 }
 
 // validateVLANFields checks the label, role, type, address and MTU.
