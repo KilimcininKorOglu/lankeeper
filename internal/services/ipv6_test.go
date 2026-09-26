@@ -800,3 +800,19 @@ func TestShippedRADropInAdvertisesADefaultRoute(t *testing.T) {
 		t.Fatalf("no ra-param rendered:\n%s", out)
 	}
 }
+
+// Clients that learn DNS only from RA must still reach Unbound, so the
+// router itself is the advertised resolver, also when no lease carried
+// RDNSS.
+func TestIPv6RenderRAConfigAdvertisesTheRouterAsDNS(t *testing.T) {
+	cfg := newIPv6TestConfig(t)
+	svc := newIPv6TestService(t, cfg)
+
+	out, err := svc.RenderRAConfig()
+	if err != nil {
+		t.Fatalf("render RA: %v", err)
+	}
+	if !strings.Contains(out, "dhcp-option=tag:ra-eth1,option6:dns-server,[fe80::]") {
+		t.Errorf("RA does not advertise the router as its DNS server:\n%s", out)
+	}
+}

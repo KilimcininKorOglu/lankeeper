@@ -236,10 +236,8 @@ type dnsmasqRATemplateData struct {
 	// link MTU instead of the default 1500. Defaults to 1492 when
 	// PPPoE is in use, 1500 otherwise.
 	MTU int
-	// RDNSSAddrs are the upstream DNS server IPv6 addresses learned
-	// from the dhcp6c lease event. We always prepend the router's
-	// link-local address (::1) so unbound stays in the path even when
-	// the ISP did not push DNS.
+	// RDNSSAddrs are the DNS server addresses the RA carries; see
+	// rdnssAddrs.
 	RDNSSAddrs []string
 	// SearchDomain is `cfg.System.Domain` when set, used for the RA's
 	// option6:domain-search DNSSL. Empty string disables the option.
@@ -370,26 +368,15 @@ func (s *IPv6Service) advertisedMTU() int {
 	return 1500
 }
 
-// rdnssAddrs returns the DNS servers to advertise via RA. Reads the
-// dhcp6c lease state file directly (not via Status() — we want to keep
-// RenderRAConfig pure-ish; failures fall back to the empty slice).
-// Always prepends a router-local address so unbound stays reachable
-// even before the upstream lease arrives.
+// rdnssAddrs returns the DNS servers to advertise via RA: the router
+// itself, never the upstream resolvers from the lease. Clients that
+// learn DNS only from RA (Android among them) would otherwise query the
+// ISP directly and bypass Unbound's blocklist, local names and DoT/DoH.
+// dnsmasq replaces [fe80::] with the interface's own link-local address,
+// which Unbound's access-control admits (fe80::/10), so it works before
+// any lease arrives and in 6in4 mode, where there is no lease.
 func (s *IPv6Service) rdnssAddrs() []string {
-	out := []string{}
-	raw, err := netutil.ReadFile(s.statePath())
-	if err == nil && len(bytes.TrimSpace(raw)) > 0 {
-		var st PrefixState
-		if jsonErr := json.Unmarshal(raw, &st); jsonErr == nil && st.RDNSS != "" {
-			for f := range strings.FieldsSeq(st.RDNSS) {
-				if f == "" {
-					continue
-				}
-				out = append(out, f)
-			}
-		}
-	}
-	return out
+	return []string{"fe80::"}
 }
 
 // ulaPrefix returns the configured ULA prefix or generates one on
