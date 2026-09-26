@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"regexp"
 	"slices"
@@ -518,16 +519,8 @@ func (s *VPNService) CreateS2SInvite(
 		// PublicKey deliberately empty until the ack arrives.
 	}
 
-	s.mu.Lock()
-	if s.peerNameTakenLocked(peerName) {
-		s.mu.Unlock()
-		return "", nil, fmt.Errorf("%w: %s", ErrPeerNameInUse, peerName)
-	}
-	s.cfg.VPN.Server.Peers = append(s.cfg.VPN.Server.Peers, pending)
-	s.mu.Unlock()
-
-	if err := s.persist(); err != nil {
-		return "", nil, fmt.Errorf("persist pending peer: %w", err)
+	if err := s.appendPeer(pending); err != nil {
+		return "", nil, fmt.Errorf("add pending peer: %w", err)
 	}
 
 	inv := S2SInvite{
@@ -611,16 +604,8 @@ func (s *VPNService) ConsumeInvite(
 		IsSiteToSite:  true,
 	}
 
-	s.mu.Lock()
-	if s.peerNameTakenLocked(inv.Name) {
-		s.mu.Unlock()
-		return "", "", nil, fmt.Errorf("%w: %s", ErrPeerNameInUse, inv.Name)
-	}
-	s.cfg.VPN.Server.Peers = append(s.cfg.VPN.Server.Peers, peer)
-	s.mu.Unlock()
-
-	if err := s.persist(); err != nil {
-		return "", "", nil, fmt.Errorf("persist peer: %w", err)
+	if err := s.appendPeer(peer); err != nil {
+		return "", "", nil, fmt.Errorf("add peer: %w", err)
 	}
 
 	ack := S2SAck{
@@ -667,24 +652,37 @@ func (s *VPNService) FinalizeInvite(_ context.Context, peerName, ackToken string
 	}
 
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	idx, err := s.pendingPeerIndexLocked(peerName)
 	if err == nil {
 		err = verifyAck(body, mac, s.cfg.VPN.Server.Peers[idx].PresharedKey)
 	}
 	if err != nil {
-		s.mu.Unlock()
 		return nil, err
 	}
-	s.cfg.VPN.Server.Peers[idx].PublicKey = ack.PublicKey
-	s.cfg.VPN.Server.Peers[idx].Pending = false
-	s.cfg.VPN.Server.Peers[idx].InviteExpiresAt = time.Time{}
-	saved := s.cfg.VPN.Server.Peers[idx]
-	s.mu.Unlock()
-
+	peers := slices.Clone(s.cfg.VPN.Server.Peers)
+	peers[idx].PublicKey = ack.PublicKey
+	peers[idx].Pending = false
+	peers[idx].InviteExpiresAt = time.Time{}
+	s.cfg.VPN.Server.Peers = peers
 	if err := s.persist(); err != nil {
 		return nil, fmt.Errorf("persist finalize: %w", err)
 	}
+	saved := peers[idx]
 	return &saved, nil
+}
+
+// appendPeer adds a peer whose name no other peer holds and persists
+// the list inside the same critical section, so the marshal never reads
+// the slice while another caller changes it.
+func (s *VPNService) appendPeer(peer config.WGServerPeer) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.peerNameTakenLocked(peer.Name) {
+		return fmt.Errorf("%w: %s", ErrPeerNameInUse, peer.Name)
+	}
+	s.cfg.VPN.Server.Peers = append(s.cfg.VPN.Server.Peers, peer)
+	return s.persist()
 }
 
 // pendingPeerIndexLocked finds the named peer and checks it is still an
@@ -725,7 +723,7 @@ func (s *VPNService) CancelInvite(peerName string) error {
 		if !p.Pending {
 			return ErrPeerNotPending
 		}
-		s.cfg.VPN.Server.Peers = append(s.cfg.VPN.Server.Peers[:i], s.cfg.VPN.Server.Peers[i+1:]...)
+		s.removePeerAtLocked(i)
 		return s.persist()
 	}
 	return nil
@@ -736,19 +734,23 @@ func (s *VPNService) CancelInvite(peerName string) error {
 func (s *VPNService) GCExpiredInvites() int {
 	now := time.Now()
 	s.mu.Lock()
-	kept := s.cfg.VPN.Server.Peers[:0]
-	reaped := 0
+	defer s.mu.Unlock()
+	// A fresh slice: compacting in place would shift entries under any
+	// reader still holding the old header.
+	kept := make([]config.WGServerPeer, 0, len(s.cfg.VPN.Server.Peers))
 	for _, p := range s.cfg.VPN.Server.Peers {
 		if p.Pending && !p.InviteExpiresAt.IsZero() && now.After(p.InviteExpiresAt) {
-			reaped++
 			continue
 		}
 		kept = append(kept, p)
 	}
+	reaped := len(s.cfg.VPN.Server.Peers) - len(kept)
+	if reaped == 0 {
+		return 0
+	}
 	s.cfg.VPN.Server.Peers = kept
-	s.mu.Unlock()
-	if reaped > 0 {
-		_ = s.persist()
+	if err := s.persist(); err != nil {
+		log.Printf("vpn: persist after reaping %d expired invites: %v", reaped, err)
 	}
 	return reaped
 }

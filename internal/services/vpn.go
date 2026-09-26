@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"text/template"
@@ -184,7 +185,7 @@ func (s *VPNService) ServerStatus(ctx context.Context) (*WGServerStatus, error) 
 		}
 	}
 
-	for _, peer := range s.cfg.VPN.Server.Peers {
+	for _, peer := range s.Peers() {
 		ps := WGPeerStatus{
 			Name:          peer.Name,
 			PublicKey:     peer.PublicKey,
@@ -375,13 +376,31 @@ func (s *VPNService) persist() error {
 	return s.cfg.SaveToFile()
 }
 
+// Peers returns a copy of the server's peer list taken under s.mu.
+//
+// Every mutation of the list replaces the slice instead of writing into
+// its backing array, so a reader that holds an older header, such as
+// another service's Save marshalling the whole config, still sees a
+// consistent list.
+func (s *VPNService) Peers() []config.WGServerPeer {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return slices.Clone(s.cfg.VPN.Server.Peers)
+}
+
+// removePeerAtLocked drops the peer at index i into a fresh slice.
+// Caller must hold s.mu.
+func (s *VPNService) removePeerAtLocked(i int) {
+	s.cfg.VPN.Server.Peers = slices.Delete(slices.Clone(s.cfg.VPN.Server.Peers), i, i+1)
+}
+
 func (s *VPNService) RemovePeer(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for i, p := range s.cfg.VPN.Server.Peers {
 		if p.Name == name {
-			s.cfg.VPN.Server.Peers = append(s.cfg.VPN.Server.Peers[:i], s.cfg.VPN.Server.Peers[i+1:]...)
+			s.removePeerAtLocked(i)
 			return s.persist()
 		}
 	}

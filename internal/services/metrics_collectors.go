@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"strings"
 	"time"
 
@@ -53,12 +54,22 @@ func (s *MetricsService) collectVPNMetrics(ctx context.Context) ([]WGPeerMetric,
 	return wg, s2s
 }
 
+// serverPeers returns the WireGuard server's peers, copied under the VPN
+// service's lock when one is wired.
+func (s *MetricsService) serverPeers() []config.WGServerPeer {
+	if s.vpn != nil {
+		return s.vpn.Peers()
+	}
+	return s.cfg.VPN.Server.Peers
+}
+
 // collectRoadWarriorPeers parses `wg show wg0 dump` and joins each
 // row against cfg.VPN.Server.Peers. We skip site-to-site peers
 // (handled separately) and pending peers that haven't completed
 // their join handshake.
 func (s *MetricsService) collectRoadWarriorPeers(ctx context.Context) []WGPeerMetric {
-	if !s.cfg.VPN.Server.Enabled || len(s.cfg.VPN.Server.Peers) == 0 {
+	serverPeers := s.serverPeers()
+	if !s.cfg.VPN.Server.Enabled || len(serverPeers) == 0 {
 		return nil
 	}
 	out, err := netutil.RunSimple(ctx, "wg", "show", "wg0", "dump")
@@ -66,9 +77,9 @@ func (s *MetricsService) collectRoadWarriorPeers(ctx context.Context) []WGPeerMe
 		return nil
 	}
 	dump := parseWGDump(out)
-	peers := make([]WGPeerMetric, 0, len(s.cfg.VPN.Server.Peers))
+	peers := make([]WGPeerMetric, 0, len(serverPeers))
 	now := time.Now().Unix()
-	for _, p := range s.cfg.VPN.Server.Peers {
+	for _, p := range serverPeers {
 		if p.IsSiteToSite || p.Pending {
 			continue
 		}
@@ -96,11 +107,15 @@ func (s *MetricsService) collectRoadWarriorPeers(ctx context.Context) []WGPeerMe
 // parser stays in one place. The vpn package is already
 // authoritative for site-to-site peer state.
 func (s *MetricsService) collectS2SPeers(ctx context.Context) []S2SPeerMetric {
-	if s.vpn == nil || len(s.cfg.VPN.Server.Peers) == 0 {
+	if s.vpn == nil {
+		return nil
+	}
+	serverPeers := s.vpn.Peers()
+	if len(serverPeers) == 0 {
 		return nil
 	}
 	out := make([]S2SPeerMetric, 0)
-	for _, p := range s.cfg.VPN.Server.Peers {
+	for _, p := range serverPeers {
 		if !p.IsSiteToSite || p.Pending {
 			continue
 		}
