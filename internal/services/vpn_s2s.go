@@ -329,6 +329,36 @@ func (s *VPNService) reservedSubnets() []string {
 	return out
 }
 
+// claimedSubnets is everything a new peer's subnets must stay clear of:
+// the reserved subnets, every VLAN, the OpenVPN server subnet while that
+// server runs, and every network an existing peer or pending invite
+// already routes. WireGuard hands an allowed IP to the last peer that
+// claims it, so an overlap with another peer silently takes that link's
+// traffic, and one with a VLAN or the OpenVPN pool pulls a local segment
+// into the tunnel.
+func (s *VPNService) claimedSubnets() []string {
+	out := s.reservedSubnets()
+	for _, v := range s.cfg.VLANs {
+		if v.Address != "" {
+			out = append(out, s.addressToSubnet(v.Address))
+		}
+	}
+	if srv := s.cfg.OpenVPN.Server; srv.Enabled && srv.Subnet != "" {
+		out = append(out, srv.Subnet)
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, p := range s.cfg.VPN.Server.Peers {
+		for entry := range strings.SplitSeq(p.AllowedIPs, ",") {
+			if entry = strings.TrimSpace(entry); entry != "" {
+				out = append(out, entry)
+			}
+		}
+		out = append(out, p.RemoteSubnets...)
+	}
+	return out
+}
+
 // sameSubnets reports whether two CIDR lists name the same set of
 // networks, ignoring order and host bits.
 func sameSubnets(a, b []string) bool {
@@ -395,7 +425,7 @@ func nextIP(ip net.IP) net.IP {
 // router routes locally. Conflict means a S2S tunnel cannot route
 // without NAT and we surface the error to the operator early.
 func (s *VPNService) subnetsConflict(remote []string) (string, bool) {
-	locals := s.reservedSubnets()
+	locals := s.claimedSubnets()
 	for _, r := range remote {
 		_, rNet, err := net.ParseCIDR(strings.TrimSpace(r))
 		if err != nil {
