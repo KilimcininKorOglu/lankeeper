@@ -102,6 +102,7 @@ type UpdateInfo struct {
 	ReleaseNotes   string `json:"releaseNotes"`
 	DownloadURL    string `json:"downloadURL"`
 	ChecksumURL    string `json:"checksumURL,omitempty"`
+	SignatureURL   string `json:"signatureURL,omitempty"`
 	AssetName      string `json:"assetName"`
 	PublishedAt    string `json:"publishedAt"`
 	AssetSize      int64  `json:"assetSize"`
@@ -231,8 +232,11 @@ func (s *UpdateService) selectAssets(info *UpdateInfo, assets []ghAsset) {
 			info.DownloadURL = asset.BrowserDownloadURL
 			info.AssetSize = asset.Size
 		}
-		if asset.Name == "SHA256SUMS" || asset.Name == "checksums.txt" {
+		switch asset.Name {
+		case "SHA256SUMS":
 			info.ChecksumURL = asset.BrowserDownloadURL
+		case "SHA256SUMS.sig":
+			info.SignatureURL = asset.BrowserDownloadURL
 		}
 	}
 }
@@ -757,11 +761,20 @@ func (s *UpdateService) verifyChecksum(ctx context.Context, info *UpdateInfo, ar
 	// means a partial CI run or an edited asset list, neither of which
 	// should reach the install path.
 	if info.ChecksumURL == "" {
-		return errors.New("release has no SHA256SUMS or checksums.txt asset, refusing to install an unverified binary")
+		return errors.New("release has no SHA256SUMS asset, refusing to install an unverified binary")
+	}
+	// A signed SHA256SUMS from an older release, uploaded with its
+	// archive under a new tag, would verify and install the old binary.
+	// The archive name carries the version it was built as.
+	if !strings.Contains(info.AssetName, "-"+info.LatestVersion+"-linux-") {
+		return fmt.Errorf("asset %q is not built for release %s", info.AssetName, info.LatestVersion)
 	}
 
 	body, err := fetchChecksumFile(ctx, info.ChecksumURL)
 	if err != nil {
+		return err
+	}
+	if err := verifyChecksumSignature(ctx, info.SignatureURL, body); err != nil {
 		return err
 	}
 

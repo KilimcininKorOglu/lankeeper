@@ -105,7 +105,7 @@ make iso-all \
 make iso-amd64 DEBIAN_AMD64_ISO=...
 make iso-arm64 DEBIAN_ARM64_ISO=...
 
-# Full release pipeline (binaries + tarballs + ISOs + SHA256SUMS)
+# Full release pipeline (binaries + tarballs + ISOs + signed SHA256SUMS)
 make release-all
 ```
 
@@ -121,6 +121,9 @@ Generated artifacts are written to `dist/`:
 - `release-{amd64,arm64}/lankeeper` — tarball staging copies
 - `dist/packages/{amd64,arm64}/` — cached `.deb` package pools
 - `SHA256SUMS` — SHA-256 of the published tarballs and ISOs
+- `SHA256SUMS.sig` — ed25519 signature over `SHA256SUMS`
+
+The release targets sign `SHA256SUMS` with the key at `SIGNING_KEY` (default `~/.config/lankeeper/release-signing.key`) and fail without it. `go run ./tools/signrelease -generate -key FILE` creates a key pair and prints the public key, which belongs in `releaseSigningKeyB64` in `internal/services/release_signing.go`.
 
 `make dev` and `make build` write `dist/lankeeper` for the host platform.
 Only the tarballs and ISOs carry the version in their filename.
@@ -399,11 +402,13 @@ existing Debian host therefore do not produce an identical package set.
 
 Tagged releases are published at
 `https://github.com/KilimcininKorOglu/lankeeper/releases`. Each release
-includes two tarballs and two installer ISOs, plus `SHA256SUMS` for
-verification.
+includes two tarballs and two installer ISOs, plus `SHA256SUMS` and its
+ed25519 signature `SHA256SUMS.sig`.
 
 The Settings -> Update page in the web UI consumes this feed: a
-`runtime.GOARCH`-matched `.tar.gz` is fetched, SHA-256 verified, swapped
+`runtime.GOARCH`-matched `.tar.gz` is fetched, checked against a
+`SHA256SUMS` whose signature verifies under the release key compiled into
+the running binary, swapped
 atomically, and rolled back by a 60 s watchdog if the new binary fails
 its health check. The GRUB boot menu is rebranded with the new version on
 success. There is no `update` CLI subcommand; updates are driven from the

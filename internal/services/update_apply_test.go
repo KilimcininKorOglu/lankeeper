@@ -111,12 +111,15 @@ func releaseServer(t *testing.T, assetName string, archive []byte) *httptest.Ser
 	t.Helper()
 	sum := sha256.Sum256(archive)
 	sums := hex.EncodeToString(sum[:]) + "  " + assetName + "\n"
+	sig := signWithTestKey(t, sums)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/asset":
 			_, _ = w.Write(archive)
 		case "/sums":
 			_, _ = io.WriteString(w, sums)
+		case "/sig":
+			_, _ = io.WriteString(w, sig)
 		default:
 			http.NotFound(w, r)
 		}
@@ -153,6 +156,7 @@ func TestApplyUpdateStagesTheBinaryWhereTheAgentCanReadIt(t *testing.T) {
 		LatestVersion: "v9.9.9",
 		DownloadURL:   srv.URL + "/asset",
 		ChecksumURL:   srv.URL + "/sums",
+		SignatureURL:  srv.URL + "/sig",
 		AssetName:     asset,
 		AssetSize:     int64(len(archive)),
 	})
@@ -206,6 +210,7 @@ func TestApplyUpdateArmsTheGuardBeforeTheRestart(t *testing.T) {
 		LatestVersion: "v9.9.9",
 		DownloadURL:   srv.URL + "/asset",
 		ChecksumURL:   srv.URL + "/sums",
+		SignatureURL:  srv.URL + "/sig",
 		AssetName:     asset,
 		AssetSize:     int64(len(archive)),
 	}); err != nil {

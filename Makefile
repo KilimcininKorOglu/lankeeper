@@ -31,7 +31,7 @@ DOCKER ?= docker
 ISO_BUILDER_AMD64 ?= lankeeper-iso-builder-amd64
 ISO_BUILDER_ARM64 ?= lankeeper-iso-builder-arm64
 
-.PHONY: build test lint cyclo clean dev cross cross-amd64 cross-arm64 cross-all install iso iso-amd64 iso-arm64 iso-all docker-builder-amd64 docker-builder-arm64 docker-builders release release-archives release-amd64 release-arm64 release-all checksums check
+.PHONY: build test lint cyclo clean dev cross cross-amd64 cross-arm64 cross-all install iso iso-amd64 iso-arm64 iso-all docker-builder-amd64 docker-builder-arm64 docker-builders release release-archives release-amd64 release-arm64 release-all checksums sign check
 
 build:
 	mkdir -p $(DIST_DIR)
@@ -127,6 +127,7 @@ release: release-archives
 
 release-archives: release-amd64 release-arm64
 	$(MAKE) checksums VERSION=$(VERSION)
+	$(MAKE) sign
 
 release-amd64: cross-amd64
 	mkdir -p dist
@@ -152,6 +153,7 @@ release-all:
 	# every artifact produced above.
 	$(MAKE) -j 4 release-amd64 release-arm64 iso-amd64 iso-arm64
 	$(MAKE) checksums VERSION=$(VERSION)
+	$(MAKE) sign
 
 # `[ -f "$$f" ] && shasum ...` made the loop's exit status the status of
 # its last iteration. `make release` builds tarballs and no ISOs, so the
@@ -174,6 +176,17 @@ checksums:
 	    exit 1; \
 	}
 	@echo "Checksums: dist/SHA256SUMS"
+
+# The router refuses an update whose SHA256SUMS carries no signature
+# under the release key compiled into it, so a release without
+# SHA256SUMS.sig cannot be installed. The private key never enters the
+# repository; SIGNING_KEY points at it.
+SIGNING_KEY ?= $(HOME)/.config/lankeeper/release-signing.key
+
+sign:
+	@test -f "$(SIGNING_KEY)" || { echo "ERROR: release signing key not found at $(SIGNING_KEY)" >&2; exit 1; }
+	go run ./tools/signrelease -key "$(SIGNING_KEY)" dist/SHA256SUMS
+	@echo "Signature: dist/SHA256SUMS.sig"
 
 check:
 	sudo bash deploy/install.sh --check
