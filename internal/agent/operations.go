@@ -53,6 +53,26 @@ const (
 
 // validateUpdateGuardArgs accepts exactly
 // --unit=lankeeper-update-guard --on-active=<seconds> <backup binary> update-guard.
+// resolveExistingPrefix resolves symlinks in the longest prefix of path
+// that exists and appends the rest. Resolving only the full path or its
+// parent let a missing intermediate directory hide a symlink above it:
+// with L -> /etc, "/var/lib/lankeeper/L/new/x" stayed unresolved and
+// matched the /var/lib/lankeeper rule while MkdirAll created /etc/new.
+func resolveExistingPrefix(path string) string {
+	dir, rest := path, ""
+	for {
+		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+			return filepath.Join(resolved, rest)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return path
+		}
+		rest = filepath.Join(filepath.Base(dir), rest)
+		dir = parent
+	}
+}
+
 func validateUpdateGuardArgs(args []string) error {
 	if len(args) != 4 ||
 		args[0] != "--unit="+UpdateGuardUnit ||
@@ -198,22 +218,16 @@ func resolveRulePatterns(rules []pathRule) []pathRule {
 	resolved := make([]pathRule, len(rules))
 	for i, r := range rules {
 		resolved[i] = r
+		// Resolved the same way checkPathRules resolves a request, so a
+		// pattern whose directory does not exist yet still matches once
+		// a symlinked ancestor such as /var -> /private/var is resolved.
 		switch r.kind {
 		case dirPrefix:
-			dir := strings.TrimSuffix(r.pattern, "/")
-			if real, err := filepath.EvalSymlinks(dir); err == nil && real != dir {
-				resolved[i].pattern = real + "/"
-			}
+			resolved[i].pattern = resolveExistingPrefix(strings.TrimSuffix(r.pattern, "/")) + "/"
 		case exactFile:
-			if real, err := filepath.EvalSymlinks(r.pattern); err == nil {
-				resolved[i].pattern = real
-			}
+			resolved[i].pattern = resolveExistingPrefix(r.pattern)
 		case filenamePrefix:
-			dir := filepath.Dir(r.pattern)
-			base := filepath.Base(r.pattern)
-			if real, err := filepath.EvalSymlinks(dir); err == nil && real != dir {
-				resolved[i].pattern = filepath.Join(real, base)
-			}
+			resolved[i].pattern = filepath.Join(resolveExistingPrefix(filepath.Dir(r.pattern)), filepath.Base(r.pattern))
 		}
 	}
 	return resolved
@@ -452,15 +466,14 @@ func opFileMkdir(_ context.Context, raw json.RawMessage) (any, error) {
 }
 
 func checkPathRules(path string, rules []pathRule) bool {
-	clean := filepath.Clean(path)
-	if resolved, err := filepath.EvalSymlinks(clean); err == nil {
-		clean = resolved
-	} else {
-		dir := filepath.Dir(clean)
-		if resolvedDir, err := filepath.EvalSymlinks(dir); err == nil {
-			clean = filepath.Join(resolvedDir, filepath.Base(clean))
-		}
+	// The syscalls receive the caller's string, so that is the string
+	// that has to be checked. filepath.Clean removes ".." lexically while
+	// the kernel resolves it after following symlinks, so a path that is
+	// not already in clean absolute form is refused instead of normalised.
+	if !filepath.IsAbs(path) || path != filepath.Clean(path) {
+		return false
 	}
+	clean := resolveExistingPrefix(path)
 	for _, r := range rules {
 		switch r.kind {
 		case dirPrefix:
