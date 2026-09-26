@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -331,10 +332,10 @@ func opExecRun(ctx context.Context, raw json.RawMessage) (any, error) {
 	baseName := filepath.Base(params.Cmd)
 	cmdPath, err := resolveAllowedCommand(baseName)
 	if err != nil {
-		return nil, err
+		return nil, refuse(err)
 	}
 	if err := validateInvocation(baseName, params); err != nil {
-		return nil, err
+		return nil, refuse(err)
 	}
 
 	if _, ok := ctx.Deadline(); !ok {
@@ -368,6 +369,8 @@ func opExecRun(ctx context.Context, raw json.RawMessage) (any, error) {
 	if cmd.ProcessState != nil {
 		result.ExitCode = cmd.ProcessState.ExitCode()
 	}
+	// Secrets travel on stdin, never in argv, so the argv is safe to keep.
+	log.Printf("agent: exec %s %q exit=%d", cmdPath, params.Args, result.ExitCode)
 
 	if err != nil {
 		return result, fmt.Errorf("exec %s: %w (stderr: %s)", baseName, err, stderr.String())
@@ -387,6 +390,14 @@ func opExecRun(ctx context.Context, raw json.RawMessage) (any, error) {
 // serving a purpose the agent supports. Refusing is preferred over
 // quietly narrowing: a caller that asked for the wrong thing should hear
 // about it rather than have the request half-honoured.
+// refuse logs a refused request and returns its error. The caller is the
+// process the agent exists to distrust, so what it asked for and was
+// denied belongs in the agent's own journal, not only in the reply.
+func refuse(err error) error {
+	log.Printf("agent: refused: %v", err)
+	return err
+}
+
 func validateFileMode(mode os.FileMode) error {
 	if mode&^os.FileMode(0o777) != 0 {
 		return fmt.Errorf("mode %v carries bits outside the permission set", mode)
@@ -404,7 +415,7 @@ func opFileWrite(_ context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	if !checkPathRules(params.Path, allowedWriteRules) {
-		return nil, fmt.Errorf("write not allowed to path: %s", params.Path)
+		return nil, refuse(fmt.Errorf("write not allowed to path: %s", params.Path))
 	}
 
 	// params.Mode is a JSON field from an authenticated peer
@@ -416,7 +427,7 @@ func opFileWrite(_ context.Context, raw json.RawMessage) (any, error) {
 		mode = 0o644
 	}
 	if err := validateFileMode(mode); err != nil {
-		return nil, err
+		return nil, refuse(err)
 	}
 
 	if params.MkdirP {
@@ -443,7 +454,7 @@ func opFileRead(_ context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	if !checkPathRules(params.Path, allowedReadRules) {
-		return nil, fmt.Errorf("read not allowed for path: %s", params.Path)
+		return nil, refuse(fmt.Errorf("read not allowed for path: %s", params.Path))
 	}
 
 	data, err := os.ReadFile(params.Path)
@@ -464,7 +475,7 @@ func opFileMkdir(_ context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	if !checkPathRules(params.Path, allowedWriteRules) {
-		return nil, fmt.Errorf("mkdir not allowed for path: %s", params.Path)
+		return nil, refuse(fmt.Errorf("mkdir not allowed for path: %s", params.Path))
 	}
 
 	// Same as the write path: an authenticated peer's mode,
@@ -475,7 +486,7 @@ func opFileMkdir(_ context.Context, raw json.RawMessage) (any, error) {
 		mode = 0o755
 	}
 	if err := validateFileMode(mode); err != nil {
-		return nil, err
+		return nil, refuse(err)
 	}
 
 	if err := os.MkdirAll(params.Path, mode); err != nil {
