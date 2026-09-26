@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -40,10 +41,8 @@ func TestRestoreVLANsRecreatesAMissingDevice(t *testing.T) {
 		t.Fatalf("restore: %v", err)
 	}
 	want := "ip link add link lkt-nosuchdev name lkt-nosuchdev.20 type vlan id 20"
-	for _, l := range agent.lines {
-		if l == want {
-			return
-		}
+	if slices.Contains(agent.lines, want) {
+		return
 	}
 	t.Fatalf("device not recreated; commands: %v", agent.lines)
 }

@@ -28,7 +28,7 @@ func renderOVPNPair(t *testing.T, compression bool) (server, client string) {
 }
 
 func hasLine(text, line string) bool {
-	for _, l := range strings.Split(text, "\n") {
+	for l := range strings.SplitSeq(text, "\n") {
 		if strings.TrimSpace(l) == line {
 			return true
 		}

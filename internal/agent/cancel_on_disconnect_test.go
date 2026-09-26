@@ -26,9 +26,7 @@ func TestPeerDisconnectCancelsTheHandler(t *testing.T) {
 		return nil, ctx.Err()
 	})
 
-	ctx, stop := context.WithCancel(context.Background())
-	defer stop()
-	go func() { _ = srv.Serve(ctx) }()
+	go func() { _ = srv.Serve(t.Context()) }()
 
 	conn := dialWhenReady(t, sock)
 	if _, err := conn.Write([]byte(`{"jsonrpc":"2.0","method":"test.block","id":1}` + "\n")); err != nil {

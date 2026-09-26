@@ -263,8 +263,7 @@ func (o *BackupOrchestrator) failRun(started time.Time, err error) error {
 // boundary, which carries root stderr and internal paths, is replaced by
 // a generic phrase. The full error goes to the journal.
 func historyMessage(err error) string {
-	var agentErr *netutil.AgentError
-	if errors.As(err, &agentErr) {
+	if _, ok := errors.AsType[*netutil.AgentError](err); ok {
 		return "privileged command failed, see the system journal"
 	}
 	return err.Error()
