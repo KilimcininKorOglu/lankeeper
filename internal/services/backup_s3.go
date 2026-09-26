@@ -151,6 +151,14 @@ func (c *s3Client) listObjects(ctx context.Context, bucket, prefix string) ([]s3
 		return nil, s3Failure("LIST", bucket, resp)
 	}
 
+	return decodeListing(resp.Body)
+}
+
+// decodeListing parses a ListObjectsV2 response body. An object whose
+// LastModified does not parse fails the whole listing: retention sorts
+// by that time, and the zero time a failed parse leaves would rank the
+// object oldest and delete it first, whatever its real age.
+func decodeListing(body io.Reader) ([]s3Object, error) {
 	var parsed struct {
 		Contents []struct {
 			Key          string `xml:"Key"`
@@ -158,12 +166,15 @@ func (c *s3Client) listObjects(ctx context.Context, bucket, prefix string) ([]s3
 			Size         int64  `xml:"Size"`
 		} `xml:"Contents"`
 	}
-	if err := xml.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+	if err := xml.NewDecoder(body).Decode(&parsed); err != nil {
 		return nil, err
 	}
 	out := make([]s3Object, 0, len(parsed.Contents))
 	for _, e := range parsed.Contents {
-		t, _ := time.Parse(time.RFC3339, e.LastModified)
+		t, err := time.Parse(time.RFC3339, e.LastModified)
+		if err != nil {
+			return nil, fmt.Errorf("s3 LIST: object %q has an unreadable LastModified %q: %w", e.Key, e.LastModified, err)
+		}
 		out = append(out, s3Object{Key: e.Key, LastModified: t, Size: e.Size})
 	}
 	return out, nil
