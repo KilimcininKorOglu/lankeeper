@@ -202,9 +202,48 @@ func (s *FirewallService) armWatchdog(ac *netutil.AtomicChange, timeout time.Dur
 
 		err := ac.Rollback(context.Background())
 		s.clearPendingState()
+		s.markRolledBack()
 		s.runAfterReload(context.Background())
 		return err
 	})
+}
+
+// ErrRolledBack is returned to a background caller while the saved
+// firewall config still holds an edit the watchdog rolled back.
+//
+// The watchdog reverts only the kernel ruleset; the edit stays in
+// router.yaml. A background apply-and-confirm would render that edit
+// again and confirm it with no watchdog, re-installing the ruleset that
+// cut the operator off. The marker persists across restarts and clears
+// only when the operator confirms a change.
+var ErrRolledBack = errors.New("the saved firewall config holds a rolled-back change; confirm or revert it on the firewall page first")
+
+func (s *FirewallService) rolledBackPath() string { return s.statePath + ".rolledback" }
+
+func (s *FirewallService) markRolledBack() {
+	if err := os.WriteFile(s.rolledBackPath(), nil, 0o600); err != nil {
+		log.Printf("firewall: record rollback: %v", err)
+	}
+}
+
+func (s *FirewallService) clearRolledBack() {
+	if err := os.Remove(s.rolledBackPath()); err != nil && !os.IsNotExist(err) {
+		log.Printf("firewall: clear rollback record: %v", err)
+	}
+}
+
+// ApplyAndConfirm applies the saved config and confirms it at once, for
+// callers with no operator watching (the IPv6 lease hook). It refuses
+// while a rolled-back edit is still in the saved config.
+func (s *FirewallService) ApplyAndConfirm(ctx context.Context) error {
+	if _, err := os.Stat(s.rolledBackPath()); err == nil {
+		return ErrRolledBack
+	}
+	if err := s.Apply(ctx); err != nil {
+		return err
+	}
+	s.Confirm()
+	return nil
 }
 
 // stopWatchdog disarms a pending rollback timer.
@@ -319,6 +358,7 @@ func (s *FirewallService) Confirm() {
 		s.change.Confirm()
 		s.change = nil
 		s.persistConfirmedRuleset()
+		s.clearRolledBack()
 	}
 	s.clearPendingState()
 }

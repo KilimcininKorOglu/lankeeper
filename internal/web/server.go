@@ -380,12 +380,12 @@ func wireIPv6Hooks(cfg *config.Config, pppoeSvc *services.PPPoEService, sixInFou
 	// re-apply the firewall ruleset so any ip6-derived rules are
 	// rebuilt from the freshly delegated prefix. The 30s watchdog is
 	// auto-confirmed because the lease event itself is proof we kept
-	// connectivity end-to-end.
+	// connectivity end-to-end. ApplyAndConfirm refuses while the saved
+	// config still holds an edit the watchdog rolled back.
 	ipv6Svc.SetOnLeaseChange(func(ctx context.Context, _ services.PrefixState) error {
-		if err := firewallSvc.Apply(ctx); err != nil {
+		if err := firewallSvc.ApplyAndConfirm(ctx); err != nil {
 			return fmt.Errorf("ipv6 lease -> firewall apply: %w", err)
 		}
-		firewallSvc.Confirm()
 		return nil
 	})
 }
