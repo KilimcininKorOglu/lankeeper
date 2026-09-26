@@ -356,6 +356,7 @@ in the tree inert with nothing reporting it.
 lankeeper.target
   |- lankeeper-agent.service   (root, UDS listener at /run/lankeeper/agent.sock)
   |- lankeeper-web.service     (unprivileged lankeeper user, HTTPS :8443)
+  |- lankeeper-dhcp6c.service  (root, DHCPv6 prefix delegation, started by the IPv6 service)
 ```
 
 Install paths: binary at `/usr/local/bin/lankeeper`, config at `/etc/lankeeper/`, data at `/var/lib/lankeeper/`, logs at `/var/log/lankeeper/`.
