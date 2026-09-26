@@ -10,6 +10,141 @@ git history.
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-09-26
+
+A correctness and hardening release. The largest changes close paths
+from the unprivileged web process to root through the agent, make OTA
+updates verify a maintainer signature, and fix a long list of features
+that were configurable but did not work on a real router.
+
+Read before updating:
+
+- **Signed updates start here.** This release verifies an ed25519
+  signature (`SHA256SUMS.sig`) over `SHA256SUMS` against a key compiled
+  into the binary, and refuses any later release without one. Routers
+  on v0.5.1 still install this release unsigned; from this release on,
+  only signed releases install.
+- **Reinstall for the full fix set.** OTA replaces only the binary.
+  Changes to systemd units, installer scripts and `configs/sysconf`
+  templates (the dhcp6c unit, the bootstrap firewall, the web unit's
+  runtime directory, the Unbound, dnsmasq and OpenVPN templates) reach
+  an existing router only through a reinstall.
+- **Backup passphrases** must now be at least 12 characters. Existing
+  archives made with a shorter passphrase still import.
+- **`/etc/dnsmasq.d` is no longer archived.** Its only LANKeeper file is
+  rendered from `router.yaml`; older archives' entries for it are skipped.
+
+### Added
+
+- Site-to-site WireGuard peers export rx/tx byte counters on `/metrics`.
+- The configured blocklist schedule now runs; before, only the manual
+  update ever refreshed the lists.
+- `/api/version` answers with a content `ETag` so clients can revalidate.
+- Every refused agent request and every executed privileged command is
+  logged, so an intrusion attempt through the agent leaves a trace.
+
+### Fixed
+
+- **Firewall.** Custom rules and port mutators take the service lock,
+  so a background apply no longer races an edit. A background apply can
+  no longer re-install a ruleset the watchdog rolled back. The TTL
+  rewrite moved to a filter chain (in a nat chain it touched only the
+  first packet), the MSS clamp now precedes the accept rules that used to
+  skip it, LAN-to-USB-tether forwarding works when USB NAT is on, and a
+  PPPoE WAN is matched as `ppp0`. The confirmed ruleset persists to
+  `/etc/nftables.conf`, so it survives a reboot.
+- **VPN.** Site-to-site links route only the far LANs, the ack is
+  authenticated with the invite's preshared key, and invites refuse
+  public prefixes, `/0` and subnets overlapping existing peers, VLANs or
+  the OpenVPN subnet. The WireGuard server key pair is generated when
+  missing. The peer list is read and persisted only under the service
+  lock, so the status page and `/metrics` can no longer see a torn list.
+- **OpenVPN.** Fixed client addresses are pushed under `topology subnet`
+  with the server mask and refused when the server cannot push them;
+  `tls-auth` and compression framing appear in client profiles only when
+  the server uses them; the client PKI is read through the agent.
+- **DHCP and DNS.** VLAN clients get the router as gateway and resolver
+  and a DHCP range with real addresses. A static lease outside every
+  served subnet is refused instead of shown while dnsmasq ignores it.
+  Unbound accepts queries from every client subnet the router serves,
+  has remote control enabled (every `unbound-control` call used to
+  fail), and is re-rendered after a static lease changes. The query log
+  rotates and its tail starts with the server; only one blocklist update
+  runs at a time.
+- **IPv6.** The RA no longer advertises a zero router lifetime (which
+  removed the default route), the ULA `dhcp-range` renders a valid start
+  address, the router is the first RDNSS entry, and `accept_ra=2` is set
+  on the WAN. The dhcp6c unit is installed and receives its interface.
+  6in4 RX/TX counters show real values.
+- **VLANs and network.** Every VLAN field is validated before it is
+  stored, a subnet overlapping a served network is refused, concurrent
+  adds and deletes can no longer lose a change, and VLAN devices and MAC
+  clones are recreated at startup.
+- **QoS.** Download is counted per client by destination IP, clearing
+  shaping removes the WAN ingress qdisc (which otherwise dropped all
+  inbound traffic), and the page shows its empty state.
+- **Backup.** Imports are staged and validated before anything is
+  written, S3 listings follow continuation tokens and refuse a bad
+  timestamp, SigV4 query encoding is exact, retention touches only
+  LANKeeper objects, local targets are writable by the service, a
+  schedule change recomputes the next run, and the backup config is
+  guarded by one lock.
+- **TLS and ACME.** Issuance and TLS config writes are serialized, a
+  renewal no longer overwrites a mode the operator just switched to, the
+  served certificate reloads after renewal, and renewal failures and the
+  pending manual DNS record appear in the UI.
+- **Auth and web.** Sessions end on logout and password change and live
+  no longer than the cookie. A password change requires the current
+  password. Unauthenticated htmx and SSE requests send the browser to the
+  login page instead of silently failing. Request bodies are bounded
+  before the form is parsed, and long handlers and SSE streams lift the
+  write deadline.
+- **Other.** NTP, syslog, storage, PPPoE, health check and metrics
+  parsers were corrected against real Debian 12 output: chrony 4
+  sources, forwarded syslog facilities, `lsblk` JSON, SMART status,
+  pppd liveness, and a metric family whose collector failed is omitted
+  instead of exported as zero. M3U sources run on their own schedules.
+
+### Security
+
+- **Agent boundary.** `exec.run` arguments are validated per command
+  (`cp`, `rm`, `chmod`, `tar`, `mount`, `mkdir`, `chpasswd`, `mkcert`,
+  `systemctl`), so the service account can no longer copy over `/etc` or
+  add itself to a group. File operations refuse `..`, act through a root
+  opened at the rule's directory so a swapped symlink cannot redirect a
+  root write, and carry binary content intact. The write whitelist names
+  exact files in directories root scans for code (`grub.d`, `/etc/ppp`,
+  `dnsmasq.d`, `wide-dhcpv6`), and `file.write` refuses execute bits
+  except on the dhcp6c script. Scratch files no longer go to the host
+  `/tmp`; nft scripts and the WireGuard sync config reach their command
+  on stdin.
+- **OTA.** Updates require a maintainer signature over `SHA256SUMS`, the
+  archive name must carry the release tag so an old signed release
+  cannot be replayed as a downgrade, releases are fetched through the
+  guarded clients, and the rollback guard runs outside the process being
+  replaced.
+- **Secrets.** The root password reaches `chpasswd` on stdin instead of
+  argv, the session secret and WireGuard preshared keys are encrypted at
+  rest, the pre-update snapshot is owner-only from creation and lives
+  outside the service account's directory, and the mkcert CA root sits
+  in a root-owned directory.
+- **Login.** A global failed-login budget sits beside the per-address
+  guard: past 30 failures an hour across all addresses, password checks
+  are spaced 30 s apart.
+- **Network exposure.** Samba binds only to LAN addresses and runs only
+  while a share exists, the bootstrap ruleset drops forwarded traffic,
+  the 6in4 tunnel no longer admits new inbound connections to the LAN,
+  DoT verifies the upstream certificate, and the outbound guard refuses
+  the router's own IPv6 LAN prefixes.
+- **Input into root-run configs.** Syslog remote hosts, manual peer
+  endpoints, outbound OpenVPN configs, static lease hostnames and PPPoE
+  credentials are validated before they reach a file a root daemon
+  reads. DHCP clients can no longer publish over operator DNS names.
+- **Dependencies.** Go floor 1.26.8, `x/crypto` past the SSH channel DoS
+  advisories, and `github.com/pkg/sftp` v1.13.11, which fixes an
+  attribute-count allocation a malicious SFTP server could use to kill
+  the web process.
+
 ## [0.5.1] - 2026-08-08
 
 First release since the changelog was restarted. It covers everything
