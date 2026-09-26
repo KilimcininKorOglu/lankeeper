@@ -140,34 +140,3 @@ func TestParseFieldErrorMessages(t *testing.T) {
 		}
 	}
 }
-
-func TestTrimHistoryRingBuffer(t *testing.T) {
-	var entries []historyEntry
-	for i := range MaxBackupHistory + 10 {
-		entries = append(entries, historyEntry{
-			StartedAt: time.Unix(int64(i), 0),
-			Status:    "ok",
-		})
-	}
-	trimmed := trimHistory(entries)
-	if len(trimmed) != MaxBackupHistory {
-		t.Fatalf("trim length = %d, want %d", len(trimmed), MaxBackupHistory)
-	}
-	if trimmed[0].StartedAt.Unix() != 10 {
-		t.Errorf("oldest after trim = %d, want 10", trimmed[0].StartedAt.Unix())
-	}
-}
-
-func TestSortHistoryByStartedAt(t *testing.T) {
-	entries := []historyEntry{
-		{StartedAt: time.Unix(300, 0)},
-		{StartedAt: time.Unix(100, 0)},
-		{StartedAt: time.Unix(200, 0)},
-	}
-	sortHistoryByStartedAt(entries)
-	for i := 0; i < len(entries)-1; i++ {
-		if entries[i].StartedAt.After(entries[i+1].StartedAt) {
-			t.Errorf("not sorted at index %d", i)
-		}
-	}
-}

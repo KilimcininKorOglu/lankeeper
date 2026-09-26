@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -375,15 +374,6 @@ type backupSnapshot struct {
 	LastRun  time.Time
 }
 
-// trimHistory keeps the most-recent MaxBackupHistory entries.
-// Caller passes the slice and gets the trimmed slice back.
-func trimHistory(history []historyEntry) []historyEntry {
-	if len(history) <= MaxBackupHistory {
-		return history
-	}
-	return history[len(history)-MaxBackupHistory:]
-}
-
 // historyEntry is the unconfigured form of config.BackupHistory
 // used internally before we copy fields into the YAML struct.
 // Lives here so test code can poke at it without importing config.
@@ -394,15 +384,6 @@ type historyEntry struct {
 	Targets     []string
 	Status      string
 	Message     string
-}
-
-// sortHistoryByStartedAt sorts in ascending chronological order so
-// the youngest entry sits at the end of the slice (ring buffer
-// convention used elsewhere in the project).
-func sortHistoryByStartedAt(entries []historyEntry) {
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].StartedAt.Before(entries[j].StartedAt)
-	})
 }
 
 // RunNow performs a single end-to-end backup cycle: encrypted tar
