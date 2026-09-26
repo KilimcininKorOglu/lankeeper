@@ -60,18 +60,38 @@ func TestSigV4SignatureFormat(t *testing.T) {
 	}
 }
 
+// SigV4 keeps unreserved characters in their own case and writes every
+// escape as two uppercase hex digits. The server recomputes the same
+// string from the query it receives, so any other case fails the
+// signature.
 func TestSigvEscape(t *testing.T) {
 	cases := map[string]string{
-		"foo":         "FOO",
-		"hello world": "HELLO%20WORLD",
-		"a/b":         "A%2FB",
-		"a~b._-":      "A~B._-",
+		"list-type":   "list-type",
+		"hello world": "hello%20world",
+		"a/b":         "a%2Fb",
+		"a~b._-":      "a~b._-",
+		"\t":          "%09",
+		"\xff":        "%FF",
 	}
 	for in, want := range cases {
-		got := sigvEscape(in)
-		if !strings.EqualFold(got, want) {
-			t.Errorf("sigvEscape(%q) = %q, want %q (case-insensitive)", in, got, want)
+		if got := sigvEscape(in); got != want {
+			t.Errorf("sigvEscape(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// The query must go on the wire in the form that was signed.
+func TestSignSendsTheCanonicalQuery(t *testing.T) {
+	c := &s3Client{Region: "us-east-1", AccessKey: "AK", SecretKey: "SK"}
+	req, err := http.NewRequest(http.MethodGet, "https://s3.example/bucket?prefix=a+b/c&list-type=2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.sign(req, sha256Hex(nil)); err != nil {
+		t.Fatal(err)
+	}
+	if want := "list-type=2&prefix=a%20b%2Fc"; req.URL.RawQuery != want {
+		t.Fatalf("wire query = %q, want %q", req.URL.RawQuery, want)
 	}
 }
 

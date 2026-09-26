@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -208,6 +207,10 @@ func (c *s3Client) sign(req *http.Request, payloadHash string) error {
 		req.Header.Set("Host", req.URL.Host)
 	}
 
+	// The query goes on the wire exactly as it is signed, so the server
+	// canonicalises the same bytes.
+	req.URL.RawQuery = canonicalQuery(req.URL)
+
 	canonicalHeaders, signedHeaders := canonicalHeaders(req)
 	canonicalRequest := strings.Join([]string{
 		req.Method,
@@ -290,8 +293,10 @@ func canonicalQuery(u *url.URL) string {
 	return strings.Join(parts, "&")
 }
 
-// sigvEscape implements RFC-3986 unreserved escaping that AWS
-// requires (Go's url.QueryEscape uses '+' for space; we need %20).
+// sigvEscape implements the RFC 3986 escaping SigV4 requires: unreserved
+// characters stay as they are, in their own case, and every other byte
+// becomes %XX with two uppercase hex digits. Go's url.QueryEscape uses
+// '+' for a space, which the canonical form does not allow.
 func sigvEscape(s string) string {
 	const unreserved = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~"
 	var b strings.Builder
@@ -299,12 +304,11 @@ func sigvEscape(s string) string {
 		c := s[i]
 		if strings.IndexByte(unreserved, c) >= 0 {
 			b.WriteByte(c)
-		} else {
-			b.WriteString("%")
-			b.WriteString(strconv.FormatUint(uint64(c), 16))
+			continue
 		}
+		fmt.Fprintf(&b, "%%%02X", c)
 	}
-	return strings.ToUpper(b.String())
+	return b.String()
 }
 
 func sha256Hex(p []byte) string {
