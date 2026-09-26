@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -335,10 +336,68 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 		}
 		fr.endFrame()
 
-		resp := s.dispatch(ctx, &req)
+		resp, peerGone := s.dispatchWatched(ctx, conn, &req)
+		if peerGone {
+			return
+		}
 		if err := enc.Encode(resp); err != nil {
 			log.Printf("encode response error: %v", err)
 			return
+		}
+	}
+}
+
+// dispatchWatched runs req while watching the connection, and cancels
+// the handler's context when the peer goes away. A client whose own
+// context ended closes the connection and redials, so without this the
+// command it abandoned kept running as root to its own timeout beside
+// the retry. It reports whether the peer is gone, in which case there is
+// no one to answer.
+func (s *Server) dispatchWatched(ctx context.Context, conn net.Conn, req *Request) (*Response, bool) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	gone := make(chan struct{})
+	done := make(chan struct{})
+	var stopping atomic.Bool
+	go func() {
+		defer close(done)
+		if watchPeer(conn, &stopping) {
+			close(gone)
+			cancel()
+		}
+	}()
+
+	resp := s.dispatch(ctx, req)
+
+	stopping.Store(true)
+	_ = conn.SetReadDeadline(time.Now())
+	<-done
+	_ = conn.SetReadDeadline(time.Time{})
+
+	select {
+	case <-gone:
+		return nil, true
+	default:
+		return resp, false
+	}
+}
+
+// watchPeer reads the connection while a request is handled and reports
+// whether the peer closed it or broke the protocol. The client sends one
+// request and waits for its reply, so the only bytes that may arrive
+// meanwhile are the whitespace ending the request. It returns false when
+// stopping is set and the read was interrupted by the deadline.
+func watchPeer(conn net.Conn, stopping *atomic.Bool) bool {
+	var buf [64]byte
+	for {
+		n, err := conn.Read(buf[:])
+		if hasFrameByte(buf[:n]) {
+			log.Printf("agent: peer sent data before its reply; dropping the connection")
+			return true
+		}
+		if err != nil {
+			return !stopping.Load()
 		}
 	}
 }
