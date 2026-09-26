@@ -240,6 +240,14 @@ func commandEnv(cmd string) []string {
 	}
 }
 
+// envFor keys the environment on the validated base name. Keyed on the
+// raw field, a caller passing a full path such as
+// /usr/share/easy-rsa/easyrsa missed its entry and easyrsa ran without
+// EASYRSA_PKI, building the PKI where the OpenVPN server never reads it.
+func envFor(params ExecParams) []string {
+	return commandEnv(filepath.Base(params.Cmd))
+}
+
 type ExecResult struct {
 	Stdout   string `json:"stdout"`
 	Stderr   string `json:"stderr"`
@@ -305,7 +313,7 @@ func opExecRun(ctx context.Context, raw json.RawMessage) (any, error) {
 	if params.Stdin != "" {
 		cmd.Stdin = strings.NewReader(params.Stdin)
 	}
-	if extra := commandEnv(params.Cmd); len(extra) > 0 {
+	if extra := envFor(params); len(extra) > 0 {
 		cmd.Env = append(os.Environ(), extra...)
 	}
 

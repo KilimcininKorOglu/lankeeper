@@ -85,3 +85,13 @@ func TestCommandEnvCannotBeInfluencedByArguments(t *testing.T) {
 		}
 	}
 }
+
+// TestEnvIsKeyedOnTheValidatedName is the regression test. OpenVPNService
+// calls easyrsa by its full path, and the lookup used the raw string, so
+// easyrsa never got EASYRSA_PKI.
+func TestEnvIsKeyedOnTheValidatedName(t *testing.T) {
+	got := envFor(ExecParams{Cmd: "/usr/share/easy-rsa/easyrsa"})
+	if len(got) != 1 || got[0] != "EASYRSA_PKI=/etc/openvpn/pki" {
+		t.Errorf("env for the full easyrsa path = %q, want EASYRSA_PKI", got)
+	}
+}
