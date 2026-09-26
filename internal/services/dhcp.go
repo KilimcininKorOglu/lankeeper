@@ -299,6 +299,14 @@ func (s *DHCPService) persist() error {
 }
 
 func (s *DHCPService) AddStaticLease(mac, ip, hostname string) error {
+	// The name reaches dnsmasq.conf and unbound.conf through text/template,
+	// which escapes nothing: a newline there adds a directive a root
+	// daemon runs, and a space makes dnsmasq refuse the whole file.
+	if hostname != "" {
+		if err := ValidateHostname(hostname); err != nil {
+			return err
+		}
+	}
 	for _, l := range s.cfg.DHCP.StaticLeases {
 		if strings.EqualFold(l.MAC, mac) {
 			return fmt.Errorf("MAC address %s already has a static lease", mac)

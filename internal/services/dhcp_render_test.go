@@ -136,3 +136,20 @@ func TestVLANClientsAreToldTheRouterAddress(t *testing.T) {
 		}
 	}
 }
+
+// TestAddStaticLeaseRefusesAHostnameThatBreaksTheConfig is the regression
+// test. The hostname reached dnsmasq.conf and unbound.conf unchecked, so a
+// newline added a directive a root daemon runs, and a space made dnsmasq
+// refuse the file.
+func TestAddStaticLeaseRefusesAHostnameThatBreaksTheConfig(t *testing.T) {
+	cfg := &config.Config{}
+	svc := NewDHCPService(cfg)
+	for _, name := range []string{"tv\ndhcp-script=/tmp/x", "Living Room TV", `a"b`, "-lead"} {
+		if err := svc.AddStaticLease("aa:bb:cc:dd:ee:ff", "10.10.10.50", name); err == nil {
+			t.Errorf("hostname %q was accepted", name)
+		}
+	}
+	if len(cfg.DHCP.StaticLeases) != 0 {
+		t.Errorf("a refused lease was stored: %+v", cfg.DHCP.StaticLeases)
+	}
+}

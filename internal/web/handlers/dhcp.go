@@ -62,6 +62,10 @@ func (h *DHCPHandler) HandleAddStatic(w http.ResponseWriter, r *http.Request) {
 		clientError(w, r, http.StatusBadRequest, "error.hostnameRequired")
 		return
 	}
+	if services.ValidateHostname(hostname) != nil {
+		clientError(w, r, http.StatusBadRequest, "error.invalidHostname")
+		return
+	}
 
 	if err := h.dhcp.AddStaticLease(mac, ip, hostname); err != nil {
 		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
