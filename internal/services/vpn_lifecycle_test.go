@@ -61,6 +61,8 @@ func TestVPNServerUpRejectsDoubleStart(t *testing.T) {
 	t.Cleanup(func() { netutil.SetAgentClient(nil) })
 
 	cfg := config.DefaultConfig()
+	cfg.VPN.Server.PrivateKey = "server-private"
+	cfg.VPN.Server.PublicKey = "server-public"
 	svc := services.NewVPNService(cfg)
 
 	if err := svc.ServerUp(context.Background()); err != nil {

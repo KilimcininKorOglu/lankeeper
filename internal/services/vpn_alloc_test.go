@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -188,5 +189,37 @@ func TestAddPeerAllocatesUniqueAddressesConcurrently(t *testing.T) {
 	}
 	if len(seen) != peers {
 		t.Errorf("allocated %d distinct addresses, want %d", len(seen), peers)
+	}
+}
+
+// TestEnsureServerKeypairGeneratesOnceAndPersists is the regression test.
+// No code generated the wgs0 key pair, so every install rendered an empty
+// PrivateKey and the site-to-site wizard refused to run.
+func TestEnsureServerKeypairGeneratesOnceAndPersists(t *testing.T) {
+	svc, cfg := newAllocTestVPN(t)
+	cfg.System.Hostname = "lankeeper"
+	cfg.System.WebPort = 8443
+	ctx := context.Background()
+
+	if err := svc.EnsureServerKeypair(ctx); err != nil {
+		t.Fatalf("EnsureServerKeypair: %v", err)
+	}
+	priv, pub := cfg.VPN.Server.PrivateKey, cfg.VPN.Server.PublicKey
+	if priv == "" || pub == "" {
+		t.Fatalf("key pair not set: priv=%q pub=%q", priv, pub)
+	}
+	if err := svc.EnsureServerKeypair(ctx); err != nil {
+		t.Fatalf("second EnsureServerKeypair: %v", err)
+	}
+	if cfg.VPN.Server.PrivateKey != priv || cfg.VPN.Server.PublicKey != pub {
+		t.Fatal("an existing server key pair was replaced")
+	}
+
+	reloaded, err := config.Load(filepath.Join(filepath.Dir(os.Getenv("LANKEEPER_CONFIG_KEY")), "router.yaml"))
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if reloaded.VPN.Server.PrivateKey != priv {
+		t.Errorf("persisted private key = %q, want %q", reloaded.VPN.Server.PrivateKey, priv)
 	}
 }

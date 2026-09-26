@@ -445,6 +445,14 @@ func (s *Server) Serve(ctx context.Context) error {
 	// not leave stale pending peers visible in the UI.
 	s.vpnSvc.StartInviteGC(ctx, 5*time.Minute, &bg)
 
+	// The site-to-site wizard and every downloaded peer config need the
+	// server public key, so create the pair before the UI can ask for it.
+	// A failure leaves the WireGuard pages without a key; it is logged,
+	// not fatal, because DNS, DHCP and the firewall do not depend on it.
+	if err := s.vpnSvc.EnsureServerKeypair(ctx); err != nil {
+		log.Printf("wireguard server key pair: %v", err)
+	}
+
 	// Backup scheduler: ticks every 30s, fires runOnce when the
 	// configured cron schedule next matches. No-op when disabled.
 	s.backupSvc.StartScheduler(ctx, s.backupOrch.SnapshotProvider(), &bg)

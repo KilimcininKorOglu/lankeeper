@@ -214,6 +214,9 @@ func (s *VPNService) ServerUp(ctx context.Context) error {
 	if s.running {
 		return ErrVPNAlreadyRunning
 	}
+	if err := s.ensureServerKeypairLocked(ctx); err != nil {
+		return err
+	}
 	if err := s.renderServerConfig("/etc/wireguard/wgs0.conf"); err != nil {
 		return err
 	}
@@ -240,6 +243,9 @@ func (s *VPNService) ServerDown(ctx context.Context) error {
 // RenderServerConfig writes /etc/wireguard/wgs0.conf without bringing the
 // interface up. Suitable for install-time invocation by `render-configs`.
 func (s *VPNService) RenderServerConfig(ctx context.Context) error {
+	if err := s.EnsureServerKeypair(ctx); err != nil {
+		return err
+	}
 	return s.renderServerConfig("/etc/wireguard/wgs0.conf")
 }
 
@@ -321,6 +327,43 @@ func (s *VPNService) AddPeer(ctx context.Context, name string, siteToSite bool, 
 		return nil, "", fmt.Errorf("persist: %w", err)
 	}
 	return &peer, privKey, nil
+}
+
+// EnsureServerKeypair generates and persists the wgs0 key pair when the
+// config carries none, and derives a missing public key from a present
+// private key. An existing private key is never replaced, because every
+// peer and every site-to-site link is bound to its public key.
+func (s *VPNService) EnsureServerKeypair(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ensureServerKeypairLocked(ctx)
+}
+
+func (s *VPNService) ensureServerKeypairLocked(ctx context.Context) error {
+	srv := &s.cfg.VPN.Server
+	if srv.PrivateKey != "" && srv.PublicKey != "" {
+		return nil
+	}
+	if srv.PrivateKey == "" {
+		priv, pub, err := s.GenerateKeypair(ctx)
+		if err != nil {
+			return fmt.Errorf("generate server key pair: %w", err)
+		}
+		srv.PrivateKey, srv.PublicKey = priv, pub
+	} else {
+		pub, err := netutil.RunWithStdin(ctx, srv.PrivateKey+"\n", "wg", "pubkey")
+		if err != nil {
+			return fmt.Errorf("derive server public key: %w", err)
+		}
+		srv.PublicKey = strings.TrimSpace(pub)
+	}
+	if srv.PrivateKey == "" || srv.PublicKey == "" {
+		return fmt.Errorf("wg returned an empty server key")
+	}
+	if err := s.persist(); err != nil {
+		return fmt.Errorf("persist server key pair: %w", err)
+	}
+	return nil
 }
 
 func (s *VPNService) persist() error {
