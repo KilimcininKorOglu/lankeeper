@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -67,7 +68,10 @@ func (h *DHCPHandler) HandleAddStatic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.dhcp.AddStaticLease(mac, ip, hostname); err != nil {
+	if err := h.dhcp.AddStaticLease(mac, ip, hostname); errors.Is(err, services.ErrStaticLeaseAddress) {
+		clientError(w, r, http.StatusBadRequest, "error.invalidIP")
+		return
+	} else if err != nil {
 		serverError(w, r, "error.saveFailed", err)
 		return
 	}

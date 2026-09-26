@@ -44,6 +44,7 @@ func TestParseLeaseData(t *testing.T) {
 
 func TestStaticLeaseCRUD(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.Interfaces = []config.InterfaceConfig{{Role: "lan", Address: "10.10.10.1/24"}}
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "test-config.yaml"))
 	svc := services.NewDHCPService(cfg)
 

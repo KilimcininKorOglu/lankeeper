@@ -23,6 +23,7 @@ func TestStaticLeaseReachesUnbound(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
 	cfg.System.Domain = "lan"
+	cfg.Interfaces = []config.InterfaceConfig{{Role: "lan", Address: "10.10.10.1/24"}}
 	dhcp := services.NewDHCPService(cfg)
 	dhcp.SetDNSService(services.NewDNSService(cfg))
 

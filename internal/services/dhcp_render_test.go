@@ -1,6 +1,9 @@
 package services
 
 import (
+	"errors"
+	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -143,6 +146,7 @@ func TestVLANClientsAreToldTheRouterAddress(t *testing.T) {
 // refuse the file.
 func TestAddStaticLeaseRefusesAHostnameThatBreaksTheConfig(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.Interfaces = []config.InterfaceConfig{{Role: "lan", Address: "10.10.10.1/24"}}
 	svc := NewDHCPService(cfg)
 	for _, name := range []string{"tv\ndhcp-script=/tmp/x", "Living Room TV", `a"b`, "-lead"} {
 		if err := svc.AddStaticLease("aa:bb:cc:dd:ee:ff", "10.10.10.50", name); err == nil {
@@ -151,5 +155,31 @@ func TestAddStaticLeaseRefusesAHostnameThatBreaksTheConfig(t *testing.T) {
 	}
 	if len(cfg.DHCP.StaticLeases) != 0 {
 		t.Errorf("a refused lease was stored: %+v", cfg.DHCP.StaticLeases)
+	}
+}
+
+// A reservation outside every served subnet is ignored by dnsmasq, but
+// its mirrored DNS record would still point the name at it.
+func TestAddStaticLeaseRefusesAnAddressOnNoServedSubnet(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
+	cfg.Interfaces = []config.InterfaceConfig{{Role: "lan", Address: "10.10.10.1/24"}}
+	cfg.VLANs = []config.VLANConfig{
+		{Address: "10.10.20.1/24", DHCP: config.VLANDHCPConfig{Enabled: true}},
+		{Address: "10.10.30.1/24"},
+	}
+	svc := NewDHCPService(cfg)
+	for _, ip := range []string{"192.168.5.5", "10.10.30.5", "10.10.10.0", "10.10.10.255", "fd00::5", "nonsense"} {
+		if err := svc.AddStaticLease("aa:bb:cc:dd:ee:ff", ip, ""); !errors.Is(err, ErrStaticLeaseAddress) {
+			t.Errorf("address %s: err = %v, want ErrStaticLeaseAddress", ip, err)
+		}
+	}
+	if len(cfg.DHCP.StaticLeases) != 0 {
+		t.Fatalf("a refused lease was stored: %+v", cfg.DHCP.StaticLeases)
+	}
+	for i, ip := range []string{"10.10.10.50", "10.10.20.50"} {
+		if err := svc.AddStaticLease(fmt.Sprintf("aa:bb:cc:dd:ee:%02x", i), ip, ""); err != nil {
+			t.Errorf("address %s on a served subnet was refused: %v", ip, err)
+		}
 	}
 }

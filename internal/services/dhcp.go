@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -298,14 +299,73 @@ func (s *DHCPService) persist() error {
 	return s.cfg.SaveToFile()
 }
 
-func (s *DHCPService) AddStaticLease(mac, ip, hostname string) error {
-	// The name reaches dnsmasq.conf and unbound.conf through text/template,
-	// which escapes nothing: a newline there adds a directive a root
-	// daemon runs, and a space makes dnsmasq refuse the whole file.
+// ErrStaticLeaseAddress reports a reservation address the router serves
+// no DHCP for.
+var ErrStaticLeaseAddress = errors.New("static lease address is not a host on a served subnet")
+
+// validateStaticLease checks a reservation before it is stored. The name
+// reaches dnsmasq.conf and unbound.conf through text/template, which
+// escapes nothing: a newline there adds a directive a root daemon runs,
+// and a space makes dnsmasq refuse the whole file. The address must be a
+// host on a subnet the router serves DHCP on, because dnsmasq ignores a
+// dhcp-host address outside every dhcp-range subnet while the mirrored
+// DNS record would still point the name at it.
+func (s *DHCPService) validateStaticLease(ip, hostname string) error {
 	if hostname != "" {
 		if err := ValidateHostname(hostname); err != nil {
 			return err
 		}
+	}
+	addr := net.ParseIP(ip).To4()
+	if addr == nil {
+		return fmt.Errorf("%w: %q is not an IPv4 address", ErrStaticLeaseAddress, ip)
+	}
+	for _, cidr := range s.dhcpSubnets() {
+		_, subnet, err := net.ParseCIDR(cidr)
+		if err != nil || !subnet.Contains(addr) {
+			continue
+		}
+		if isNetworkOrBroadcast(addr, subnet) {
+			return fmt.Errorf("%w: %s is the network or broadcast address of %s", ErrStaticLeaseAddress, ip, subnet)
+		}
+		return nil
+	}
+	return fmt.Errorf("%w: %s is outside every LAN and DHCP-enabled VLAN subnet", ErrStaticLeaseAddress, ip)
+}
+
+// dhcpSubnets lists the LAN interface and DHCP-enabled VLAN addresses.
+func (s *DHCPService) dhcpSubnets() []string {
+	var cidrs []string
+	for _, iface := range s.cfg.Interfaces {
+		if iface.Role == "lan" {
+			cidrs = append(cidrs, iface.Address)
+		}
+	}
+	for _, vlan := range s.cfg.VLANs {
+		if vlan.DHCP.Enabled {
+			cidrs = append(cidrs, vlan.Address)
+		}
+	}
+	return cidrs
+}
+
+// isNetworkOrBroadcast reports whether addr is the first or last address
+// of an IPv4 subnet shorter than /31.
+func isNetworkOrBroadcast(addr net.IP, subnet *net.IPNet) bool {
+	if ones, _ := subnet.Mask.Size(); ones >= 31 {
+		return false
+	}
+	network := subnet.IP.To4()
+	broadcast := make(net.IP, len(network))
+	for i := range network {
+		broadcast[i] = network[i] | ^subnet.Mask[i]
+	}
+	return addr.Equal(network) || addr.Equal(broadcast)
+}
+
+func (s *DHCPService) AddStaticLease(mac, ip, hostname string) error {
+	if err := s.validateStaticLease(ip, hostname); err != nil {
+		return err
 	}
 	for _, l := range s.cfg.DHCP.StaticLeases {
 		if strings.EqualFold(l.MAC, mac) {
