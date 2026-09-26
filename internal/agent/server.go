@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -393,8 +394,11 @@ func (f *frameReader) Read(p []byte) (int, error) {
 	}
 
 	n, err := f.conn.Read(p)
-	if n > 0 && !f.armed {
+	if !f.armed && hasFrameByte(p[:n]) {
 		// First byte of a frame: give it a bounded window to finish.
+		// The newline the client's encoder writes after each request
+		// can arrive on its own once the decoder has returned, and it
+		// must not arm the deadline on an idle connection.
 		f.armed = true
 		_ = f.conn.SetReadDeadline(time.Now().Add(f.timeout))
 	}
@@ -403,6 +407,14 @@ func (f *frameReader) Read(p []byte) (int, error) {
 		return n, errFrameTooLarge
 	}
 	return n, err
+}
+
+// hasFrameByte reports whether b holds anything but the whitespace JSON
+// allows between values.
+func hasFrameByte(b []byte) bool {
+	return slices.ContainsFunc(b, func(c byte) bool {
+		return c != ' ' && c != '\n' && c != '\r' && c != '\t'
+	})
 }
 
 // endFrame is called after a request decodes. It returns the connection
