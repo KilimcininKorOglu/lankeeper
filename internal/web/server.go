@@ -83,6 +83,9 @@ type Server struct {
 	// so a guessing run costs only patience. This one lengthens the
 	// wait as the run grows, and names the failures in the log.
 	loginGuard *loginGuard
+	// loginBudget bounds failed logins across all addresses, which the
+	// per-address guard cannot see.
+	loginBudget loginBudget
 	// limiters collects every limiter the server built so shutdown can
 	// stop their sweepers. Each one owns a goroutine, and two of the
 	// three used to be locals that nothing else held a reference to.
@@ -801,8 +804,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.renderLoginError(w, r, lang, s.lockoutMessage(lang, wait), http.StatusTooManyRequests)
 		return
 	}
+	if !s.awaitLoginBudget(w, r, lang) {
+		return
+	}
 
 	if !s.auth.VerifyPassword(password) {
+		s.loginBudget.RecordFailure(time.Now())
 		lockout := s.loginGuard.RecordFailure(ip)
 		logAuthFailure(ip, s.loginGuard.failureCount(ip), lockout)
 
@@ -840,6 +847,29 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// awaitLoginBudget holds the attempt until its global slot comes up. It
+// answers 429 and returns false when the queue is longer than the
+// maximum wait or the client gives up while waiting.
+func (s *Server) awaitLoginBudget(w http.ResponseWriter, r *http.Request, lang string) bool {
+	wait, ok := s.loginBudget.Reserve(time.Now())
+	if !ok {
+		setRetryAfter(w, wait)
+		s.renderLoginError(w, r, lang, s.lockoutMessage(lang, wait), http.StatusTooManyRequests)
+		return false
+	}
+	if wait == 0 {
+		return true
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-r.Context().Done():
+		return false
+	}
 }
 
 // renderLoginError redraws the login page carrying a message, so the
