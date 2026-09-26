@@ -794,13 +794,23 @@ func (s *FirewallService) addInterfaces(data *nftTemplateData) {
 	for _, iface := range s.cfg.Interfaces {
 		switch iface.Role {
 		case "wan":
-			data.WANInterfaces = append(data.WANInterfaces, nftIface{Device: iface.Device})
+			data.WANInterfaces = append(data.WANInterfaces, nftIface{Device: wanIPDevice(iface)})
 		case "lan":
 			data.LANInterfaces = append(data.LANInterfaces, nftIface{Device: iface.Device})
 		}
 	}
 	data.WANDevice = firstDevice(data.WANInterfaces)
 	data.LANDevice = firstDevice(data.LANInterfaces)
+}
+
+// wanIPDevice returns the interface that carries IP traffic for a WAN
+// entry. A PPPoE WAN uses its configured NIC only as the carrier, and pppd
+// runs the IP session over ppp0, so rules on the NIC never match.
+func wanIPDevice(iface config.InterfaceConfig) string {
+	if iface.Type == "pppoe" {
+		return "ppp0"
+	}
+	return iface.Device
 }
 
 // firstDevice returns the first non-empty device name, or "".

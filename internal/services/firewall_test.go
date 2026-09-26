@@ -92,6 +92,27 @@ func TestFirewallRenderConfig(t *testing.T) {
 	}
 }
 
+// A PPPoE WAN carries IP over ppp0; a rule on the carrier NIC matches
+// no IP packet, so the LAN would get no masquerade and no internet.
+func TestFirewallRenderPPPoEWANUsesPPPDevice(t *testing.T) {
+	cfg := testFirewallConfig(t)
+	cfg.Interfaces[0].Type = "pppoe"
+	svc, err := services.NewFirewallServiceFromFS(cfg, testNftTemplate)
+	if err != nil {
+		t.Fatalf("new firewall service: %v", err)
+	}
+	rendered, err := svc.RenderConfig()
+	if err != nil {
+		t.Fatalf("render config: %v", err)
+	}
+	if !strings.Contains(rendered, `oifname "ppp0" masquerade`) {
+		t.Errorf("PPPoE WAN must masquerade on ppp0:\n%s", rendered)
+	}
+	if strings.Contains(rendered, `oifname "enp3s0"`) {
+		t.Errorf("PPPoE carrier NIC must not be a WAN match:\n%s", rendered)
+	}
+}
+
 func TestFirewallRenderWithTTLFix(t *testing.T) {
 	cfg := testFirewallConfig(t)
 	cfg.Firewall.TTLFix.Enabled = true
