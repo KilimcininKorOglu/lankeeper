@@ -210,7 +210,8 @@ Metric families exposed (all prefixed `lankeeper_`):
 | Family                                  | Type    | Labels         |
 |-----------------------------------------|---------|----------------|
 | `build_info`                            | gauge   | version,commit |
-| `uptime_seconds`                        | gauge   | -              |
+| `uptime_seconds` (host)                 | gauge   | -              |
+| `process_start_time_seconds`            | gauge   | -              |
 | `cpu_percent`                           | gauge   | -              |
 | `memory_total_bytes` / `memory_used_bytes` | gauge   | -              |
 | `temperature_celsius`                   | gauge   | -              |

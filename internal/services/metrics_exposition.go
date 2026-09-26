@@ -47,7 +47,8 @@ func (snap MetricsSnapshot) writeHost(w io.Writer) {
 			"commit":  snap.BuildCommit,
 		}, 1)
 	}
-	writeScalar(w, "lankeeper_uptime_seconds", "Process uptime since last restart.", metricGauge, snap.UptimeSeconds)
+	writeScalar(w, "lankeeper_uptime_seconds", "Host uptime since boot.", metricGauge, snap.UptimeSeconds)
+	writeScalar(w, "lankeeper_process_start_time_seconds", "Start time of the web process since the Unix epoch, in seconds.", metricGauge, snap.ProcessStartTime)
 	writeScalar(w, "lankeeper_cpu_percent", "Current system-wide CPU usage in percent (0-100).", metricGauge, snap.CPUPercent)
 	writeScalar(w, "lankeeper_memory_total_bytes", "Total system memory in bytes.", metricGauge, float64(snap.MemoryTotal))
 	writeScalar(w, "lankeeper_memory_used_bytes", "Resident system memory in bytes.", metricGauge, float64(snap.MemoryUsed))

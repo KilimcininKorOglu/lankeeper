@@ -94,10 +94,13 @@ type MetricsSnapshot struct {
 	BuildCommit  string
 
 	UptimeSeconds float64
-	CPUPercent    float64
-	MemoryTotal   uint64
-	MemoryUsed    uint64
-	Temperature   float64
+	// ProcessStartTime is when this process started, in Unix seconds.
+	// UptimeSeconds is the host's, which a crash loop does not reset.
+	ProcessStartTime float64
+	CPUPercent       float64
+	MemoryTotal      uint64
+	MemoryUsed       uint64
+	Temperature      float64
 
 	Interfaces []IfaceMetric
 
@@ -225,8 +228,13 @@ func (s *MetricsService) collect(ctx context.Context) MetricsSnapshot {
 	return snap
 }
 
-// collectHost fills the build info and the monitor's host readings.
+// processStart is when this process started.
+var processStart = time.Now()
+
+// collectHost fills the build info, the process start time and the
+// monitor's host readings.
 func (s *MetricsService) collectHost(snap *MetricsSnapshot) {
+	snap.ProcessStartTime = float64(processStart.UnixNano()) / 1e9
 	if s.update != nil {
 		v := s.update.GetVersionInfo()
 		snap.BuildVersion = v.Version
