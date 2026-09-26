@@ -31,3 +31,15 @@ func TestDoTForwardingVerifiesTheUpstream(t *testing.T) {
 		t.Errorf("DoT forwarding has no CA bundle:\n%s", out)
 	}
 }
+
+// TestUnboundEnablesLocalRemoteControl is the regression test. The
+// template replaces Debian's unbound.conf, which enabled remote control
+// only through its include-toplevel, so every unbound-control call failed.
+func TestUnboundEnablesLocalRemoteControl(t *testing.T) {
+	out := renderShippedUnbound(t, &config.Config{})
+	for _, want := range []string{"remote-control:", "control-enable: yes", "control-interface: /run/unbound.ctl"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("unbound.conf lacks %q:\n%s", want, out)
+		}
+	}
+}

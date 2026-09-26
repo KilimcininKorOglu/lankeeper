@@ -70,6 +70,14 @@ server:
 
     include: "/etc/unbound/blocklist.conf"
 
+# This file replaces Debian's unbound.conf, whose include-toplevel was the
+# only thing enabling remote control. Without it every unbound-control call
+# (reload, stats, local_data) fails. A local socket needs no TLS keys and
+# is reachable only by root.
+remote-control:
+    control-enable: yes
+    control-interface: /run/unbound.ctl
+
 {{- if .EnableDoT }}
 forward-zone:
     name: "."
