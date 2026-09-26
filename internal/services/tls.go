@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/KilimcininKorOglu/lankeeper/internal/agent"
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 )
@@ -46,6 +47,9 @@ var (
 // request. The handler is not the place to own an ordering whose wrong
 // half locks the operator out of their own router.
 type TLSService struct {
+	// mkcertRoot is where mkcert keeps its CA and stages a pair; it has
+	// to match the CAROOT the agent pins.
+	mkcertRoot string
 	// mu covers cfg.System.TLS and the serving key pair. Every mode
 	// shares one pair of files, so a change to either happens under it,
 	// and ACMEService takes the same lock for issuance and renewal.
@@ -55,13 +59,13 @@ type TLSService struct {
 }
 
 func NewTLSService(cfg *config.Config) *TLSService {
-	return &TLSService{cfg: cfg, dataDir: tlsDataDir()}
+	return &TLSService{cfg: cfg, dataDir: tlsDataDir(), mkcertRoot: agent.MkcertCARoot}
 }
 
 // NewTLSServiceInDir builds the service against an explicit data
 // directory. Tests use it because they cannot write under /var/lib.
 func NewTLSServiceInDir(cfg *config.Config, dataDir string) *TLSService {
-	return &TLSService{cfg: cfg, dataDir: dataDir}
+	return &TLSService{cfg: cfg, dataDir: dataDir, mkcertRoot: filepath.Join(dataDir, "mkcert")}
 }
 
 // TLSDataDir resolves the certificate root, matching how the credential
@@ -278,8 +282,8 @@ func validateSANs(sans []string) error {
 // the CA root and returns both PEM blocks. The staged files are removed
 // on every path out.
 func (s *TLSService) issueMkcertPair(ctx context.Context, sans []string) (certPEM, keyPEM []byte, err error) {
-	caRoot := filepath.Join(s.dataDir, "mkcert")
-	if err := netutil.MkdirAll(caRoot, 0o755); err != nil {
+	caRoot := s.mkcertRoot
+	if err := netutil.MkdirAll(caRoot, 0o700); err != nil {
 		return nil, nil, fmt.Errorf("create mkcert root: %w", err)
 	}
 	stageCert := filepath.Join(caRoot, "staged.crt")
@@ -313,7 +317,7 @@ func (s *TLSService) issueMkcertPair(ctx context.Context, sans []string) (certPE
 // on their LAN devices. Without it every device shows a warning, which
 // is the whole reason to run mkcert instead of a self-signed pair.
 func (s *TLSService) MkcertCA() ([]byte, error) {
-	pem, err := netutil.ReadFile(filepath.Join(s.dataDir, "mkcert", "rootCA.pem"))
+	pem, err := netutil.ReadFile(filepath.Join(s.mkcertRoot, "rootCA.pem"))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrNoMkcertCA, err)
 	}

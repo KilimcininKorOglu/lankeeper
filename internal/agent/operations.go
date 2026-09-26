@@ -42,6 +42,7 @@ var argValidators = map[string]func([]string) error{
 	"mkdir":       validateMkdirArgs,
 	"mount":       validateMountArgs,
 	"tar":         validateTarArgs,
+	"mkcert":      validateMkcertArgs,
 }
 
 // UpdateGuardUnit names the transient unit that rolls an unconfirmed OTA
@@ -198,6 +199,9 @@ var allowedWriteRules = []pathRule{
 	{"/var/lib/lankeeper/", dirPrefix},
 	{"/var/log/", dirPrefix},
 	{"/var/backups/lankeeper-pre-update-", filenamePrefix},
+	{MkcertCARoot, exactFile},
+	{MkcertCARoot + "/staged.crt", exactFile},
+	{MkcertCARoot + "/staged.key", exactFile},
 	{"/tmp/nftables-", filenamePrefix},
 	{"/tmp/lankeeper-", filenamePrefix},
 }
@@ -219,6 +223,9 @@ var allowedReadRules = []pathRule{
 	{"/var/lib/lankeeper/", dirPrefix},
 	{"/var/log/", dirPrefix},
 	{"/var/run/", dirPrefix},
+	{MkcertCARoot + "/staged.crt", exactFile},
+	{MkcertCARoot + "/staged.key", exactFile},
+	{MkcertCARoot + "/rootCA.pem", exactFile},
 	{"/proc/mdstat", exactFile},
 	{"/tmp/nftables-", filenamePrefix},
 	{"/tmp/lankeeper-", filenamePrefix},
@@ -272,7 +279,7 @@ func commandEnv(cmd string) []string {
 		// executes against as root; pinned here it is the same root for
 		// every invocation, which is also what makes the CA the web UI
 		// hands out the one the certificates were signed with.
-		return []string{"CAROOT=/var/lib/lankeeper/mkcert"}
+		return []string{"CAROOT=" + MkcertCARoot}
 	default:
 		return nil
 	}

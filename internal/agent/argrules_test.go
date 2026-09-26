@@ -16,6 +16,8 @@ func TestArgRulesAcceptTheServiceCalls(t *testing.T) {
 		{"rm", "-f", "/usr/local/bin/lankeeper.bak"},
 		{"rm", "-f", "/var/backups/lankeeper-pre-update-v1.2.0.tar.gz"},
 		{"rm", "-f", "/var/lib/lankeeper/mkcert/cert.pem", "/var/lib/lankeeper/mkcert/key.pem"},
+		{"rm", "-f", "/var/lib/lankeeper-mkcert/staged.crt", "/var/lib/lankeeper-mkcert/staged.key"},
+		{"mkcert", "-cert-file", "/var/lib/lankeeper-mkcert/staged.crt", "-key-file", "/var/lib/lankeeper-mkcert/staged.key", "hermes.lan", "10.10.10.1", "fe80::1"},
 		{"rm", "-f", "--", "/var/log/queries.log.1"},
 		{"chmod", "600", "/var/backups/lankeeper-pre-update-v1.2.0.tar.gz"},
 		{"chmod", "640", "/var/lib/lankeeper/staging/export-1.tar.gz"},
@@ -49,6 +51,10 @@ func TestArgRulesRefuseEscalation(t *testing.T) {
 		{"cp", "-f", "/etc/shadow", "/var/lib/lankeeper/shadow"},
 		{"cp", "-f", "/var/lib/lankeeper/../../etc/shadow", "/var/lib/lankeeper/s"},
 		{"rm", "-rf", "/"},
+		{"mkcert", "-cert-file", "/etc/shadow", "-key-file", "/var/lib/lankeeper-mkcert/staged.key", "x.lan"},
+		{"mkcert", "-cert-file", "/var/lib/lankeeper/mkcert/staged.crt", "-key-file", "/var/lib/lankeeper/mkcert/staged.key", "x.lan"},
+		{"mkcert", "-cert-file", "/var/lib/lankeeper-mkcert/staged.crt", "-key-file", "/var/lib/lankeeper-mkcert/staged.key", "-install"},
+		{"mkcert", "-install"},
 		{"rm", "-f", "/etc/passwd"},
 		{"chmod", "4755", "/usr/local/bin/lankeeper"},
 		{"chmod", "600", "/etc/shadow"},
@@ -103,5 +109,16 @@ func TestPreUpdateSnapshotIsTheOnlyWritableBackupsPath(t *testing.T) {
 		if checkPathRules(p, allowedWriteRules) {
 			t.Errorf("%s accepted", p)
 		}
+	}
+}
+
+// The mkcert CA key is never readable through the agent: it signs
+// certificates the operator's devices trust for every name.
+func TestMkcertCAKeyIsNotReadable(t *testing.T) {
+	if checkPathRules(MkcertCARoot+"/rootCA-key.pem", allowedReadRules) || checkPathRules(MkcertCARoot+"/rootCA-key.pem", allowedWriteRules) {
+		t.Error("the mkcert CA key is reachable through file operations")
+	}
+	if !checkPathRules(MkcertCARoot+"/rootCA.pem", allowedReadRules) {
+		t.Error("the mkcert CA certificate is not readable")
 	}
 }

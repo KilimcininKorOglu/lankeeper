@@ -150,6 +150,37 @@ func validateChpasswdStdin(stdin string) error {
 	return nil
 }
 
+// MkcertCARoot holds the mkcert CA and the pair it stages. It is root's
+// own directory, outside the service account's data directory: mkcert
+// writes fixed names there as root, so a directory that account could
+// populate would let it plant a symlink and redirect the write. The web
+// process reads the staged pair and the CA certificate through the agent.
+const MkcertCARoot = "/var/lib/lankeeper-mkcert"
+
+// validateMkcertArgs accepts "-cert-file STAGED.crt -key-file STAGED.key
+// NAME..." with the staged paths under MkcertCARoot and each name a plain
+// hostname or address. mkcert writes wherever -cert-file points, as root.
+func validateMkcertArgs(args []string) error {
+	if len(args) < 5 || args[0] != "-cert-file" || args[1] != MkcertCARoot+"/staged.crt" ||
+		args[2] != "-key-file" || args[3] != MkcertCARoot+"/staged.key" {
+		return fmt.Errorf("mkcert: only the staged pair under %s is permitted", MkcertCARoot)
+	}
+	for _, name := range args[4:] {
+		if name == "" || strings.HasPrefix(name, "-") || strings.ContainsFunc(name, notNameRune) {
+			return fmt.Errorf("mkcert: %q is not a hostname or address", name)
+		}
+	}
+	return nil
+}
+
+// nameRunes are the runes a hostname or IP literal may carry.
+const nameRunes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:*"
+
+// notNameRune reports a rune that no hostname or IP literal carries.
+func notNameRune(r rune) bool {
+	return !strings.ContainsRune(nameRunes, r)
+}
+
 // validateSystemctlArgs accepts reboot and the verb/unit pairs in
 // serviceUnits, with --now only on enable.
 func validateSystemctlArgs(args []string) error {

@@ -52,7 +52,7 @@ func TestCommandEnvIsFixedPerCommand(t *testing.T) {
 		// against a root of the caller's choosing, and the CA the web
 		// UI hands out would stop being the one that signed what the
 		// server presents.
-		"mkcert": "CAROOT=/var/lib/lankeeper/mkcert",
+		"mkcert": "CAROOT=/var/lib/lankeeper-mkcert",
 	}
 	for cmd, want := range cases {
 		got := commandEnv(cmd)
