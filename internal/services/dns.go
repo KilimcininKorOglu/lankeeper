@@ -890,6 +890,9 @@ func (s *DNSService) aggregateStats(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.computeTopLists()
+			if err := s.rotateQueryLog(ctx); err != nil {
+				log.Printf("dns: rotate query log: %v", err)
+			}
 		}
 	}
 }
