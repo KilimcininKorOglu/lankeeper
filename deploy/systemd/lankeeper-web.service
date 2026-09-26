@@ -12,8 +12,9 @@ RestartSec=3
 
 User=lankeeper
 Group=lankeeper
-RuntimeDirectory=lankeeper
-RuntimeDirectoryMode=0755
+# /run/lankeeper belongs to the agent unit alone. Declared here too,
+# systemd deleted it (and the agent socket) whenever this unit stopped and
+# re-owned it and the socket to this account whenever it started.
 
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 ProtectHome=true

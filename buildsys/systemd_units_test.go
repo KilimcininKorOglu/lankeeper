@@ -90,3 +90,27 @@ func TestTheWebUnitCanWriteWhereTheServiceWrites(t *testing.T) {
 		}
 	}
 }
+
+// Only the agent unit may declare the runtime directory holding its
+// socket. systemd removes a RuntimeDirectory when any unit declaring it
+// stops, and re-owns it to that unit's user when it starts, so a second
+// declaration in the web unit deleted the socket on every web restart and
+// handed it to the service account on every web start.
+func TestOnlyTheAgentOwnsTheRuntimeDirectory(t *testing.T) {
+	if unitDirectives(t, "lankeeper-agent.service")["RuntimeDirectory"] != "lankeeper" {
+		t.Error("lankeeper-agent.service no longer declares RuntimeDirectory=lankeeper")
+	}
+	units, err := filepath.Glob(filepath.Join("..", "deploy", "systemd", "*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range units {
+		name := filepath.Base(u)
+		if name == "lankeeper-agent.service" {
+			continue
+		}
+		if dir, ok := unitDirectives(t, name)["RuntimeDirectory"]; ok {
+			t.Errorf("%s declares RuntimeDirectory=%s", name, dir)
+		}
+	}
+}
