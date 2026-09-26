@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"html"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"time"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/i18n"
@@ -119,9 +121,21 @@ func (h *NASHandler) HandleDeleteShare(w http.ResponseWriter, r *http.Request) {
 	respondRefresh(w, r, "/nas")
 }
 
+// m3uSyncTimeout bounds a manual sync, which downloads every source.
+const m3uSyncTimeout = 30 * time.Minute
+
+// backgroundContext returns a context for work that continues after the
+// handler returns. net/http cancels r.Context() at that moment, so work
+// started on it fails at its first network call.
+func backgroundContext(r *http.Request, d time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(r.Context()), d)
+}
+
 func (h *NASHandler) HandleSyncM3U(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := backgroundContext(r, m3uSyncTimeout)
 	go func() {
-		if err := h.nas.SyncM3U(r.Context()); err != nil {
+		defer cancel()
+		if err := h.nas.SyncM3U(ctx); err != nil {
 			log.Printf("nas: m3u sync: %v", err)
 		}
 	}()
