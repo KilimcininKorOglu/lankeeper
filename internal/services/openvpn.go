@@ -321,7 +321,10 @@ func readClientPKI(name string) (*clientPKI, error) {
 	}
 	contents := make([][]byte, len(files))
 	for i, f := range files {
-		b, err := os.ReadFile(f.path)
+		// Through the agent: easy-rsa runs as root, so the private key
+		// and its directory are root-only and this process cannot open
+		// them directly.
+		b, err := netutil.ReadFile(f.path)
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", f.label, err)
 		}
