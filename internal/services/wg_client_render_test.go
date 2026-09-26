@@ -97,3 +97,29 @@ func firstRuleLine(text, needle string) int {
 	}
 	return -1
 }
+
+// Every LAN interface needs its own LAN -> WAN accept; the rule was
+// written with the first LAN's device for all of them.
+func TestShippedRulesetForwardsEveryLAN(t *testing.T) {
+	t.Chdir("../..")
+	cfg := config.DefaultConfig()
+	cfg.Interfaces = []config.InterfaceConfig{
+		{ID: "wan", Device: "enp3s0", Role: "wan"},
+		{ID: "lan", Device: "enp0s25", Role: "lan"},
+		{ID: "lan2", Device: "enp4s0", Role: "lan"},
+	}
+	svc, err := NewFirewallService(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.stopWatchdog)
+	rendered, err := svc.RenderConfig()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, lan := range []string{"enp0s25", "enp4s0"} {
+		if !strings.Contains(rendered, `iifname "`+lan+`" oifname "enp3s0" accept`) {
+			t.Errorf("no LAN -> WAN accept for %s:\n%s", lan, rendered)
+		}
+	}
+}

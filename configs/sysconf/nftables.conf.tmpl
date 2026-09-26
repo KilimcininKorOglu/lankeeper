@@ -94,9 +94,9 @@ table inet filter {
 {{- end }}
 
         # LAN → WAN (IPv4 + IPv6)
-{{- range .LANInterfaces }}
+{{- range $lan := .LANInterfaces }}
 {{- range $.WANInterfaces }}
-        iifname "{{ $.LANDevice }}" oifname "{{ .Device }}" accept
+        iifname "{{ $lan.Device }}" oifname "{{ .Device }}" accept
 {{- end }}
 {{- end }}
 
@@ -105,9 +105,9 @@ table inet filter {
         # accept above, and LAN hosts hold global addresses with no NAT66,
         # so an unconditional reverse rule would admit every inbound
         # connection from the IPv6 internet.
-{{- range .LANInterfaces }}
+{{- range $lan := .LANInterfaces }}
 {{- range $.IPv6WANInterfaces }}
-        iifname "{{ $.LANDevice }}" oifname "{{ .Device }}" accept
+        iifname "{{ $lan.Device }}" oifname "{{ .Device }}" accept
 {{- end }}
 {{- end }}
 
