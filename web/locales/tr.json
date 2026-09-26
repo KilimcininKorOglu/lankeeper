@@ -478,6 +478,7 @@
     "dns.cacheMisses": "Önbellek Kaçırma",
     "dns.updateBlocklist": "Güncelle",
     "dns.blocklistDesc": "Engelleme listesi kaynakları router.yaml'da yapılandırılmıştır. Güncellemek için tıklayın.",
+    "dns.blocklistUpdateRunning": "Bir engel listesi güncellemesi zaten çalışıyor",
     "dns.localRecords": "Yerel DNS Kayıtları",
     "dns.addRecord": "Kayıt Ekle",
     "dns.recordName": "Ad (FQDN)",

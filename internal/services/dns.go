@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"text/template"
 	"time"
 
@@ -33,7 +34,16 @@ type DNSService struct {
 	bufSize  int
 	stats    DNSStats
 	cancel   context.CancelFunc
+
+	// blocklistRunning holds a single blocklist update at a time. Each
+	// run buffers every list in memory and reloads Unbound, so parallel
+	// runs multiply the memory and race on the same file.
+	blocklistRunning atomic.Bool
 }
+
+// ErrBlocklistUpdateRunning reports that a blocklist update is already
+// in progress.
+var ErrBlocklistUpdateRunning = errors.New("a blocklist update is already running")
 
 type DNSStats struct {
 	TotalQueries int
@@ -285,6 +295,11 @@ func (s *DNSService) BlockedCount() int {
 }
 
 func (s *DNSService) UpdateBlocklist(ctx context.Context) error {
+	if !s.blocklistRunning.CompareAndSwap(false, true) {
+		return ErrBlocklistUpdateRunning
+	}
+	defer s.blocklistRunning.Store(false)
+
 	var allDomains []string
 
 	for _, url := range s.cfg.DNS.BlocklistURLs {

@@ -478,6 +478,7 @@
     "dns.cacheMisses": "Cache Misses",
     "dns.updateBlocklist": "Update",
     "dns.blocklistDesc": "Blocklist sources are configured in router.yaml. Click Update to download and apply.",
+    "dns.blocklistUpdateRunning": "A blocklist update is already running",
     "dns.localRecords": "Local DNS Records",
     "dns.addRecord": "Add Record",
     "dns.recordName": "Name (FQDN)",
