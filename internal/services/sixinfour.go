@@ -340,18 +340,26 @@ func readSitCounters(ctx context.Context, dev string) (uint64, uint64, bool) {
 	if err != nil || out == "" {
 		return 0, 0, false
 	}
-	type stats64 struct {
-		RxBytes uint64 `json:"rx_bytes"`
-		TxBytes uint64 `json:"tx_bytes"`
+	return parseSitCounters(out)
+}
+
+// parseSitCounters decodes the byte counters from `ip -s -j link show`,
+// which nests them as stats64.rx.bytes and stats64.tx.bytes.
+func parseSitCounters(out string) (uint64, uint64, bool) {
+	type direction struct {
+		Bytes uint64 `json:"bytes"`
 	}
 	type entry struct {
-		Stats64 stats64 `json:"stats64"`
+		Stats64 struct {
+			Rx direction `json:"rx"`
+			Tx direction `json:"tx"`
+		} `json:"stats64"`
 	}
 	var entries []entry
 	if err := json.Unmarshal([]byte(out), &entries); err != nil || len(entries) == 0 {
 		return 0, 0, false
 	}
-	return entries[0].Stats64.RxBytes, entries[0].Stats64.TxBytes, true
+	return entries[0].Stats64.Rx.Bytes, entries[0].Stats64.Tx.Bytes, true
 }
 
 // persistState writes the tunnel state JSON atomically via the agent.
