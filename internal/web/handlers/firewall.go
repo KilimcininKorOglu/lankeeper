@@ -93,7 +93,7 @@ func (h *FirewallHandler) HandleAddPortForward(w http.ResponseWriter, r *http.Re
 	}
 
 	if err := h.firewall.AddPortForward(pf); err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+		serverError(w, r, "error.saveFailed", err)
 		return
 	}
 
@@ -149,7 +149,7 @@ func (h *FirewallHandler) HandleAddRule(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := h.firewall.AddRule(rule); err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+		serverError(w, r, "error.saveFailed", err)
 		return
 	}
 
@@ -245,7 +245,7 @@ func (h *FirewallHandler) HandleAddOpenPort(w http.ResponseWriter, r *http.Reque
 	}
 
 	if err := h.firewall.AddOpenPort(op); err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+		serverError(w, r, "error.saveFailed", err)
 		return
 	}
 

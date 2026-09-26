@@ -58,7 +58,7 @@ func (h *QoSHandler) HandleApply(w http.ResponseWriter, r *http.Request) {
 	h.cfg.QoS = next
 
 	if err := h.cfg.SaveToFile(); err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+		serverError(w, r, "error.saveFailed", err)
 		return
 	}
 
@@ -127,7 +127,7 @@ func (h *QoSHandler) HandleClear(w http.ResponseWriter, r *http.Request) {
 
 	h.cfg.QoS.Enabled = false
 	if err := h.cfg.SaveToFile(); err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+		serverError(w, r, "error.saveFailed", err)
 		return
 	}
 

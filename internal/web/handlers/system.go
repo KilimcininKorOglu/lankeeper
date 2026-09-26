@@ -115,13 +115,13 @@ func (h *SystemHandler) HandleChangeWebPassword(w http.ResponseWriter, r *http.R
 
 	hashBytes, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.internal")
+		serverError(w, r, "error.internal", err)
 		return
 	}
 
 	h.cfg.System.AdminPasswordHash = string(hashBytes)
 	if err := h.cfg.SaveToFile(); err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+		serverError(w, r, "error.saveFailed", err)
 		return
 	}
 
@@ -207,7 +207,7 @@ func (h *SystemHandler) HandleUpdateHostname(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := h.cfg.SaveToFile(); err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+		serverError(w, r, "error.saveFailed", err)
 		return
 	}
 	// Both values passed a regex allowlist earlier in this
@@ -244,7 +244,7 @@ func (h *SystemHandler) HandleUpdateTimezone(w http.ResponseWriter, r *http.Requ
 
 	h.cfg.System.Timezone = tz
 	if err := h.cfg.SaveToFile(); err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+		serverError(w, r, "error.saveFailed", err)
 		return
 	}
 
@@ -528,7 +528,7 @@ func (h *SystemHandler) HandleExport(w http.ResponseWriter, r *http.Request) {
 	outputPath := filepath.Join(os.TempDir(), fmt.Sprintf("lankeeper-backup-%s.tar.gz.enc", time.Now().Format("20060102-150405")))
 
 	if err := h.backup.Export(r.Context(), outputPath, passphrase); err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.exportFailed")
+		serverError(w, r, "error.exportFailed", err)
 		return
 	}
 	defer func() { _ = os.Remove(outputPath) }()
@@ -574,7 +574,7 @@ func (h *SystemHandler) HandleImport(w http.ResponseWriter, r *http.Request) {
 
 	tmpFile, err := os.CreateTemp("", "lankeeper-import-*.tar.gz")
 	if err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.tempFileFailed")
+		serverError(w, r, "error.tempFileFailed", err)
 		return
 	}
 	defer func() { _ = os.Remove(tmpFile.Name()) }()
@@ -585,14 +585,14 @@ func (h *SystemHandler) HandleImport(w http.ResponseWriter, r *http.Request) {
 			clientError(w, r, http.StatusRequestEntityTooLarge, "error.backupTooLarge")
 			return
 		}
-		clientError(w, r, http.StatusInternalServerError, "error.uploadSaveFailed")
+		serverError(w, r, "error.uploadSaveFailed", err)
 		return
 	}
 	_ = tmpFile.Close()
 
 	passphrase := r.FormValue("passphrase")
 	if err := h.backup.Import(r.Context(), tmpFile.Name(), passphrase); err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.importFailed")
+		serverError(w, r, "error.importFailed", err)
 		return
 	}
 

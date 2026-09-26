@@ -79,7 +79,7 @@ func (h *BackupHandler) HandleSaveSchedule(w http.ResponseWriter, r *http.Reques
 		h.cfg.Backup.Passphrase = passphrase
 	}
 	if err := h.cfg.SaveToFile(); err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+		serverError(w, r, "error.saveFailed", err)
 		return
 	}
 
@@ -134,7 +134,7 @@ func (h *BackupHandler) HandleAddTarget(w http.ResponseWriter, r *http.Request) 
 	}
 	h.cfg.Backup.Targets = append(h.cfg.Backup.Targets, target)
 	if err := h.cfg.SaveToFile(); err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+		serverError(w, r, "error.saveFailed", err)
 		return
 	}
 	respondRefresh(w, r, "/backup")
@@ -163,7 +163,7 @@ func (h *BackupHandler) HandleDeleteTarget(w http.ResponseWriter, r *http.Reques
 	}
 	h.cfg.Backup.Targets = out
 	if err := h.cfg.SaveToFile(); err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+		serverError(w, r, "error.saveFailed", err)
 		return
 	}
 	respondRefresh(w, r, "/backup")

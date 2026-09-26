@@ -148,7 +148,7 @@ func (h *OpenVPNHandler) HandleDownloadOVPN(w http.ResponseWriter, r *http.Reque
 
 	ovpnContent, err := h.ovpn.GenerateClientOVPN(name)
 	if err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.generateFailed")
+		serverError(w, r, "error.generateFailed", err)
 		return
 	}
 
@@ -207,7 +207,7 @@ func (h *OpenVPNHandler) HandleAddOutboundClient(w http.ResponseWriter, r *http.
 		return
 	}
 	if err := h.ovpn.AddOutboundClient(client); err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+		serverError(w, r, "error.saveFailed", err)
 		return
 	}
 

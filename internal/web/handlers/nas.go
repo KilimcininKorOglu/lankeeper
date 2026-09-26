@@ -59,7 +59,7 @@ func (h *NASHandler) HandleAddShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.nas.AddShare(share); err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+		serverError(w, r, "error.saveFailed", err)
 		return
 	}
 	if err := h.nas.ApplyConfig(r.Context()); err != nil {

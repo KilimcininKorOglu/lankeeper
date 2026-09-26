@@ -56,7 +56,7 @@ func (h *RoutingHandler) HandleAddPolicy(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := h.routing.AddPolicy(policy); err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+		serverError(w, r, "error.saveFailed", err)
 		return
 	}
 	if !h.apply(w, r) {
@@ -142,7 +142,7 @@ func (h *RoutingHandler) HandleReorder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.routing.UpdatePriorities(names); err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+		serverError(w, r, "error.saveFailed", err)
 		return
 	}
 	if !h.apply(w, r) {

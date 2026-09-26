@@ -22,15 +22,7 @@ import (
 // Handlers previously passed err.Error() straight to http.Error at 68
 // sites, which forwarded the agent's text verbatim.
 func fail(w http.ResponseWriter, r *http.Request, status int, err error) {
-	if r != nil {
-		// EscapedPath percent-encodes CR and LF, and net/http only
-		// admits token characters in Method, so neither can break the
-		// line.
-		// #nosec G706
-		log.Printf("%s %s: %v", r.Method, r.URL.EscapedPath(), err)
-	} else {
-		log.Printf("request failed: %v", err)
-	}
+	logRequestError(r, err)
 
 	http.Error(w, safeErrorMessage(err, status), status)
 }
@@ -52,6 +44,15 @@ func clientError(w http.ResponseWriter, r *http.Request, status int, key string)
 	http.Error(w, i18n.T(lang, key), status)
 }
 
+// serverError answers a failure on the router's side with a translated
+// message and logs the cause. clientError alone writes only the text,
+// and the request log records only the status, so the error would be
+// lost.
+func serverError(w http.ResponseWriter, r *http.Request, key string, err error) {
+	logRequestError(r, err)
+	clientError(w, r, http.StatusInternalServerError, key)
+}
+
 // clientErrorf is clientError for the few messages that must name the
 // offending value. The detail comes from the request, never from an
 // agent or a third party.
@@ -70,4 +71,16 @@ func safeErrorMessage(err error, status int) string {
 		return http.StatusText(status)
 	}
 	return err.Error()
+}
+
+// logRequestError writes err to the journal with the request line.
+func logRequestError(r *http.Request, err error) {
+	if r == nil {
+		log.Printf("request failed: %v", err)
+		return
+	}
+	// EscapedPath percent-encodes CR and LF, and net/http only admits
+	// token characters in Method, so neither can break the line.
+	// #nosec G706
+	log.Printf("%s %s: %v", r.Method, r.URL.EscapedPath(), err)
 }

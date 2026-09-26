@@ -68,7 +68,7 @@ func (h *DHCPHandler) HandleAddStatic(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.dhcp.AddStaticLease(mac, ip, hostname); err != nil {
-		clientError(w, r, http.StatusInternalServerError, "error.saveFailed")
+		serverError(w, r, "error.saveFailed", err)
 		return
 	}
 	if err := h.dhcp.ApplyConfig(r.Context()); err != nil {
