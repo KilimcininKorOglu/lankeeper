@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -11,16 +12,6 @@ import (
 	"github.com/KilimcininKorOglu/lankeeper/internal/services"
 	"github.com/KilimcininKorOglu/lankeeper/internal/tmpl"
 )
-
-// allowedFacilities is the set of standard syslog facility names accepted
-// by the AddFacility handler. RFC 5424 + Linux locals.
-var allowedFacilities = map[string]bool{
-	"auth": true, "authpriv": true, "cron": true, "daemon": true,
-	"kern": true, "lpr": true, "mail": true, "news": true,
-	"syslog": true, "user": true,
-	"local0": true, "local1": true, "local2": true, "local3": true,
-	"local4": true, "local5": true, "local6": true, "local7": true,
-}
 
 type SyslogHandler struct {
 	renderer *tmpl.Renderer
@@ -119,12 +110,12 @@ func (h *SyslogHandler) HandleAddFacility(w http.ResponseWriter, r *http.Request
 		clientError(w, r, http.StatusBadRequest, "error.badForm")
 		return
 	}
-	name := strings.ToLower(strings.TrimSpace(r.FormValue("name")))
-	if !allowedFacilities[name] {
+	err := h.syslog.AddFacility(r.FormValue("name"))
+	if errors.Is(err, services.ErrInvalidFacility) {
 		clientError(w, r, http.StatusBadRequest, "error.invalidFacility")
 		return
 	}
-	if err := h.syslog.AddFacility(name); err != nil {
+	if err != nil {
 		fail(w, r, http.StatusBadRequest, err)
 		return
 	}

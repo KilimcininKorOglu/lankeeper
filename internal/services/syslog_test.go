@@ -1,6 +1,7 @@
 package services_test
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -259,5 +260,28 @@ func TestSaveClientConfigRefusesAnInjectedRemoteHost(t *testing.T) {
 		if err := svc.SaveClientConfig(config.SyslogClientConfig{RemoteHost: host}); err == nil {
 			t.Errorf("remote host %q was accepted", host)
 		}
+	}
+}
+
+// A facility added from the page must reach rsyslog.conf as a selector:
+// rsyslog rejects a bare "kern @host" line, so a stored bare name is a
+// facility that is never forwarded.
+func TestAddFacilityStoresASelector(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "router.yaml"))
+	cfg.Syslog.Client.Facilities = []string{"kern.*"}
+	svc := services.NewSyslogService(cfg)
+
+	if err := svc.AddFacility("Mail"); err != nil {
+		t.Fatalf("add mail: %v", err)
+	}
+	if got := cfg.Syslog.Client.Facilities; got[len(got)-1] != "mail.*" {
+		t.Errorf("stored %q, want mail.*", got[len(got)-1])
+	}
+	if err := svc.AddFacility("kern"); err == nil {
+		t.Error("kern was added beside the existing kern.* selector")
+	}
+	if err := svc.AddFacility("kern.* @evil"); !errors.Is(err, services.ErrInvalidFacility) {
+		t.Errorf("an injected selector: err = %v, want ErrInvalidFacility", err)
 	}
 }

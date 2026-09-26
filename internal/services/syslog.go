@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -249,20 +250,35 @@ func validateTLSPath(field, p string) error {
 	return fmt.Errorf("syslog %s %q must live under one of %v", field, p, allowedTLSDirs)
 }
 
-// AddFacility appends a syslog facility name to the client forwarding list.
-// Validation against the allowed RFC 5424 facility names is the caller's
-// responsibility.
+// syslogFacilities is the set of standard syslog facility names the
+// forwarding list accepts: RFC 5424 plus the Linux locals.
+var syslogFacilities = map[string]bool{
+	"auth": true, "authpriv": true, "cron": true, "daemon": true,
+	"kern": true, "lpr": true, "mail": true, "news": true,
+	"syslog": true, "user": true,
+	"local0": true, "local1": true, "local2": true, "local3": true,
+	"local4": true, "local5": true, "local6": true, "local7": true,
+}
+
+// ErrInvalidFacility reports a facility name outside syslogFacilities.
+var ErrInvalidFacility = errors.New("unknown syslog facility")
+
+// AddFacility appends a facility to the client forwarding list. The
+// template writes each entry as an rsyslog selector, which needs a
+// priority, so a bare name is stored as "<name>.*"; rsyslog rejects a
+// selector line without one and the facility is never forwarded.
 func (s *SyslogService) AddFacility(name string) error {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return fmt.Errorf("empty facility")
+	name = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(name)), ".*")
+	if !syslogFacilities[name] {
+		return fmt.Errorf("%w: %q", ErrInvalidFacility, name)
 	}
+	selector := name + ".*"
 	for _, f := range s.cfg.Syslog.Client.Facilities {
-		if strings.EqualFold(f, name) {
-			return fmt.Errorf("facility %s already configured", name)
+		if strings.EqualFold(f, selector) {
+			return fmt.Errorf("facility %s already configured", selector)
 		}
 	}
-	s.cfg.Syslog.Client.Facilities = append(s.cfg.Syslog.Client.Facilities, name)
+	s.cfg.Syslog.Client.Facilities = append(s.cfg.Syslog.Client.Facilities, selector)
 	return s.cfg.SaveToFile()
 }
 
