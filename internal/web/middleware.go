@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"mime"
 	"net"
 	"net/http"
 	"strconv"
@@ -46,11 +47,10 @@ func CSRFProtect(next http.Handler) http.Handler {
 			return
 		}
 
-		header := r.Header.Get("X-CSRF-Token")
-		formVal := r.FormValue("csrf_token")
-		token := header
+		r.Body = http.MaxBytesReader(w, r.Body, requestBodyLimit(r))
+		token := r.Header.Get("X-CSRF-Token")
 		if token == "" {
-			token = formVal
+			token = formCSRFToken(r)
 		}
 
 		// Constant time, because the compared value is a secret. A plain
@@ -66,6 +66,41 @@ func CSRFProtect(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// maxRequestBodyBytes caps every mutating request body. This middleware
+// runs before authentication, so without a cap any LAN host could make
+// the form parser hold tens of megabytes per request.
+const maxRequestBodyBytes = 1 << 20
+
+// maxImportBodyBytes is the one larger allowance, for the backup import
+// route; the handler applies its own tighter cap as well.
+const maxImportBodyBytes = 64 << 20
+
+// maxCSRFFormMemory bounds what the multipart parser keeps in memory
+// while looking for the token; larger parts spill to temp files.
+const maxCSRFFormMemory = 1 << 20
+
+func requestBodyLimit(r *http.Request) int64 {
+	if r.Method == http.MethodPost && r.URL.Path == "/system/backup/import" {
+		return maxImportBodyBytes
+	}
+	return maxRequestBodyBytes
+}
+
+// formCSRFToken reads the token from the request form. A multipart body
+// is parsed with an explicit memory bound, because FormValue would use
+// the 32 MB default.
+func formCSRFToken(r *http.Request) string {
+	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt == "multipart/form-data" {
+		// Bounded: CSRFProtect wraps r.Body in http.MaxBytesReader before
+		// this runs.
+		// #nosec G120
+		if err := r.ParseMultipartForm(maxCSRFFormMemory); err != nil {
+			return ""
+		}
+	}
+	return r.FormValue("csrf_token")
 }
 
 // getOrCreateCSRFToken returns the caller's existing token or mints a
