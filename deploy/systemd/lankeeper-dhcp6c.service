@@ -1,16 +1,18 @@
 [Unit]
 Description=LANKeeper DHCPv6 Prefix Delegation Client (wide-dhcpv6)
 # Conflict with the Debian-shipped wide-dhcpv6-client unit so the two
-# never race for /var/run/dhcp6c.pid.
+# never race for /run/dhcp6c.pid.
 Conflicts=wide-dhcpv6-client.service
 After=network-online.target ppp.service
 Wants=network-online.target
 
 [Service]
 Type=forking
-PIDFile=/var/run/dhcp6c.pid
-ExecStart=/usr/sbin/dhcp6c -c /etc/wide-dhcpv6/dhcp6c.conf -P /var/run/dhcp6c.pid
-ExecStop=/bin/kill -TERM $MAINPID
+PIDFile=/run/dhcp6c.pid
+# dhcp6c takes the interface on its command line; the IPv6 service writes
+# it next to dhcp6c.conf.
+EnvironmentFile=/etc/wide-dhcpv6/lankeeper-dhcp6c.env
+ExecStart=/usr/sbin/dhcp6c -c /etc/wide-dhcpv6/dhcp6c.conf -p /run/dhcp6c.pid ${DHCP6C_INTERFACE}
 Restart=on-failure
 RestartSec=5
 

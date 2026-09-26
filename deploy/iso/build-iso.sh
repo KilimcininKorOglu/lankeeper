@@ -408,6 +408,7 @@ required_units=(
     "$PROJECT_ROOT/deploy/systemd/lankeeper-agent.service"
     "$PROJECT_ROOT/deploy/systemd/lankeeper-web.service"
     "$PROJECT_ROOT/deploy/systemd/lankeeper.target"
+    "$PROJECT_ROOT/deploy/systemd/lankeeper-dhcp6c.service"
 )
 for unit in "${required_units[@]}"; do
     if [[ ! -f "$unit" ]]; then

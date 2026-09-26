@@ -168,6 +168,7 @@ install_systemd_units() {
     cp "$script_dir/systemd/lankeeper-agent.service" "$SYSTEMD_DIR/"
     cp "$script_dir/systemd/lankeeper-web.service" "$SYSTEMD_DIR/"
     cp "$script_dir/systemd/lankeeper.target" "$SYSTEMD_DIR/"
+    cp "$script_dir/systemd/lankeeper-dhcp6c.service" "$SYSTEMD_DIR/"
 
     if ! systemctl daemon-reload; then
         log_warn "systemctl daemon-reload failed (chroot or no dbus)"

@@ -35,8 +35,11 @@ import (
 const (
 	dhcp6cConfPath   = "/etc/wide-dhcpv6/dhcp6c.conf"
 	dhcp6cScriptPath = "/etc/wide-dhcpv6/dhcp6c-script"
-	ipv6StatePath    = "/var/lib/lankeeper/state/ipv6-prefix.json"
-	dhcp6cUnitName   = "lankeeper-dhcp6c.service"
+	// dhcp6cEnvPath names the WAN interface for lankeeper-dhcp6c.service:
+	// dhcp6c takes the interface on its command line, not from the config.
+	dhcp6cEnvPath  = "/etc/wide-dhcpv6/lankeeper-dhcp6c.env"
+	ipv6StatePath  = "/var/lib/lankeeper/state/ipv6-prefix.json"
+	dhcp6cUnitName = "lankeeper-dhcp6c.service"
 	// dnsmasqRAConfPath is the drop-in dnsmasq.conf-dir file that owns
 	// every Router Advertisement directive. Owning a separate file
 	// keeps the IPv6 RA layer decoupled from DHCPv4 — the DHCP service
@@ -597,6 +600,21 @@ func (s *IPv6Service) writePDFiles() error {
 	}
 	if err := netutil.WriteFile(dhcp6cScriptPath, []byte(script), 0o755); err != nil {
 		return fmt.Errorf("write dhcp6c-script: %w", err)
+	}
+	return s.writeDHCP6CEnv()
+}
+
+// writeDHCP6CEnv records the WAN interface the unit hands to dhcp6c.
+func (s *IPv6Service) writeDHCP6CEnv() error {
+	wan, _, err := s.resolveInterfaces()
+	if err != nil {
+		return err
+	}
+	if err := netutil.ValidateInterfaceName(wan); err != nil {
+		return fmt.Errorf("dhcp6c interface: %w", err)
+	}
+	if err := netutil.WriteFile(dhcp6cEnvPath, []byte("DHCP6C_INTERFACE="+wan+"\n"), 0o644); err != nil {
+		return fmt.Errorf("write dhcp6c environment: %w", err)
 	}
 	return nil
 }
