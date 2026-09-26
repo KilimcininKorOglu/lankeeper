@@ -18,9 +18,13 @@ type snapshotAgent struct {
 	calls        []string
 	failSnapshot bool
 	emptyRuleset bool
+	writes       map[string]string
 }
 
 func (a *snapshotAgent) Call(_ context.Context, method string, params any) (json.RawMessage, error) {
+	if method == "file.write" {
+		return a.recordWrite(params)
+	}
 	if method != "exec.run" {
 		return []byte(`{}`), nil
 	}
@@ -61,6 +65,34 @@ func (a *snapshotAgent) Call(_ context.Context, method string, params any) (json
 		}{Stdout: "table inet filter {\n}\n"})
 	}
 	return []byte(`{"stdout":"","stderr":"","exitCode":0}`), nil
+}
+
+func (a *snapshotAgent) recordWrite(params any) (json.RawMessage, error) {
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return nil, err
+	}
+	var w struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &w); err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.writes == nil {
+		a.writes = make(map[string]string)
+	}
+	a.writes[w.Path] = w.Content
+	return []byte(`{}`), nil
+}
+
+func (a *snapshotAgent) written(path string) (string, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	content, ok := a.writes[path]
+	return content, ok
 }
 
 func (a *snapshotAgent) ran(substr string) bool {
@@ -201,5 +233,34 @@ func TestApplyStagesTheRulesetWhereTheAgentCanReadIt(t *testing.T) {
 	}
 	if agent.ran("/tmp/") {
 		t.Errorf("a /tmp path crossed the agent boundary; calls: %v", agent.calls)
+	}
+}
+
+// TestConfirmPersistsTheRulesetForBoot is the regression test. Nothing
+// wrote the confirmed ruleset to /etc/nftables.conf, so every reboot
+// loaded the installer's bootstrap ruleset: no NAT and a forward chain
+// that accepts everything.
+func TestConfirmPersistsTheRulesetForBoot(t *testing.T) {
+	agent := &snapshotAgent{}
+	svc := newSnapshotTest(t, agent)
+
+	if err := svc.Apply(context.Background()); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if _, ok := agent.written(bootRulesetPath); ok {
+		t.Fatal("the ruleset reached the boot file before the operator confirmed it")
+	}
+	svc.Confirm()
+
+	got, ok := agent.written(bootRulesetPath)
+	if !ok {
+		t.Fatal("Confirm did not write /etc/nftables.conf")
+	}
+	want, err := svc.RenderConfig()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if got != want {
+		t.Errorf("boot ruleset differs from the confirmed one:\n%s", got)
 	}
 }

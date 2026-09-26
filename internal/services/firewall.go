@@ -41,6 +41,9 @@ type FirewallService struct {
 	change    *netutil.AtomicChange
 	tmpl      *template.Template
 	statePath string
+	// appliedRuleset is the ruleset the pending change loaded, kept so
+	// Confirm can persist exactly what the operator confirmed.
+	appliedRuleset string
 }
 
 type nftTemplateData struct {
@@ -255,7 +258,7 @@ func (s *FirewallService) Apply(ctx context.Context) error {
 		return ErrChangePending
 	}
 
-	tmpFile, err := s.renderToFile()
+	tmpFile, rendered, err := s.renderToFile()
 	if err != nil {
 		return fmt.Errorf("render nftables: %w", err)
 	}
@@ -279,6 +282,7 @@ func (s *FirewallService) Apply(ctx context.Context) error {
 	}
 
 	s.change = ac
+	s.appliedRuleset = rendered
 	s.persistPendingState(ac.GetSnapshot())
 	s.armWatchdog(ac, firewallConfirmWindow)
 
@@ -293,8 +297,34 @@ func (s *FirewallService) Confirm() {
 	if s.change != nil {
 		s.change.Confirm()
 		s.change = nil
+		s.persistConfirmedRuleset()
 	}
 	s.clearPendingState()
+}
+
+// bootRulesetPath is the file nftables.service loads at boot.
+const bootRulesetPath = "/etc/nftables.conf"
+
+// persistConfirmedRuleset writes the confirmed ruleset to the file
+// nftables.service loads at boot. Without it every reboot fell back to the
+// installer's bootstrap ruleset, which has no NAT and forwards everything.
+// A change restored after a restart has no rendered copy in memory, so it
+// is rendered again; Apply refuses while a change is pending, so the
+// config has not been re-applied since.
+func (s *FirewallService) persistConfirmedRuleset() {
+	ruleset := s.appliedRuleset
+	s.appliedRuleset = ""
+	if ruleset == "" {
+		rendered, err := s.RenderConfig()
+		if err != nil {
+			log.Printf("firewall: render confirmed ruleset for boot: %v", err)
+			return
+		}
+		ruleset = rendered
+	}
+	if err := netutil.WriteFile(bootRulesetPath, []byte(ruleset), 0o600); err != nil {
+		log.Printf("firewall: persist confirmed ruleset to %s: %v", bootRulesetPath, err)
+	}
 }
 
 func (s *FirewallService) Rollback(ctx context.Context) error {
@@ -877,16 +907,16 @@ func (s *FirewallService) addVPNInterfaces(data *nftTemplateData) {
 // renderToFile stages the rendered ruleset where the agent can read it.
 // The web process runs with PrivateTmp, so its own /tmp is invisible to
 // the agent that runs nft.
-func (s *FirewallService) renderToFile() (string, error) {
+func (s *FirewallService) renderToFile() (string, string, error) {
 	rendered, err := s.RenderConfig()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	path := filepath.Join(netutil.FirewallStagingDir(), "candidate.nft")
 	if err := netutil.WriteFile(path, []byte(rendered), 0o600); err != nil {
-		return "", fmt.Errorf("stage ruleset: %w", err)
+		return "", "", fmt.Errorf("stage ruleset: %w", err)
 	}
-	return path, nil
+	return path, rendered, nil
 }
 
 func (s *FirewallService) RenderConfig() (string, error) {
