@@ -1,6 +1,9 @@
 package services_test
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -41,7 +44,7 @@ func (f *localFakeAgent) Call(_ context.Context, method string, params any) (jso
 			// across /etc paths the test process cannot read. Args[1]
 			// is the output file (after "czf").
 			if len(p.Args) >= 2 && p.Args[0] == "czf" {
-				_ = os.WriteFile(p.Args[1], []byte("fake-tar-payload"), 0o600)
+				_ = os.WriteFile(p.Args[1], fakeTarGz(), 0o600)
 			}
 			return []byte(`{"stdout":"","stderr":"","exitCode":0}`), nil
 		}
@@ -282,4 +285,18 @@ func TestBackupOrchestratorRecordsFailureToDisk(t *testing.T) {
 	if reloaded.Backup.LastStatus != "error" {
 		t.Errorf("persisted LastStatus = %q, want %q", reloaded.Backup.LastStatus, "error")
 	}
+}
+
+// fakeTarGz is a valid one-member archive. Export opens the archive to
+// add the credential key, so a payload that is not gzip fails it.
+func fakeTarGz() []byte {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	body := []byte("fake-tar-payload")
+	_ = tw.WriteHeader(&tar.Header{Name: "lankeeper/router.yaml", Mode: 0o600, Size: int64(len(body)), Typeflag: tar.TypeReg})
+	_, _ = tw.Write(body)
+	_ = tw.Close()
+	_ = gz.Close()
+	return buf.Bytes()
 }

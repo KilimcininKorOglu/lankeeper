@@ -2,11 +2,13 @@ package services
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -21,6 +23,7 @@ import (
 	"golang.org/x/crypto/scrypt"
 
 	"github.com/KilimcininKorOglu/lankeeper/configs"
+	"github.com/KilimcininKorOglu/lankeeper/internal/config"
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 )
 
@@ -58,8 +61,9 @@ func (s *BackupService) SetRunner(fn func(context.Context) error) {
 // of that is mirrored into router.yaml, which stores only names, ports,
 // ciphers, and per-client metadata, so a restore without this directory
 // leaves the OpenVPN server unable to start and forces every client
-// certificate to be reissued. WireGuard needs no entry here because its
-// private keys do live in router.yaml.
+// certificate to be reissued. The WireGuard private keys live in
+// router.yaml, encrypted with the credential key, which an encrypted
+// export carries as archiveKeyMember.
 var backupExtraDirs = []string{
 	"/etc/unbound",
 	"/etc/dnsmasq.d",
@@ -151,6 +155,10 @@ func (s *BackupService) exportEncrypted(ctx context.Context, outputPath, passphr
 	plaintext, err := os.ReadFile(staged)
 	if err != nil {
 		return fmt.Errorf("read archive for encryption: %w", err)
+	}
+	plaintext, err = appendConfigKey(plaintext)
+	if err != nil {
+		return fmt.Errorf("add credential key to backup: %w", err)
 	}
 	encrypted, err := encryptBackup(plaintext, passphrase)
 	if err != nil {
@@ -323,7 +331,7 @@ func (s *BackupService) Import(ctx context.Context, archivePath, passphrase stri
 	}
 	defer func() { _ = gz.Close() }()
 
-	return s.restoreArchive(tar.NewReader(gz))
+	return s.restoreArchive(tar.NewReader(gz), passphrase != "")
 }
 
 // decryptArchiveInPlace replaces the uploaded archive with its
@@ -350,17 +358,26 @@ func decryptArchiveInPlace(archivePath, passphrase string) error {
 }
 
 // restoreArchive writes every member of tr under its restore root,
-// within the import budget.
-func (s *BackupService) restoreArchive(tr *tar.Reader) error {
+// within the import budget. The credential key is taken only from an
+// encrypted archive, and installed only after every other member was
+// written, so a failed restore leaves the running key in place.
+func (s *BackupService) restoreArchive(tr *tar.Reader, encrypted bool) error {
 	roots := restoreRoots(s.configDir, backupExtraDirs)
 	budget := newImportBudget()
+	var key []byte
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
-			return nil
+			return installArchivedKey(key)
 		}
 		if err != nil {
 			return fmt.Errorf("read tar header: %w", err)
+		}
+		if filepath.Clean(hdr.Name) == archiveKeyMember {
+			if key, err = readArchivedKey(tr, hdr, encrypted, budget); err != nil {
+				return err
+			}
+			continue
 		}
 		if err := restoreMember(tr, hdr, roots, budget); err != nil {
 			return err
@@ -558,4 +575,106 @@ func decryptBackup(data []byte, passphrase string) ([]byte, error) {
 	}
 
 	return plaintext, nil
+}
+
+// archiveKeyMember is where an encrypted export stores the credential
+// key. Its top-level name matches no restore root, so an older binary
+// skips it instead of writing it somewhere.
+const archiveKeyMember = "credentials/config.key"
+
+// maxArchivedKeyBytes bounds the key member: 64 hex characters.
+const maxArchivedKeyBytes = 128
+
+// appendConfigKey returns archive with the credential key added as
+// archiveKeyMember. Without a key file there is no ciphertext in the
+// config to decrypt, so the archive is returned unchanged.
+func appendConfigKey(archive []byte) ([]byte, error) {
+	key, err := os.ReadFile(config.ConfigKeyPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return archive, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read credential key: %w", err)
+	}
+
+	gz, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		return nil, fmt.Errorf("gzip reader: %w", err)
+	}
+	var out bytes.Buffer
+	gw := gzip.NewWriter(&out)
+	tw := tar.NewWriter(gw)
+	if err := copyTarEntries(tw, tar.NewReader(gz)); err != nil {
+		return nil, err
+	}
+	hdr := &tar.Header{Name: archiveKeyMember, Mode: 0o600, Size: int64(len(key)), Typeflag: tar.TypeReg}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return nil, fmt.Errorf("write key header: %w", err)
+	}
+	if _, err := tw.Write(key); err != nil {
+		return nil, fmt.Errorf("write key: %w", err)
+	}
+	if err := tw.Close(); err != nil {
+		return nil, fmt.Errorf("close tar: %w", err)
+	}
+	if err := gw.Close(); err != nil {
+		return nil, fmt.Errorf("close gzip: %w", err)
+	}
+	return out.Bytes(), nil
+}
+
+// copyTarEntries copies every member of tr into tw unchanged.
+func copyTarEntries(tw *tar.Writer, tr *tar.Reader) error {
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("read tar header: %w", err)
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			return fmt.Errorf("copy tar header %s: %w", hdr.Name, err)
+		}
+		// The archive was just written by tar from local directories.
+		// #nosec G110
+		if _, err := io.Copy(tw, tr); err != nil {
+			return fmt.Errorf("copy tar member %s: %w", hdr.Name, err)
+		}
+	}
+}
+
+// readArchivedKey reads the key member. A plain archive never carries
+// the key, so one that does was not written by Export and is refused.
+func readArchivedKey(tr io.Reader, hdr *tar.Header, encrypted bool, budget *importBudget) ([]byte, error) {
+	if err := budget.countEntry(); err != nil {
+		return nil, err
+	}
+	if !encrypted {
+		return nil, errors.New("unencrypted archive carries a credential key")
+	}
+	if hdr.Typeflag != tar.TypeReg {
+		return nil, fmt.Errorf("credential key member has type %d", hdr.Typeflag)
+	}
+	key, err := io.ReadAll(io.LimitReader(tr, maxArchivedKeyBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read credential key: %w", err)
+	}
+	if len(key) > maxArchivedKeyBytes {
+		return nil, errors.New("credential key member is too large")
+	}
+	return key, nil
+}
+
+// installArchivedKey writes the key from the archive, if it had one.
+// It runs in this process, not through the agent, so the file stays
+// owned by the service account that has to read it at startup.
+func installArchivedKey(key []byte) error {
+	if key == nil {
+		return nil
+	}
+	if err := config.RestoreConfigKey(key); err != nil {
+		return fmt.Errorf("restore credential key: %w", err)
+	}
+	return nil
 }

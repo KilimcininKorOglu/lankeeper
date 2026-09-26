@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -13,11 +14,14 @@ import (
 // Encryption at rest for the third-party credentials in router.yaml.
 //
 // What this protects against, stated plainly: the key lives outside the
-// config directory and is never included in a backup archive, so a
-// config file copied on its own, shared for debugging, or carried
-// off-box inside an export no longer hands over the operator's object
-// storage key, their SFTP password, or the passphrase that decrypts
-// every stored archive.
+// config directory and is never included in an unencrypted backup
+// archive, so a config file copied on its own, shared for debugging, or
+// carried off-box inside a plain export no longer hands over the
+// operator's object storage key, their SFTP password, or the passphrase
+// that decrypts every stored archive. A passphrase-encrypted export does
+// carry the key, because without it a restore onto new hardware cannot
+// decrypt the WireGuard keys and every other secret; the passphrase is
+// what protects it there.
 //
 // What it does not protect against: anyone who can read both the config
 // and the key. That means root, the service account itself, and a stolen
@@ -73,6 +77,33 @@ func loadOrCreateConfigKey() ([]byte, error) {
 
 	log.Printf("config: generated a new credential encryption key at %s", path)
 	return key, nil
+}
+
+// ConfigKeyPath is where the credential encryption key lives.
+func ConfigKeyPath() string {
+	return configKeyPath()
+}
+
+// RestoreConfigKey installs a key taken from a backup archive, so the
+// restored router.yaml can be decrypted on the next start. The value is
+// the hex encoding SaveKey writes, and is checked the same way LoadKey
+// checks it before anything is written.
+func RestoreConfigKey(encoded []byte) error {
+	key, err := hex.DecodeString(strings.TrimSpace(string(encoded)))
+	if err != nil {
+		return fmt.Errorf("decode archived key: %w", err)
+	}
+	if len(key) != 32 {
+		return fmt.Errorf("archived key has length %d, want 32", len(key))
+	}
+	path := configKeyPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create key directory: %w", err)
+	}
+	if err := SaveKey(path, key); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
 }
 
 // loadConfigKeyForRead returns the key without creating one. A caller
