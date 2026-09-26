@@ -100,6 +100,14 @@ table inet filter {
 {{- end }}
 {{- end }}
 
+        # LAN -> USB tether (phone uplink used for failover). It is a WAN:
+        # replies return through the established,related accept above.
+{{- if .USBNATEnabled }}
+{{- range $lan := .LANInterfaces }}
+        iifname "{{ $lan.Device }}" oifname "{{ $.USBInterface }}" accept
+{{- end }}
+{{- end }}
+
         # LAN → 6in4 tunnel (IPv6 only, NEVER MASQUERADE'd below). The
         # tunnel is a WAN: replies return through the established,related
         # accept above, and LAN hosts hold global addresses with no NAT66,
