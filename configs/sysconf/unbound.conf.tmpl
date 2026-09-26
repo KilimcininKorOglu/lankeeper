@@ -52,6 +52,11 @@ server:
 
     root-hints: "/usr/share/dns/root.hints"
     auto-trust-anchor-file: "/var/lib/unbound/root.key"
+{{- if .EnableDoT }}
+    # Without a trust anchor Unbound does not verify the upstream TLS
+    # certificate or the #name, so DoT would stop only a passive listener.
+    tls-cert-bundle: "/etc/ssl/certs/ca-certificates.crt"
+{{- end }}
 
 {{- range .StaticRecords }}
     local-data: "{{ .Name }}. IN A {{ .IP }}"

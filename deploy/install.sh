@@ -54,6 +54,7 @@ install_dependencies() {
         smartmontools mdadm \
         iproute2 \
         unbound \
+        ca-certificates \
         dnsmasq \
         rsyslog \
         chrony \
