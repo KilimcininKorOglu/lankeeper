@@ -597,6 +597,24 @@ func (h *SystemHandler) HandleImport(w http.ResponseWriter, r *http.Request) {
 
 	log.Println("config imported via web UI")
 	respondRefresh(w, r, "/settings")
+	go h.restartAfterImport()
+}
+
+// restartAfterImport restarts lankeeper.target so the restored config is
+// the one the process holds. The import rewrote router.yaml behind the
+// in-memory config, and every later save marshals that old struct over
+// the restored file. It runs after the response, for the same reason as
+// the TLS restarts: it takes down the process writing the response.
+func (h *SystemHandler) restartAfterImport() {
+	if h.tls == nil {
+		log.Printf("import: no service restarter wired; restart lankeeper.target to load the restored config")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := h.tls.Restart(ctx); err != nil {
+		log.Printf("import: restart after restore: %v", err)
+	}
 }
 
 func (h *SystemHandler) HandleCheckUpdate(w http.ResponseWriter, r *http.Request) {

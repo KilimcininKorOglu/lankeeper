@@ -2,15 +2,20 @@ package handlers
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
+	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 	"github.com/KilimcininKorOglu/lankeeper/internal/services"
 )
 
@@ -126,5 +131,47 @@ func TestImportRejectsAMissingFile(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+// restartAgent records the exec.run calls a handler issues.
+type restartAgent struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (a *restartAgent) Call(_ context.Context, method string, params any) (json.RawMessage, error) {
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return nil, err
+	}
+	var p struct {
+		Cmd  string   `json:"cmd"`
+		Args []string `json:"args"`
+	}
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	a.calls = append(a.calls, method+" "+p.Cmd+" "+strings.Join(p.Args, " "))
+	a.mu.Unlock()
+	return []byte(`{"stdout":"","stderr":"","exitCode":0}`), nil
+}
+
+// TestRestartAfterImportRestartsTheTarget is the regression test. An
+// import rewrote router.yaml but the process kept its old in-memory
+// config, and the next save wrote that old config over the restore.
+func TestRestartAfterImportRestartsTheTarget(t *testing.T) {
+	agent := &restartAgent{}
+	netutil.SetAgentClient(agent)
+	t.Cleanup(func() { netutil.SetAgentClient(nil) })
+
+	h := newImportHandler(t)
+	h.tls = services.NewTLSServiceInDir(h.cfg, t.TempDir())
+	h.restartAfterImport()
+
+	want := "exec.run systemctl restart lankeeper.target"
+	if len(agent.calls) != 1 || agent.calls[0] != want {
+		t.Errorf("calls = %v, want [%q]", agent.calls, want)
 	}
 }
