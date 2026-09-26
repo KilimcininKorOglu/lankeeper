@@ -126,29 +126,6 @@ func TestBpsDeltaResetGuard(t *testing.T) {
 	}
 }
 
-func TestAppendHistoryRingBufferTrimsAndPrunes(t *testing.T) {
-	s := &QoSService{}
-	mac := "aa:bb:cc:dd:ee:01"
-
-	// Push qosRingSize+5 samples; the buffer should max out at qosRingSize.
-	for range qosRingSize + 5 {
-		s.appendHistoryLocked([]ClientUsage{{MAC: mac}})
-	}
-	if got := len(s.history[mac]); got != qosRingSize {
-		t.Fatalf("expected ring buffer size %d, got %d", qosRingSize, got)
-	}
-
-	// Push a sample for a different MAC; the original should be pruned.
-	other := "aa:bb:cc:dd:ee:02"
-	s.appendHistoryLocked([]ClientUsage{{MAC: other}})
-	if _, ok := s.history[mac]; ok {
-		t.Errorf("expected %q to be pruned after a sample without it", mac)
-	}
-	if _, ok := s.history[other]; !ok {
-		t.Errorf("expected %q to be present", other)
-	}
-}
-
 // A lease address reaches the nft script, so anything that is not an
 // IPv4 address must not produce a rule.
 func TestRenderQoSTableSkipsAnInvalidLeaseAddress(t *testing.T) {

@@ -561,19 +561,6 @@ func (s *OpenVPNService) ServerStop(ctx context.Context) error {
 	return nil
 }
 
-func (s *OpenVPNService) ImportClientConfig(name, ovpnContent string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.cfg.OpenVPN.Clients = append(s.cfg.OpenVPN.Clients, config.OVPNClientConfig{
-		Name:       name,
-		ConfigFile: ovpnContent,
-	})
-	if err := s.persist(); err != nil {
-		log.Printf("openvpn add inbound client: persist: %v", err)
-	}
-}
-
 func (s *OpenVPNService) AddOutboundClient(client config.OVPNClientConfig) error {
 	if err := ValidateOutboundClient(client); err != nil {
 		return err

@@ -20,7 +20,6 @@ type QoSService struct {
 	lastCounters map[string]counterPair
 	lastSample   time.Time
 	clientLeases map[string]Lease
-	history      map[string][]ClientUsage
 }
 
 func NewQoSService(cfg *config.Config) *QoSService {

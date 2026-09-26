@@ -64,9 +64,6 @@ func TestSamplePerClientComputesRatesFromTheLastSample(t *testing.T) {
 	second := sampleOne(t, svc)
 	assertRateNear(t, "InBPS", second.InBPS, 8000)
 	assertRateNear(t, "OutBPS", second.OutBPS, 2000)
-	if got := svc.ClientHistory(mac); len(got) != 2 {
-		t.Errorf("history holds %d samples, want 2", len(got))
-	}
 }
 
 // sampleOne takes a sample and requires exactly one client in it.

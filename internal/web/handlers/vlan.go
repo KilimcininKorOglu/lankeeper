@@ -7,7 +7,6 @@ import (
 	"strconv"
 
 	"github.com/KilimcininKorOglu/lankeeper/internal/config"
-	"github.com/KilimcininKorOglu/lankeeper/internal/i18n"
 	"github.com/KilimcininKorOglu/lankeeper/internal/netutil"
 	"github.com/KilimcininKorOglu/lankeeper/internal/services"
 	"github.com/KilimcininKorOglu/lankeeper/internal/tmpl"
@@ -21,31 +20,6 @@ type VLANHandler struct {
 
 func NewVLANHandler(renderer *tmpl.Renderer, network *services.NetworkService, cfg *config.Config) *VLANHandler {
 	return &VLANHandler{renderer: renderer, network: network, cfg: cfg}
-}
-
-func (h *VLANHandler) HandlePage(w http.ResponseWriter, r *http.Request) {
-	lang := i18n.LangFromContext(r.Context())
-
-	data := &tmpl.PageData{
-		Lang: lang,
-		Page: "network",
-		Data: map[string]any{
-			"VLANs":      h.cfg.VLANs,
-			"Interfaces": h.cfg.Interfaces,
-		},
-	}
-
-	if r.Header.Get("HX-Request") == "true" {
-		if err := h.renderer.RenderPartial(w, "network", "vlan_list", data); err != nil {
-			log.Printf("render vlan_list: %v", err)
-		}
-		return
-	}
-
-	if err := h.renderer.Render(w, "network", "base", data); err != nil {
-		log.Printf("render network (vlan): %v", err)
-		clientError(w, r, http.StatusInternalServerError, "error.internal")
-	}
 }
 
 func (h *VLANHandler) HandleAdd(w http.ResponseWriter, r *http.Request) {

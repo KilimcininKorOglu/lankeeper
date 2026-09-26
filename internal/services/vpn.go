@@ -417,21 +417,6 @@ func (s *VPNService) PeerConfig(name string) (string, error) {
 	return "", fmt.Errorf("%w: %s", ErrPeerNotFound, name)
 }
 
-// CanReissuePeer reports whether PeerConfig would succeed, so the page
-// can show why a download is unavailable instead of offering a button
-// that fails.
-func (s *VPNService) CanReissuePeer(name string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	for _, peer := range s.cfg.VPN.Server.Peers {
-		if peer.Name == name {
-			return peer.PrivateKey != ""
-		}
-	}
-	return false
-}
-
 func (s *VPNService) GeneratePeerConfig(peer *config.WGServerPeer, peerPrivKey string) string {
 	server := s.cfg.VPN.Server
 

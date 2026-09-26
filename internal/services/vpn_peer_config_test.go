@@ -49,9 +49,6 @@ func TestPeerConfigReportsAMissingKeySeparately(t *testing.T) {
 	if !errors.Is(err, services.ErrPeerKeyUnavailable) {
 		t.Fatalf("error = %v, want ErrPeerKeyUnavailable", err)
 	}
-	if svc.CanReissuePeer("legacy") {
-		t.Error("CanReissuePeer said yes, so the page would offer a download that fails")
-	}
 }
 
 func TestPeerConfigDistinguishesAnUnknownPeer(t *testing.T) {
@@ -61,18 +58,15 @@ func TestPeerConfigDistinguishesAnUnknownPeer(t *testing.T) {
 	if !errors.Is(err, services.ErrPeerNotFound) {
 		t.Fatalf("error = %v, want ErrPeerNotFound so the handler can answer 404", err)
 	}
-	if svc.CanReissuePeer("nobody") {
-		t.Error("CanReissuePeer said yes for a peer that does not exist")
-	}
 }
 
-func TestCanReissuePeerFollowsStoredState(t *testing.T) {
+func TestAFreshPeerCanBeReissued(t *testing.T) {
 	svc, _ := newAllocTestVPN(t)
 
 	if _, _, err := svc.AddPeer(context.Background(), "laptop", false, nil, ""); err != nil {
 		t.Fatalf("add peer: %v", err)
 	}
-	if !svc.CanReissuePeer("laptop") {
-		t.Error("a freshly added peer cannot be re-issued, so the key was not stored")
+	if _, err := svc.PeerConfig("laptop"); err != nil {
+		t.Errorf("a freshly added peer cannot be re-issued, so the key was not stored: %v", err)
 	}
 }

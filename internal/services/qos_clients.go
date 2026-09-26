@@ -29,7 +29,6 @@ const (
 	qosTableName = "lankeeper_qos"
 	qosChainName = "fwd"
 	qosTmpPath   = "/tmp/lankeeper-qos.nft"
-	qosRingSize  = 60
 )
 
 // ClientUsage is one snapshot of an individual MAC's traffic.
@@ -250,7 +249,6 @@ func (s *QoSService) SamplePerClient(ctx context.Context) ([]ClientUsage, error)
 
 	s.storeCountersLocked(usages, counters)
 	s.lastSample = now
-	s.appendHistoryLocked(usages)
 	return usages, nil
 }
 
@@ -330,45 +328,6 @@ func bpsDelta(curr, prev uint64, intervalSec float64) uint64 {
 	delta := curr - prev
 	bps := float64(delta*8) / intervalSec
 	return uint64(bps)
-}
-
-// appendHistoryLocked pushes one sample into the per-MAC ring
-// buffer. Callers must already hold s.mu.
-func (s *QoSService) appendHistoryLocked(usages []ClientUsage) {
-	if s.history == nil {
-		s.history = make(map[string][]ClientUsage, len(usages))
-	}
-	seen := make(map[string]struct{}, len(usages))
-	for _, u := range usages {
-		seen[u.MAC] = struct{}{}
-		buf := s.history[u.MAC]
-		if len(buf) >= qosRingSize {
-			buf = buf[len(buf)-qosRingSize+1:]
-		}
-		buf = append(buf, u)
-		s.history[u.MAC] = buf
-	}
-	for mac := range s.history {
-		if _, ok := seen[mac]; !ok {
-			delete(s.history, mac)
-		}
-	}
-}
-
-// ClientHistory returns the ring buffer for a single MAC. Empty
-// slice for unknown MACs. The returned slice is a copy; callers may
-// mutate it freely.
-func (s *QoSService) ClientHistory(mac string) []ClientUsage {
-	mac = strings.ToLower(mac)
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	src, ok := s.history[mac]
-	if !ok {
-		return nil
-	}
-	out := make([]ClientUsage, len(src))
-	copy(out, src)
-	return out
 }
 
 // StartClientSampler launches the periodic sampler. It re-syncs the
