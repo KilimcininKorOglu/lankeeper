@@ -81,6 +81,34 @@ func TestVLANDHCPRangeHasAddresses(t *testing.T) {
 	}
 }
 
+// TestDHCPRenderShippedIPv6DefaultsHasNoRALines pins that the main
+// dnsmasq.conf carries no IPv6 RA lines. dnsmasq refuses the whole file
+// on one bad line, and under the shipped IPv6 defaults the main template
+// rendered an empty DNS address, an extra ra-param field and a range with
+// no start address, which kept LAN DHCP from starting. The IPv6 service
+// owns RA through its /etc/dnsmasq.d drop-in.
+func TestDHCPRenderShippedIPv6DefaultsHasNoRALines(t *testing.T) {
+	t.Chdir("../..")
+
+	cfg := &config.Config{}
+	cfg.Interfaces = []config.InterfaceConfig{{ID: "lan", Device: "br0", Role: "lan"}}
+	cfg.DHCP.RangeStart = "10.10.10.100"
+	cfg.DHCP.RangeEnd = "10.10.10.200"
+	cfg.IPv6.Enabled = "auto"
+	cfg.IPv6.LAN.ULA.Enabled = true
+	cfg.IPv6.LAN.ULA.Prefix = "fd00:1234:5678::/48"
+
+	out, err := NewDHCPService(cfg).RenderConfig()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, bad := range []string{"enable-ra", "ra-param", "option6:", "[]", "ra-only"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("rendered dnsmasq.conf contains %q:\n%s", bad, out)
+		}
+	}
+}
+
 // TestVLANClientsAreToldTheRouterAddress is the regression test for the
 // gateway. Clients on a VLAN were told the network address, 10.10.20.0,
 // as their router and DNS server, which nothing answers on, so a lease

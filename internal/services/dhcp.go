@@ -52,14 +52,9 @@ type dnsmasqTemplateData struct {
 	RangeEnd       string
 	LeaseTime      string
 	Gateway        string
-	Gateway6       string
 	DNSServer      string
 	Domain         string
 	StaticLeases   []config.StaticLease
-	IPv6Enabled    bool
-	ULAPrefix      string
-	ULARange       string
-	RAInterval     int
 	VLANDHCPRanges []vlanDHCPRange
 }
 
@@ -104,11 +99,6 @@ func (s *DHCPService) dnsmasqData() dnsmasqTemplateData {
 		DNSServer:    cmp.Or(s.cfg.DHCP.DNSServer, gateway),
 		Domain:       cmp.Or(s.cfg.System.Domain, "lan"),
 		StaticLeases: s.cfg.DHCP.StaticLeases,
-		IPv6Enabled:  s.cfg.IPv6.Enabled != "off",
-		RAInterval:   cmp.Or(s.cfg.IPv6.LAN.RAInterval, 60),
-	}
-	if s.cfg.IPv6.LAN.ULA.Enabled {
-		data.ULAPrefix = s.cfg.IPv6.LAN.ULA.Prefix
 	}
 	return data
 }

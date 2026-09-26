@@ -19,15 +19,7 @@ dhcp-script=/usr/local/lib/lankeeper/dhcp-dns-update.sh
 dhcp-host={{ .MAC }},{{ .IP }},{{ .Hostname }}
 {{- end }}
 
-{{- if .IPv6Enabled }}
-enable-ra
-dhcp-range=::,constructor:{{ .LANDevice }},ra-only,64,{{ .LeaseTime }}
-dhcp-option=option6:dns-server,[{{ .Gateway6 }}]
-ra-param={{ .LANDevice }},{{ .RAInterval }},0,0
-{{- if .ULAPrefix }}
-dhcp-range={{ .ULARange }},ra-only,64,{{ .LeaseTime }}
-{{- end }}
-{{- end }}
+{{- /* IPv6 RA lives in the /etc/dnsmasq.d drop-in the IPv6 service writes. */}}
 
 {{- range .VLANDHCPRanges }}
 interface={{ .Device }}
