@@ -639,6 +639,40 @@ func isInternalIP(ip net.IP) bool {
 	if ip.IsPrivate() {
 		return true
 	}
+	return onLocalNetwork(ip)
+}
+
+// localInterfaceNets lists the networks of this host's own interface
+// addresses. A variable so tests can supply a topology.
+var localInterfaceNets = func() ([]*net.IPNet, error) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, err
+	}
+	nets := make([]*net.IPNet, 0, len(addrs))
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok {
+			nets = append(nets, n)
+		}
+	}
+	return nets, nil
+}
+
+// onLocalNetwork reports whether ip sits on a network one of the
+// router's interfaces is attached to. With IPv6 on, every LAN and VLAN
+// carries a global /64 that no fixed range marks as internal, so the
+// router's own topology decides. An error listing the interfaces fails
+// closed.
+func onLocalNetwork(ip net.IP) bool {
+	nets, err := localInterfaceNets()
+	if err != nil {
+		return true
+	}
+	for _, n := range nets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
 	return false
 }
 
